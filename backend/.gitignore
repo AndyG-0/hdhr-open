@@ -9,3 +9,4 @@ icloud_session/
 secret.key
 config/dashboard.yaml
 hdhomerun_media_cache/
+recordings/
