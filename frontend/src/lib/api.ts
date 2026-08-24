@@ -364,8 +364,9 @@ export function describeFetchError(error: unknown): FetchErrorKind {
 async function getJSON<T>(path: string): Promise<T> {
 	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, { credentials: 'include' });
 	if (!response.ok) {
+		const message = await _errorMessage(path, response);
 		logger.warn(`Request to ${path} failed: ${response.status}`);
-		throw new Error(`Request to ${path} failed: ${response.status}`);
+		throw new Error(message);
 	}
 	return response.json();
 }
@@ -378,8 +379,9 @@ async function patchJSON<T>(path: string, body: Record<string, unknown>): Promis
 		body: JSON.stringify(body),
 	});
 	if (!response.ok) {
+		const message = await _errorMessage(path, response);
 		logger.warn(`Request to ${path} failed: ${response.status}`);
-		throw new Error(`Request to ${path} failed: ${response.status}`);
+		throw new Error(message);
 	}
 	return response.json();
 }

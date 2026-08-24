@@ -231,8 +231,13 @@
 		try {
 			const updated = await api.updateUserRole(member.id, nextRole);
 			householdUsers = householdUsers.map((existing) => (existing.id === member.id ? updated : existing));
-		} catch {
-			householdError = member.role === 'admin' ? "Can't demote the last remaining admin." : 'Could not update role.';
+		} catch (err) {
+			householdError =
+				err instanceof Error && err.message
+					? err.message
+					: member.role === 'admin'
+						? "Can't demote the last remaining admin."
+						: 'Could not update role.';
 		} finally {
 			updatingRoleId = null;
 		}
