@@ -20,8 +20,8 @@ import contextlib
 import logging
 import math
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from app.config import HDHOMERUN_MEDIA_CACHE_DIR
 from app.dvr.builtin.tail_follow import pump_tail_follow

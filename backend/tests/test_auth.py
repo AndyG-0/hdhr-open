@@ -205,3 +205,20 @@ def test_lockout_is_scoped_per_user_id():
         auth.record_failed_login("alice")
 
     assert auth.is_locked_out("bob") is False
+
+
+def test_periodic_sweep_prunes_a_stale_user_id_never_queried_again(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(auth.time, "monotonic", lambda: clock[0])
+
+    # "alice" fails once and is never retried, so nothing ever calls
+    # _recent_failures("alice") again to prune her entry directly.
+    auth.record_failed_login("alice")
+    assert "alice" in auth._failed_attempts
+
+    clock[0] += auth._LOCKOUT_WINDOW_SECONDS + auth._SWEEP_INTERVAL_SECONDS + 1
+
+    # Any other user's failed login is enough to trigger the periodic sweep.
+    auth.record_failed_login("bob")
+
+    assert "alice" not in auth._failed_attempts

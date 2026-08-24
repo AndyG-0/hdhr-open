@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import time
 from unittest.mock import MagicMock
-
-import pytest
 
 from app.dvr.builtin import retention
 from app.storage import db

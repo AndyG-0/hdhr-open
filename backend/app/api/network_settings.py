@@ -164,7 +164,7 @@ async def list_schedules_direct_lineups(admin: dict[str, Any] = Depends(get_curr
         status = await schedules_direct.get_status(token)
         return status.get("lineups", [])
     except schedules_direct.SchedulesDirectError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/schedules-direct/headends")
@@ -177,7 +177,7 @@ async def list_schedules_direct_headends(
         token = await _get_schedules_direct_token()
         return await schedules_direct.get_headends(token, country, postal_code)
     except schedules_direct.SchedulesDirectError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/schedules-direct/lineups/{lineup_id}")
@@ -187,7 +187,7 @@ async def add_schedules_direct_lineup(lineup_id: str, admin: dict[str, Any] = De
         res = await schedules_direct.add_lineup(token, lineup_id)
         return res
     except schedules_direct.SchedulesDirectError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/schedules-direct/lineups/{lineup_id}")
@@ -197,4 +197,4 @@ async def delete_schedules_direct_lineup(lineup_id: str, admin: dict[str, Any] =
         res = await schedules_direct.delete_lineup(token, lineup_id)
         return res
     except schedules_direct.SchedulesDirectError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

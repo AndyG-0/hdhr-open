@@ -53,7 +53,9 @@ async def test_get_status():
             200,
             json={
                 "account": {"expires": "2027-01-01T00:00:00Z", "maxLineups": 4},
-                "lineups": [{"lineup": "USA-OTA-90210", "name": "Local Over the Air", "uri": "/20141201/lineups/USA-OTA-90210"}],
+                "lineups": [
+                    {"lineup": "USA-OTA-90210", "name": "Local Over the Air", "uri": "/20141201/lineups/USA-OTA-90210"}
+                ],
                 "systemStatus": [{"status": "Online"}],
             },
         )

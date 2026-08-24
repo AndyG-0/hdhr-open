@@ -18,7 +18,6 @@ import asyncio
 import json
 import logging
 import re
-import time
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 from xml.etree import ElementTree
@@ -265,7 +264,8 @@ def _auto_map_unmapped_channels(xmltv_channels: dict[str, list[str]]) -> None:
                 matched_display = display_names[0] if display_names else None
                 break
 
-            # 2. Display name prefix / suffix / containment with channel number (e.g. "10.2 MeTV", "10-2 MeTV", "MeTV 10.2", "FOX 12.1", "12.1 KDFW")
+            # 2. Display name prefix / suffix / containment with channel number
+            # (e.g. "10.2 MeTV", "10-2 MeTV", "MeTV 10.2", "FOX 12.1", "12.1 KDFW")
             prefix_match = False
             for d in display_names:
                 d_stripped = d.strip()
@@ -358,7 +358,7 @@ async def reload_xmltv_guide() -> dict[str, Any]:
 
     def _write() -> None:
         db.delete_guide_programs_by_provider(SOURCE_PROVIDER)
-        for channel_id, rows in rows_by_channel.items():
+        for rows in rows_by_channel.values():
             db.upsert_guide_programs(rows)
 
     await asyncio.to_thread(_write)
@@ -367,7 +367,8 @@ async def reload_xmltv_guide() -> dict[str, Any]:
         db.save_guide_provider_state, SOURCE_PROVIDER, datetime.now(UTC).isoformat(), cursor_payload
     )
     logger.info(
-        "Refreshed XMLTV guide (%d channels in feed, %d channels mapped, %d programmes written, %d skipped for no mapping)",
+        "Refreshed XMLTV guide (%d channels in feed, %d channels mapped, %d programmes written, "
+        "%d skipped for no mapping)",
         len(xmltv_channels),
         len(channel_id_by_xmltv_id),
         sum(len(rows) for rows in rows_by_channel.values()),

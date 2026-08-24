@@ -10,7 +10,6 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 import shlex
 import shutil
 import time
@@ -28,8 +27,7 @@ from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.auth import get_current_user
 from app.config import RECORDINGS_DIR, resolve_dvr_server_priority
 from app.dvr import media_cache
-from app.dvr.builtin import poster_lookup, retention
-from app.dvr.builtin import capture
+from app.dvr.builtin import capture, poster_lookup, retention
 from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
 from app.dvr.builtin.rule_expander import expand_rules
 from app.dvr.builtin.tail_follow import pump_tail_follow
@@ -402,7 +400,7 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest):
             rule_id = f"rule_{uuid.uuid4().hex[:12]}"
             rule_type = "single" if payload.date_time is not None else "series"
 
-            title = _lookup_guide_title(payload.series_id, payload.channel, payload.date_time)
+            title = await asyncio.to_thread(_lookup_guide_title, payload.series_id, payload.channel, payload.date_time)
             series_match_key = (
                 str(payload.date_time)
                 if rule_type == "single" and payload.date_time
@@ -511,7 +509,7 @@ async def stream_recording(
     # this is what lets a viewer tune into a channel that's already recording
     # instead of waiting for the recording to finish.
     active_capture = await capture_pipeline.get_active_capture(recording_id) if recording_id else None
-    target_url = _resolve_target_media_url(settings, url, recording_id)
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
 
     mode = settings.get("playback_mode", "server_transcode")
     if mode == "server_transcode":
@@ -694,7 +692,7 @@ async def recording_detail(url: str, recording_id: str, start: float | None = No
 
     if record_end is None or record_end > time.time():
         if recording_id not in _probe_cache_in_progress:
-            target_url = _resolve_target_media_url(settings, url, recording_id)
+            target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
             result = await media_probe.probe_in_progress(target_url)
             if result is not None:
                 _probe_cache_in_progress_set(recording_id, result)
@@ -720,7 +718,7 @@ async def recording_detail(url: str, recording_id: str, start: float | None = No
         }
 
     if recording_id not in _probe_cache:
-        target_url = _resolve_target_media_url(settings, url, recording_id)
+        target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
         result = await media_probe.probe(target_url)
         _probe_cache_set(
             recording_id,
@@ -755,7 +753,7 @@ async def recording_captions(url: str, recording_id: str, record_end: float | No
         return FileResponse(live_path, media_type="text/vtt")
 
     settings = await get_hdhomerun_settings()
-    target_url = _resolve_target_media_url(settings, url, recording_id)
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
 
     vtt_path = await media_cache.generate_captions_vtt(target_url, recording_id)
     if vtt_path is None:
@@ -785,7 +783,7 @@ async def _resolved_thumbnail_sprite(recording_id: str, url: str, record_end: fl
     if record_end is None or record_end > time.time():
         raise HTTPException(status_code=404, detail="Thumbnails are only available for completed recordings")
 
-    target_url = _resolve_target_media_url(settings, url, recording_id)
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
     duration = await _resolved_duration(target_url, recording_id)
     if duration is None:
         raise HTTPException(status_code=404, detail="Could not determine recording duration")

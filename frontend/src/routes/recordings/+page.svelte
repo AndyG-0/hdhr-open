@@ -101,9 +101,6 @@
 	const recordedMovies = $derived(serverFilteredRecordings.filter((r) => getCategoryType(r) === 'movies'));
 	const recordedSports = $derived(serverFilteredRecordings.filter((r) => getCategoryType(r) === 'sports'));
 
-	const displayedAllRecordings = $derived(
-		serverFilteredRecordings.filter((r) => typeFilter === 'all' || getCategoryType(r) === typeFilter),
-	);
 	const displayedRecordingRules = $derived(
 		recordingRules.filter((r) => serverFilter === 'all' || ((r.provider ?? r.Provider) ?? 'builtin') === serverFilter),
 	);

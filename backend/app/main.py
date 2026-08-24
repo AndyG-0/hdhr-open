@@ -19,7 +19,7 @@ from app.api import streaming as streaming_api
 from app.api import tuner as tuner_api
 from app.api import users as users_api
 from app.api import watch as watch_api
-from app.config import settings
+from app.config import DB_PATH, SECRET_KEY_PATH, settings
 from app.dvr.builtin import engine as dvr_engine
 from app.guide import schedules_direct as schedules_direct_guide
 from app.guide import service as hdhomerun_guide
@@ -35,6 +35,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Checked before init_db() creates DB_PATH on a fresh install, so this
+    # only fires for a redeploy that lost the key file specifically (e.g.
+    # SECRET_KEY_PATH pointed at ephemeral storage while DB_PATH survived on
+    # a volume) — not for a genuinely new install, which never had a key to
+    # lose. See app/crypto.py's InvalidToken handler for the post-hoc version
+    # of this same warning.
+    db_existed = DB_PATH.exists()
+    if db_existed and not SECRET_KEY_PATH.exists():
+        logger.warning(
+            "SECRET_KEY_PATH (%s) does not exist, but DB_PATH (%s) does — a new encryption key is "
+            "about to be generated. Any previously-stored encrypted secrets (API keys, CalDAV/iCloud "
+            "passwords, etc.) will fail to decrypt. If this follows a container/deployment recreation, "
+            "check whether SECRET_KEY_PATH is pointed at the same persistent volume as DB_PATH.",
+            SECRET_KEY_PATH,
+            DB_PATH,
+        )
     init_db()
     await dvr_engine.dvr_engine.recover_on_startup()
     hdhomerun_guide.register(scheduler)

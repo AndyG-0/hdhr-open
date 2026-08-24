@@ -55,7 +55,9 @@ async def test_recover_on_startup(tmp_db, tmp_path):
 
 @pytest.mark.asyncio
 async def test_dvr_engine_tick_starts_scheduled_recording(tmp_db, monkeypatch):
-    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local", "tuner_port": 80})
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local", "tuner_port": 80}
+    )
 
     channel_id = uuid.uuid4().hex
     db.upsert_channel(channel_id, "4.1", "WNBC", True)

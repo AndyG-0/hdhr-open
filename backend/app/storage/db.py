@@ -239,6 +239,56 @@ CREATE INDEX IF NOT EXISTS idx_recordings_start ON recordings (start_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_recordings_status ON recordings (status);
 """
 
+# Allow-lists for the dynamic `UPDATE ... SET {columns}` helpers below
+# (update_user/update_device/update_channel/update_recording), which build
+# their SQL from **fields keys. No caller passes attacker-controlled key
+# names today, but at least one (update_user, via app/api/users.py) already
+# builds its kwargs from a Pydantic model's `model_dump()` rather than
+# literal field names — this guards against a future caller doing that with
+# an unvalidated dict. `id` (and `created_at`, where present) are
+# deliberately excluded: no update_* function is ever called with those.
+_USER_UPDATABLE_COLUMNS = frozenset({"name", "avatar", "pin_hash", "pin_salt", "pin_iterations", "role"})
+_DEVICE_UPDATABLE_COLUMNS = frozenset({"name", "last_seen_at"})
+_CHANNEL_UPDATABLE_COLUMNS = frozenset(
+    {"name", "is_hd", "is_favorite", "hidden", "sort_order", "guide_provider"}
+)
+_RECORDING_UPDATABLE_COLUMNS = frozenset(
+    {
+        "scheduled_recording_id",
+        "title",
+        "episode_title",
+        "season_number",
+        "episode_number",
+        "synopsis",
+        "channel_id",
+        "channel_name_snapshot",
+        "start_ts",
+        "end_ts",
+        "original_air_date",
+        "category",
+        "file_path",
+        "file_size_bytes",
+        "duration_seconds",
+        "status",
+        "image_url",
+        "has_captions",
+        "video_codec",
+        "video_width",
+        "video_height",
+        "audio_codec",
+        "audio_channels",
+        "media_info",
+        "is_temporary",
+        "last_heartbeat_at",
+    }
+)
+
+
+def _validate_update_columns(table: str, allowed: frozenset[str], fields: dict[str, Any]) -> None:
+    unknown = fields.keys() - allowed
+    if unknown:
+        raise ValueError(f"Refusing to update unknown column(s) on {table}: {sorted(unknown)}")
+
 
 @contextmanager
 def _connect() -> Iterator[sqlite3.Connection]:
@@ -535,6 +585,7 @@ def list_users() -> list[dict[str, Any]]:
 def update_user(user_id: str, **fields: Any) -> None:
     if not fields:
         return
+    _validate_update_columns("users", _USER_UPDATABLE_COLUMNS, fields)
     columns = ", ".join(f"{key} = ?" for key in fields)
     with _connect() as conn:
         conn.execute(f"UPDATE users SET {columns} WHERE id = ?", (*fields.values(), user_id))
@@ -570,6 +621,7 @@ def list_devices() -> list[dict[str, Any]]:
 def update_device(device_id: str, **fields: Any) -> None:
     if not fields:
         return
+    _validate_update_columns("devices", _DEVICE_UPDATABLE_COLUMNS, fields)
     columns = ", ".join(f"{key} = ?" for key in fields)
     with _connect() as conn:
         conn.execute(f"UPDATE devices SET {columns} WHERE id = ?", (*fields.values(), device_id))
@@ -730,6 +782,7 @@ def get_channel_by_number(channel_number: str) -> dict[str, Any] | None:
 def update_channel(channel_id: str, **fields: Any) -> None:
     if not fields:
         return
+    _validate_update_columns("channels", _CHANNEL_UPDATABLE_COLUMNS, fields)
     columns = ", ".join(f"{key} = ?" for key in fields)
     with _connect() as conn:
         conn.execute(f"UPDATE channels SET {columns} WHERE id = ?", (*fields.values(), channel_id))
@@ -1064,6 +1117,14 @@ def delete_scheduled_recordings_for_rule(rule_id: str) -> None:
         conn.execute("DELETE FROM scheduled_recordings WHERE rule_id = ? AND status = 'scheduled'", (rule_id,))
 
 
+def mark_scheduled_recording_in_progress(scheduled_id: str, recording_id: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE scheduled_recordings SET status = 'in_progress', recording_id = ? WHERE id = ?",
+            (recording_id, scheduled_id),
+        )
+
+
 def create_recording(recording: dict[str, Any]) -> None:
     with _connect() as conn:
         _upsert(conn, "recordings", recording, ("id",))
@@ -1072,6 +1133,7 @@ def create_recording(recording: dict[str, Any]) -> None:
 def update_recording(recording_id: str, **fields: Any) -> None:
     if not fields:
         return
+    _validate_update_columns("recordings", _RECORDING_UPDATABLE_COLUMNS, fields)
     columns = ", ".join(f"{key} = ?" for key in fields)
     with _connect() as conn:
         conn.execute(f"UPDATE recordings SET {columns} WHERE id = ?", (*fields.values(), recording_id))

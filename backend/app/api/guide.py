@@ -93,7 +93,9 @@ async def get_guide():
     channels = await _seed_channels_from_tuner_lineup()
 
     channels_by_id = {channel["id"]: channel for channel in channels}
-    rows = await asyncio.to_thread(db.list_guide_programs, list(channels_by_id), now - 6 * 3600, now + QUERY_WINDOW_SECONDS)
+    rows = await asyncio.to_thread(
+        db.list_guide_programs, list(channels_by_id), now - 6 * 3600, now + QUERY_WINDOW_SECONDS
+    )
     priority = resolve_guide_provider_priority()
     resolved = db.resolve_guide_programs(channels, rows, priority)
 
@@ -303,7 +305,7 @@ async def reload_xmltv(admin: dict[str, Any] = Depends(get_current_admin)):
         stats = await xmltv.reload_xmltv_guide()
         return {"ok": True, "stats": stats, "message": "XMLTV guide reloaded successfully"}
     except xmltv.XMLTVError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/refresh")

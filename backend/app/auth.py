@@ -69,6 +69,14 @@ _MAX_FAILED_ATTEMPTS = 5
 _LOCKOUT_WINDOW_SECONDS = 60.0
 _failed_attempts: dict[str, list[float]] = {}
 
+# _recent_failures only prunes the one user_id it's asked about, so a
+# user_id that fails once and is never retried would otherwise sit in the
+# dict forever. This bounds that growth (e.g. a scripted probe cycling
+# through many distinct bogus user_ids) by sweeping every key on a timer
+# instead of only the one currently being read/written.
+_SWEEP_INTERVAL_SECONDS = 300.0
+_last_sweep_at = 0.0
+
 
 def _recent_failures(user_id: str) -> list[float]:
     attempts = _failed_attempts.get(user_id)
@@ -83,6 +91,17 @@ def _recent_failures(user_id: str) -> list[float]:
     return fresh
 
 
+def _sweep_stale_entries_if_due() -> None:
+    global _last_sweep_at
+    now = time.monotonic()
+    if now - _last_sweep_at < _SWEEP_INTERVAL_SECONDS:
+        return
+    _last_sweep_at = now
+    cutoff = now - _LOCKOUT_WINDOW_SECONDS
+    for user_id in [uid for uid, attempts in _failed_attempts.items() if not any(t >= cutoff for t in attempts)]:
+        _failed_attempts.pop(user_id, None)
+
+
 def is_locked_out(user_id: str) -> bool:
     return len(_recent_failures(user_id)) >= _MAX_FAILED_ATTEMPTS
 
@@ -90,6 +109,7 @@ def is_locked_out(user_id: str) -> bool:
 def record_failed_login(user_id: str) -> None:
     _recent_failures(user_id)
     _failed_attempts.setdefault(user_id, []).append(time.monotonic())
+    _sweep_stale_entries_if_due()
 
 
 def record_successful_login(user_id: str) -> None:

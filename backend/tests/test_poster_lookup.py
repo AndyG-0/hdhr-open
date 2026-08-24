@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock
+
 import pytest
 
 from app.dvr.builtin import poster_lookup

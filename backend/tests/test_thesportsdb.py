@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 import respx
-import httpx
 
 from app.integrations import thesportsdb
 
@@ -59,7 +59,9 @@ async def test_search_sports_poster_falls_back_to_league_badge():
 async def test_search_sports_poster_degrades_gracefully_on_network_error():
     thesportsdb._sports_cache.clear()
     with respx.mock(base_url=thesportsdb.API_BASE_URL) as respx_mock:
-        respx_mock.get(url__startswith=thesportsdb.API_BASE_URL).mock(side_effect=httpx.ConnectError("Connection refused"))
+        respx_mock.get(url__startswith=thesportsdb.API_BASE_URL).mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
 
         # For a title without a predefined league match
         poster = await thesportsdb.search_sports_poster("Local Sports Event", "School A vs School B")

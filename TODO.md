@@ -3,7 +3,11 @@
 Architecturally larger findings from a full repository review, deferred
 here rather than fixed inline. Track A (small/mechanical/low-risk) items
 from the same review were already fixed directly — see commits `f856635`,
-`22c3767`, `13600a9`.
+`22c3767`, `13600a9`. A further batch of small/mechanical Track B items
+(CI, auth lockout-dict sweep, `watch.py` locking + one encapsulation fix,
+remaining `asyncio.to_thread` wrapping, `db.py` column allow-lists, the
+`SECRET_KEY_PATH` startup check) was also fixed directly — see the backend
+hardening pass session on 2026-08-23.
 
 ## Backend
 
@@ -24,21 +28,15 @@ from the same review were already fixed directly — see commits `f856635`,
   rules/recordings) into per-domain modules behind a shared connection
   helper. Why: a single file covering four unrelated domains makes the data
   layer hard to navigate and grow.
-- **Fix encapsulation breaks** where `capture.py`/`engine.py`/`watch.py`
+- **Fix remaining encapsulation breaks** where `capture.py`/`engine.py`
   reach into `db._connect()` directly to hand-write ad hoc SQL instead of
   adding named `db.py` functions, and where `api/watch.py` reaches into
   `watch._sessions` (a private module dict) from the API layer. Why: these
   bypass the module boundaries that make the rest of the codebase easy to
   reason about, and make future refactors of `db.py`/`watch.py` riskier.
-- **Add `asyncio.Lock` protection** around `app/dvr/builtin/watch.py`'s
-  in-memory `_sessions` dict, for consistency with the locking discipline
-  already used in `tuner_allocator.py`. Why: currently safe only because
-  there's no `await` between get/mutate in the relevant functions today —
-  fragile against future edits that add one.
-- **Bound or periodically sweep `app/auth.py`'s `_failed_attempts` dict**
-  (currently only pruned lazily per-key, never globally). Why: unbounded
-  growth risk under many distinct bogus `user_id`s (e.g. a scripted login
-  probe).
+  (The one instance of this in `watch.py` — hand-written SQL in
+  `promote_existing_capture_for_schedule` — was already fixed via
+  `db.mark_scheduled_recording_in_progress`.)
 - **Rewrite `retention.py`/`rule_expander.py`'s Python-side
   fetch-everything-then-filter into SQL `WHERE` clauses** (now that the
   indices added in the Track A fix — `idx_recordings_status`,
@@ -47,25 +45,6 @@ from the same review were already fixed directly — see commits `f856635`,
   existing) linear rescan with a dict-keyed lookup. Why: performance —
   currently scales linearly with full-table scans that the new indices
   could otherwise make cheap.
-- **Also wrap the remaining blocking `db.*` calls in `asyncio.to_thread`**
-  in `app/api/dvr.py` and `app/dvr/builtin/watch.py` (a few call sites make
-  synchronous sqlite3 calls directly on the event loop, the same issue
-  fixed for two call sites in `app/api/guide.py` as part of the Track A
-  cleanup). Why: blocking the event loop on sqlite3 I/O stalls all other
-  concurrent requests, worse on slow storage (e.g. Raspberry Pi SD card).
-- **Startup check/warning when `SECRET_KEY_PATH` doesn't look like it's on
-  persistent storage** (best-effort heuristic). Why: a lost volume mount
-  currently fails silently — each affected secret just stops decrypting,
-  with no signal at startup pointing at the cause.
-- **Add an allow-list of updatable columns** at the `db.py` boundary for
-  the dynamic `UPDATE ... SET {columns}` helpers (`update_user`,
-  `update_device`, `update_channel`, `update_recording`). Why: no live
-  injection risk today since all callers pass literal field names, but
-  there's no guard if a future caller builds the kwargs from
-  `payload.model_dump()` directly.
-- **No CI**: add a GitHub Actions workflow running backend `pytest`/`ruff`
-  and frontend `vitest`/`eslint`/`svelte-check` on PRs. Why: currently
-  nothing catches a regression before it's merged.
 
 ## Frontend
 

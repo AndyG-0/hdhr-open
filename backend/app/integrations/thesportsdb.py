@@ -6,11 +6,9 @@ Degrades gracefully to None on any network error or timeout.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import urllib.parse
-from typing import Any
 
 import httpx
 

@@ -13,9 +13,11 @@ def _reset_shared_state():
     singletons; tests must not leak cached values into each other."""
     cache._store.clear()
     auth._failed_attempts.clear()
+    auth._last_sweep_at = 0.0
     yield
     cache._store.clear()
     auth._failed_attempts.clear()
+    auth._last_sweep_at = 0.0
 
 
 @pytest.fixture(autouse=True)

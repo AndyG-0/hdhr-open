@@ -14,7 +14,6 @@ import asyncio
 import logging
 import re
 import time
-import uuid
 from typing import Any
 
 from app.config import resolve_guide_provider_priority
@@ -75,7 +74,12 @@ def _is_already_recorded_or_scheduled(
                 ):
                     return True
                 # Same episode title
-                if episode_title and r.get("episode_title") and r["episode_title"].strip().lower() == episode_title.strip().lower():
+                r_episode_title = r.get("episode_title")
+                if (
+                    episode_title
+                    and r_episode_title
+                    and r_episode_title.strip().lower() == episode_title.strip().lower()
+                ):
                     return True
 
     return False
@@ -83,7 +87,6 @@ def _is_already_recorded_or_scheduled(
 
 def _match_airing(rule: dict[str, Any], program: dict[str, Any]) -> bool:
     """Determine if a guide_program matches a recording rule."""
-    rule_type = rule.get("type", "series")
     rule_title = rule.get("title", "")
     rule_series_key = rule.get("series_match_key")
     program_ext_id = program.get("external_program_id")

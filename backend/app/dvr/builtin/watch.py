@@ -63,6 +63,14 @@ class _WatchSession:
 
 
 _sessions: dict[str, _WatchSession] = {}
+# Guards every read/write of _sessions itself (not the _WatchSession objects'
+# fields). Currently safe without one - no `await` sits between a get and a
+# mutate anywhere below - but that's fragile against future edits, so this
+# follows the same discipline as TunerAllocator's self._lock. Scope each
+# `async with _lock` to just the dict operation; never hold it across an
+# await into capture_pipeline/tuner_allocator/stop_watch, which would
+# deadlock against a caller already holding it (the lock isn't reentrant).
+_lock = asyncio.Lock()
 
 
 async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str, str] | None:
@@ -78,7 +86,8 @@ async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str
         if not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
             return None
         await capture_pipeline.add_viewer(existing.recording_id, session_id)
-        _sessions[session_id] = _WatchSession(session_id, existing.recording_id, channel_number, now)
+        async with _lock:
+            _sessions[session_id] = _WatchSession(session_id, existing.recording_id, channel_number, now)
         return {"recording_id": existing.recording_id, "session_id": session_id}
 
     if not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
@@ -134,18 +143,21 @@ async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str
         return None
 
     await capture_pipeline.add_viewer(recording_id, session_id)
-    _sessions[session_id] = _WatchSession(session_id, recording_id, channel_number, now)
+    async with _lock:
+        _sessions[session_id] = _WatchSession(session_id, recording_id, channel_number, now)
     return {"recording_id": recording_id, "session_id": session_id}
 
 
 async def heartbeat_watch(session_id: str) -> bool:
     """Keep an active watch session alive. False if it no longer exists or has
     already been stopped, reaped, or its capture is gone."""
-    session = _sessions.get(session_id)
+    async with _lock:
+        session = _sessions.get(session_id)
     if session is None:
         return False
     if await capture_pipeline.get_active_capture(session.recording_id) is None:
-        _sessions.pop(session_id, None)
+        async with _lock:
+            _sessions.pop(session_id, None)
         return False
     session.last_heartbeat_at = time.time()
     await asyncio.to_thread(db.update_recording, session.recording_id, last_heartbeat_at=session.last_heartbeat_at)
@@ -156,7 +168,8 @@ async def stop_watch(session_id: str) -> None:
     """This viewer closed the player. Detach their session; if their capture
     is still temporary (never promoted) and they were its last attached
     viewer, tear the whole thing down and discard what it captured."""
-    session = _sessions.pop(session_id, None)
+    async with _lock:
+        session = _sessions.pop(session_id, None)
     if session is None:
         return
 
@@ -197,7 +210,8 @@ async def promote_watch(
     reserved for the recording even after the originating viewer session
     stops - otherwise stop_watch's release of session_id would free the
     tuner out from under a still-running recording."""
-    session = _sessions.get(session_id)
+    async with _lock:
+        session = _sessions.get(session_id)
     if session is None:
         return False
 
@@ -247,8 +261,9 @@ async def finalize_capture_release(recording_id: str, channel_number: str) -> No
     await capture_pipeline.stop_capture(recording_id)
     await tuner_allocator.release_channel(channel_number)
     await delete_local_recording(recording_id)
-    for sid in [sid for sid, s in _sessions.items() if s.recording_id == recording_id]:
-        _sessions.pop(sid, None)
+    async with _lock:
+        for sid in [sid for sid, s in _sessions.items() if s.recording_id == recording_id]:
+            _sessions.pop(sid, None)
 
 
 async def promote_existing_capture_for_schedule(
@@ -312,11 +327,7 @@ async def promote_existing_capture_for_schedule(
         rule_id=rule_id,
         **{k: v for k, v in update_fields.items() if k not in ("is_temporary", "scheduled_recording_id")},
     )
-    with db._connect() as conn:
-        conn.execute(
-            "UPDATE scheduled_recordings SET status = 'in_progress', recording_id = ? WHERE id = ?",
-            (recording_id, scheduled_id),
-        )
+    await asyncio.to_thread(db.mark_scheduled_recording_in_progress, scheduled_id, recording_id)
     return True
 
 
@@ -325,9 +336,11 @@ async def reap_stale_watches() -> None:
     recently - the backstop for a tab that closed without the normal
     stop_watch call (crash, lost network, force-quit)."""
     cutoff = time.time() - WATCH_HEARTBEAT_TIMEOUT_SECONDS
-    stale_session_ids = [sid for sid, session in _sessions.items() if session.last_heartbeat_at < cutoff]
+    async with _lock:
+        stale_session_ids = [sid for sid, session in _sessions.items() if session.last_heartbeat_at < cutoff]
     for session_id in stale_session_ids:
-        session = _sessions.get(session_id)
+        async with _lock:
+            session = _sessions.get(session_id)
         if session is not None:
             logger.info(
                 "Reaping abandoned live-watch session [%s] on channel %s", session_id, session.channel_number
