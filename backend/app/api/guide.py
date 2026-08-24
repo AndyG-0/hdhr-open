@@ -63,24 +63,34 @@ def _row_to_airing(row: dict[str, Any], channel_number: str) -> dict[str, Any]:
     }
 
 
+async def _seed_channels_from_tuner_lineup() -> list[dict[str, Any]]:
+    """`db.list_channels`, seeding it from the tuner's live lineup first if
+    it's empty (e.g. right after initial tuner setup, before the channels
+    table has ever been populated).
+    """
+    channels = await asyncio.to_thread(db.list_channels, True)
+    if channels:
+        return channels
+    try:
+        settings = await get_hdhomerun_settings()
+        if hdhomerun_client.is_tuner_configured(settings):
+            lineup = await hdhomerun_client.fetch_lineup(settings)
+            for c in lineup:
+                num = c.get("channel_number")
+                if num:
+                    existing = await asyncio.to_thread(db.get_channel_by_number, num)
+                    ch_id = existing["id"] if existing else uuid.uuid4().hex
+                    await asyncio.to_thread(db.upsert_channel, ch_id, num, c.get("name") or num, c.get("is_hd", False))
+            channels = await asyncio.to_thread(db.list_channels, True)
+    except Exception:
+        pass
+    return channels
+
+
 @router.get("")
 async def get_guide():
     now = time.time()
-    channels = await asyncio.to_thread(db.list_channels, True)
-    if not channels:
-        try:
-            settings = await get_hdhomerun_settings()
-            if hdhomerun_client.is_tuner_configured(settings):
-                lineup = await hdhomerun_client.fetch_lineup(settings)
-                for c in lineup:
-                    num = c.get("channel_number")
-                    if num:
-                        existing = db.get_channel_by_number(num)
-                        ch_id = existing["id"] if existing else uuid.uuid4().hex
-                        db.upsert_channel(ch_id, num, c.get("name") or num, c.get("is_hd", False))
-                channels = await asyncio.to_thread(db.list_channels, True)
-        except Exception:
-            pass
+    channels = await _seed_channels_from_tuner_lineup()
 
     channels_by_id = {channel["id"]: channel for channel in channels}
     rows = await asyncio.to_thread(db.list_guide_programs, list(channels_by_id), now - 6 * 3600, now + QUERY_WINDOW_SECONDS)
@@ -145,21 +155,7 @@ async def get_channels():
 
 @router.get("/channels/settings")
 async def get_channel_settings(user: dict[str, Any] = Depends(get_current_user)):
-    channels = await asyncio.to_thread(db.list_channels, True)
-    if not channels:
-        try:
-            settings = await get_hdhomerun_settings()
-            if hdhomerun_client.is_tuner_configured(settings):
-                lineup = await hdhomerun_client.fetch_lineup(settings)
-                for c in lineup:
-                    num = c.get("channel_number")
-                    if num:
-                        existing = db.get_channel_by_number(num)
-                        ch_id = existing["id"] if existing else uuid.uuid4().hex
-                        db.upsert_channel(ch_id, num, c.get("name") or num, c.get("is_hd", False))
-                channels = await asyncio.to_thread(db.list_channels, True)
-        except Exception:
-            pass
+    channels = await _seed_channels_from_tuner_lineup()
 
     xmltv_maps = {m["channel_id"]: m for m in await asyncio.to_thread(db.list_xmltv_channel_map)}
     sd_maps = {m["channel_id"]: m for m in await asyncio.to_thread(db.list_sd_station_map)}

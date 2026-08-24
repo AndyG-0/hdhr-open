@@ -9,6 +9,7 @@ import logging
 import time
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -52,8 +53,6 @@ class DVREngine:
             file_path = r.get("file_path")
             file_size = 0
             if file_path:
-                from pathlib import Path
-
                 p = Path(file_path)
                 if p.exists():
                     file_size = p.stat().st_size

@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -180,6 +181,7 @@ CREATE TABLE IF NOT EXISTS recording_rules (
     max_episodes_to_keep INTEGER,
     created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_recording_rules_provider ON recording_rules (provider);
 
 -- One expanded, time-bound instance of a rule (or a manual one-off, with
 -- rule_id NULL), produced by app.dvr.builtin.rule_expander against
@@ -203,6 +205,7 @@ CREATE TABLE IF NOT EXISTS scheduled_recordings (
     recording_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_scheduled_recordings_start ON scheduled_recordings (start_ts);
+CREATE INDEX IF NOT EXISTS idx_scheduled_recordings_rule_id ON scheduled_recordings (rule_id);
 
 -- A recorded (or in-progress) file produced by the builtin DVR engine.
 CREATE TABLE IF NOT EXISTS recordings (
@@ -233,10 +236,12 @@ CREATE TABLE IF NOT EXISTS recordings (
     media_info TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_recordings_start ON recordings (start_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_recordings_status ON recordings (status);
 """
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     # WAL lets reads (the common case here) proceed without waiting on a
@@ -248,7 +253,11 @@ def _connect() -> sqlite3.Connection:
     # refresh, not data corruption.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _upsert(conn: sqlite3.Connection, table: str, row: dict[str, Any], key_columns: tuple[str, ...]) -> None:
