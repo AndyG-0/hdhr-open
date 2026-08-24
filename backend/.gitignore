@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.db
+*.db-shm
+*.db-wal
+icloud_session/
+secret.key
+config/dashboard.yaml
+hdhomerun_media_cache/

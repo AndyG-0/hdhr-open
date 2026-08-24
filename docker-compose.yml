@@ -1,0 +1,98 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_PATH=/app/data/storage.db
+      # Without this, the secret-encryption key (backend/app/crypto.py)
+      # defaults to /app/secret.key, which isn't backed by the volume below
+      # — every container recreation would generate a fresh key and strand
+      # every encrypted secret written under the old one.
+      - SECRET_KEY_PATH=/app/data/secret.key
+      # Same reasoning again: without this, generated caption/thumbnail
+      # cache files (backend/app/dvr/media_cache.py) default to
+      # /app/hdhomerun_media_cache, outside the volume below — every
+      # container recreation would re-pay the ffmpeg/ffprobe cost for every
+      # previously-cached recording.
+      - HDHOMERUN_MEDIA_CACHE_DIR=/app/data/hdhomerun_media_cache
+      # Where the self-hosted ("builtin") DVR engine writes recorded files.
+      # Point this at a bind-mounted NAS/large-disk path in production —
+      # named-volume storage isn't sized for hours of recordings.
+      - RECORDINGS_DIR=/app/data/recordings
+      # Must match wherever the *browser* actually loads the frontend from —
+      # this compose file serves it on port 3000, not the backend's own
+      # 5173 default (that's the local Vite dev server's port). Overriding
+      # here (rather than relying on backend/.env) means it's always correct
+      # for this deployment out of the box; override again if
+      # PUBLIC_API_BASE_URL below is also pointed at a non-default host.
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+    volumes:
+      - ./backend/.env:/app/.env
+      - backend-storage:/app/data
+    # Uncomment to enable the "qsv"/"vaapi" hwaccel presets
+    # (app/transcoding.py) — the image bundles the VA-API/QSV driver
+    # packages (see backend/Dockerfile), but a container has no access to
+    # host devices unless one is explicitly passed through, and not every
+    # host even has a GPU render node (e.g. this repo's own
+    # macOS/podman-machine testing has none) — mapping a device that
+    # doesn't exist fails container creation outright, so this can't be
+    # on by default.
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # The backend runs as a fixed non-root user (uid/gid 1000 "hdhropen",
+    # see Dockerfile) with no supplementary groups, but /dev/dri/renderD128
+    # is normally owned by the host's "render" group at mode 660 — without
+    # group_add, opening it fails with a permission error even with the
+    # device mapped above. Find the real GID with `getent group render` on
+    # the host (it's host-specific, not something this file can hardcode)
+    # and set it as RENDER_GID, e.g. `RENDER_GID=108 docker compose up -d`.
+    # Note that `privileged: true` is NOT a substitute: a non-root process
+    # gets no effective capabilities from it, so CAP_DAC_OVERRIDE never
+    # applies and the open still fails.
+    # group_add:
+    #   - "${RENDER_GID:-108}"
+    # Two more things that commonly go wrong once the device is mapped, both
+    # reported by the hardware-acceleration diagnostics (Settings -> Edit
+    # playback settings -> Run diagnostics):
+    #   * The render node isn't always renderD128. A second DRM device (a
+    #     discrete GPU, or a simpledrm/vkms node) shifts the iGPU to
+    #     renderD129; set the "Render device" setting to match.
+    #   * Some Intel setups need the driver named explicitly. If vainfo
+    #     reports no driver, add LIBVA_DRIVER_NAME=iHD (Intel Gen8+),
+    #     i965 (older Intel) or radeonsi (AMD) to the environment above.
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      # Read at request time (not baked into the image) — must be an address
+      # the *browser* can reach the backend at, e.g. the Pi's LAN IP; see the
+      # note in frontend/Dockerfile. Override in a .env file next to this
+      # compose file, or with `PUBLIC_API_BASE_URL=... docker compose up`.
+      # Changing this only needs a container restart, not a rebuild.
+      - PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  backend-storage:

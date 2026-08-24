@@ -1,0 +1,14 @@
+:root[data-theme='dark'] {
+	--color-bg: #14161a;
+	--color-surface: #1e2126;
+	--color-surface-hover: #282c33;
+	--color-text: #f2f3f5;
+	--color-text-muted: #9aa0aa;
+	--color-border: #2f333b;
+	--color-accent: #5b8dfa;
+	--color-error: #e05a5a;
+	--color-success: #4caf7d;
+	--color-warning: #e0a05a;
+	--color-info: #4a9eda;
+	--color-on-accent: #ffffff;
+}

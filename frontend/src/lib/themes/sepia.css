@@ -1,0 +1,14 @@
+:root[data-theme='sepia'] {
+	--color-bg: #f4ecd8;
+	--color-surface: #fbf6ea;
+	--color-surface-hover: #efe4c8;
+	--color-text: #3b2f21;
+	--color-text-muted: #7a6952;
+	--color-border: #ddccab;
+	--color-accent: #a8672f;
+	--color-error: #e05a5a;
+	--color-success: #4caf7d;
+	--color-warning: #e0a05a;
+	--color-info: #4a9eda;
+	--color-on-accent: #ffffff;
+}

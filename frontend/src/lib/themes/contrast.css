@@ -1,0 +1,14 @@
+:root[data-theme='contrast'] {
+	--color-bg: #000000;
+	--color-surface: #0a0a0a;
+	--color-surface-hover: #1f1f1f;
+	--color-text: #ffffff;
+	--color-text-muted: #d0d0d0;
+	--color-border: #ffffff;
+	--color-accent: #ffd60a;
+	--color-error: #e05a5a;
+	--color-success: #4caf7d;
+	--color-warning: #e0a05a;
+	--color-info: #4a9eda;
+	--color-on-accent: #ffffff;
+}

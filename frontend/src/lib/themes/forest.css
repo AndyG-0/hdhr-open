@@ -1,0 +1,14 @@
+:root[data-theme='forest'] {
+	--color-bg: #eef1e6;
+	--color-surface: #f8faf3;
+	--color-surface-hover: #e3e8d6;
+	--color-text: #24291d;
+	--color-text-muted: #5f6b52;
+	--color-border: #d2dcc1;
+	--color-accent: #4a7c59;
+	--color-error: #e05a5a;
+	--color-success: #4caf7d;
+	--color-warning: #e0a05a;
+	--color-info: #4a9eda;
+	--color-on-accent: #ffffff;
+}

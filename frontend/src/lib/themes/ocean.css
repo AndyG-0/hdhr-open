@@ -1,0 +1,14 @@
+:root[data-theme='ocean'] {
+	--color-bg: #0d1b2a;
+	--color-surface: #16273b;
+	--color-surface-hover: #1f3550;
+	--color-text: #e8f1f8;
+	--color-text-muted: #8fa3b8;
+	--color-border: #2a3f56;
+	--color-accent: #3fb6c9;
+	--color-error: #e05a5a;
+	--color-success: #4caf7d;
+	--color-warning: #e0a05a;
+	--color-info: #4a9eda;
+	--color-on-accent: #ffffff;
+}

@@ -1,0 +1,14 @@
+backend/.venv
+backend/.env
+backend/storage.db
+backend/**/__pycache__
+backend/**/*.pyc
+backend/.pytest_cache
+backend/tests
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build
+frontend/.env
+.git
+.github
+.claude

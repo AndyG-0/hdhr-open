@@ -1,0 +1,41 @@
+@import './lib/themes/light.css';
+@import './lib/themes/dark.css';
+@import './lib/themes/sepia.css';
+@import './lib/themes/contrast.css';
+@import './lib/themes/forest.css';
+@import './lib/themes/ocean.css';
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+}
+
+body {
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family:
+		system-ui,
+		-apple-system,
+		'Segoe UI',
+		sans-serif;
+	/* Kiosk touchscreen: no overscroll bounce. */
+	overscroll-behavior: none;
+	touch-action: manipulation;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+}
+
+/* Kiosk touchscreen: no text-selection callout on tap targets. Other text stays selectable/copyable. */
+button,
+[role='button'] {
+	-webkit-user-select: none;
+	user-select: none;
+}
