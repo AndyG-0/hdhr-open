@@ -237,6 +237,7 @@ CREATE TABLE IF NOT EXISTS recordings (
 );
 CREATE INDEX IF NOT EXISTS idx_recordings_start ON recordings (start_ts DESC);
 CREATE INDEX IF NOT EXISTS idx_recordings_status ON recordings (status);
+CREATE INDEX IF NOT EXISTS idx_recordings_status_title ON recordings (status, LOWER(TRIM(title)));
 """
 
 
@@ -370,10 +371,16 @@ def _migration_3(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE recordings ADD COLUMN {col_name} {col_type}")
 
 
+_MIGRATION_4 = """
+CREATE INDEX IF NOT EXISTS idx_recordings_status_title ON recordings (status, LOWER(TRIM(title)));
+"""
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
     _migration_3,
+    _MIGRATION_4,
 )
 
 

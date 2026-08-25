@@ -3,13 +3,48 @@ from __future__ import annotations
 import time
 import uuid
 
-from app.dvr.builtin.rule_expander import expand_rules_sync, normalize_title
+from app.dvr.builtin.rule_expander import (
+    _index_scheduled,
+    _is_already_recorded_or_scheduled,
+    expand_rules_sync,
+    normalize_title,
+)
 from app.storage import db
 
 
 def test_normalize_title():
     assert normalize_title("  The   Office   ") == "the office"
     assert normalize_title("Breaking Bad") == "breaking bad"
+
+
+def test_dedup_catches_entries_straddling_a_bucket_boundary():
+    # start_ts=299 and start_ts=549 land in different 300s-aligned buckets
+    # (0 and 1) but are only 250s apart, well within the 300s tolerance.
+    by_channel_bucket: dict = {}
+    by_rule_bucket: dict = {}
+    _index_scheduled(
+        {"channel_id": "ch1", "rule_id": "rule1", "start_ts": 299.0},
+        by_channel_bucket,
+        by_rule_bucket,
+    )
+
+    assert _is_already_recorded_or_scheduled(
+        "rule1", "ch1", 549.0, "Some Show", None, None, None, by_channel_bucket, by_rule_bucket, {}, {}
+    )
+
+
+def test_dedup_does_not_match_entries_exactly_300s_apart():
+    by_channel_bucket: dict = {}
+    by_rule_bucket: dict = {}
+    _index_scheduled(
+        {"channel_id": "ch1", "rule_id": "rule1", "start_ts": 0.0},
+        by_channel_bucket,
+        by_rule_bucket,
+    )
+
+    assert not _is_already_recorded_or_scheduled(
+        "rule1", "ch1", 300.0, "Some Show", None, None, None, by_channel_bucket, by_rule_bucket, {}, {}
+    )
 
 
 def test_expand_rules_hdhomerun_series_rule(tmp_db):

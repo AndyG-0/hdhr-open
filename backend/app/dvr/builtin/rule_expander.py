@@ -39,6 +39,25 @@ def _channel_lookup_maps() -> tuple[dict[str, dict[str, Any]], dict[str, str], d
     return channels_by_id, id_by_number, number_by_id
 
 
+_DEDUP_TOLERANCE_SECONDS = 300  # bucket width below must equal this — see _bucket()
+
+
+def _bucket(ts: float) -> int:
+    return int(ts // _DEDUP_TOLERANCE_SECONDS)
+
+
+def _index_scheduled(
+    s: dict[str, Any],
+    by_channel_bucket: dict[tuple[str, int], list[dict[str, Any]]],
+    by_rule_bucket: dict[tuple[str, int], list[dict[str, Any]]],
+) -> None:
+    b = _bucket(s["start_ts"])
+    by_channel_bucket.setdefault((s["channel_id"], b), []).append(s)
+    rule_id = s.get("rule_id")
+    if rule_id:
+        by_rule_bucket.setdefault((rule_id, b), []).append(s)
+
+
 def _is_already_recorded_or_scheduled(
     rule_id: str,
     channel_id: str,
@@ -47,40 +66,34 @@ def _is_already_recorded_or_scheduled(
     episode_title: str | None,
     season_number: int | None,
     episode_number: int | None,
-    existing_scheduled: list[dict[str, Any]],
-    existing_recordings: list[dict[str, Any]],
+    by_channel_bucket: dict[tuple[str, int], list[dict[str, Any]]],
+    by_rule_bucket: dict[tuple[str, int], list[dict[str, Any]]],
+    by_season_episode: dict[tuple[str, int, int], dict[str, Any]],
+    by_episode_title: dict[tuple[str, str], dict[str, Any]],
 ) -> bool:
-    """Check if this airing is already scheduled or recorded."""
-    # Check scheduled recordings
-    for s in existing_scheduled:
-        if s.get("status") in ("scheduled", "in_progress", "completed"):
-            if s.get("channel_id") == channel_id and abs(s["start_ts"] - start_ts) < 300:
+    """Check if this airing is already scheduled or recorded, via the
+    prebuilt lookup structures (see expand_rules_sync)."""
+    # Check scheduled recordings: bucket width == tolerance, so any match
+    # within +/-300s falls in the same or an adjacent bucket.
+    b = _bucket(start_ts)
+    for offset in (-1, 0, 1):
+        for s in by_channel_bucket.get((channel_id, b + offset), ()):
+            if abs(s["start_ts"] - start_ts) < 300:
                 return True
-            if s.get("rule_id") == rule_id and abs(s["start_ts"] - start_ts) < 300:
+        for s in by_rule_bucket.get((rule_id, b + offset), ()):
+            if abs(s["start_ts"] - start_ts) < 300:
                 return True
 
     # Check already completed recordings
-    for r in existing_recordings:
-        if r.get("status") == "completed":
-            norm_r_title = normalize_title(r.get("title", ""))
-            norm_title = normalize_title(title)
-            if norm_r_title == norm_title:
-                # Same episode number
-                if (
-                    season_number is not None
-                    and episode_number is not None
-                    and r.get("season_number") == season_number
-                    and r.get("episode_number") == episode_number
-                ):
-                    return True
-                # Same episode title
-                r_episode_title = r.get("episode_title")
-                if (
-                    episode_title
-                    and r_episode_title
-                    and r_episode_title.strip().lower() == episode_title.strip().lower()
-                ):
-                    return True
+    norm_title = normalize_title(title)
+    if (
+        season_number is not None
+        and episode_number is not None
+        and (norm_title, season_number, episode_number) in by_season_episode
+    ):
+        return True
+    if episode_title and (norm_title, normalize_title(episode_title)) in by_episode_title:
+        return True
 
     return False
 
@@ -125,8 +138,27 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
     priority = resolve_guide_provider_priority()
     resolved_programs_by_channel = db.resolve_guide_programs(list(channels_by_id.values()), raw_programs, priority)
 
-    existing_scheduled = db.list_scheduled_recordings()
-    existing_recordings = db.list_recordings()
+    existing_scheduled_raw = db.list_scheduled_recordings()
+    existing_scheduled = [
+        s for s in existing_scheduled_raw if s.get("status") in ("scheduled", "in_progress", "completed")
+    ]
+    existing_recordings = db.list_completed_recordings()
+
+    by_season_episode: dict[tuple[str, int, int], dict[str, Any]] = {}
+    by_episode_title: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in existing_recordings:
+        norm_r_title = normalize_title(r.get("title", ""))
+        s_num, e_num = r.get("season_number"), r.get("episode_number")
+        if s_num is not None and e_num is not None:
+            by_season_episode[(norm_r_title, s_num, e_num)] = r
+        r_ep_title = r.get("episode_title")
+        if r_ep_title:
+            by_episode_title[(norm_r_title, normalize_title(r_ep_title))] = r
+
+    by_channel_bucket: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    by_rule_bucket: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for s in existing_scheduled:
+        _index_scheduled(s, by_channel_bucket, by_rule_bucket)
 
     newly_scheduled: list[dict[str, Any]] = []
 
@@ -137,7 +169,6 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
         rule_channel_id = id_by_number.get(rule_channel, rule_channel) if rule_channel else None
         start_padding = rule.get("start_padding_seconds", 0)
         end_padding = rule.get("end_padding_seconds", 0)
-        new_only = bool(rule.get("new_only", 1))
 
         # Target channels to inspect for this rule
         if rule_channel_id and rule_channel_id in channels_by_id:
@@ -168,24 +199,9 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
                 if not _match_airing(rule, prog):
                     continue
 
-                # Check new-only requirement for series rules
-                if rule_type == "series" and new_only:
-                    if prog.get("is_new") == 0:
-                        # Check if we already recorded this episode
-                        if _is_already_recorded_or_scheduled(
-                            rule_id,
-                            ch_id,
-                            start_ts,
-                            prog["title"],
-                            prog.get("episode_title"),
-                            prog.get("season_number"),
-                            prog.get("episode_number"),
-                            existing_scheduled,
-                            existing_recordings,
-                        ):
-                            continue
-
-                # Check deduplication
+                # Check deduplication (also covers the new-only "already
+                # recorded this episode" check for series rules, since this
+                # runs unconditionally regardless of new_only/is_new)
                 if _is_already_recorded_or_scheduled(
                     rule_id,
                     ch_id,
@@ -194,8 +210,10 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
                     prog.get("episode_title"),
                     prog.get("season_number"),
                     prog.get("episode_number"),
-                    existing_scheduled,
-                    existing_recordings,
+                    by_channel_bucket,
+                    by_rule_bucket,
+                    by_season_episode,
+                    by_episode_title,
                 ):
                     continue
 
@@ -224,7 +242,7 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
 
                 db.upsert_scheduled_recording(scheduled_entry)
                 newly_scheduled.append(scheduled_entry)
-                existing_scheduled.append(scheduled_entry)
+                _index_scheduled(scheduled_entry, by_channel_bucket, by_rule_bucket)
 
     logger.info("Rule expansion completed (%d new airings scheduled)", len(newly_scheduled))
     return newly_scheduled

@@ -10,18 +10,10 @@ remaining `asyncio.to_thread` wrapping, `db.py` column allow-lists, the
 hardening pass session on 2026-08-23. The `db.py` split/encapsulation
 fixes, the `HDHomeRunPlayer.svelte` split, and the ffmpeg-streaming-pipeline
 + subprocess-spawn consolidations were also fixed directly — see the
-architecture-cleanup session on 2026-08-24.
-
-## Backend
-
-- **Rewrite `retention.py`/`rule_expander.py`'s Python-side
-  fetch-everything-then-filter into SQL `WHERE` clauses** (now that the
-  indices added in the Track A fix — `idx_recordings_status`,
-  `idx_recording_rules_provider`, `idx_scheduled_recordings_rule_id` —
-  support this), and replace `rule_expander`'s O(rules × programs ×
-  existing) linear rescan with a dict-keyed lookup. Why: performance —
-  currently scales linearly with full-table scans that the new indices
-  could otherwise make cheap.
+architecture-cleanup session on 2026-08-24. The `retention.py`/
+`rule_expander.py` SQL-ification and dict-keyed dedup rewrite (the sole
+Backend item) was also fixed directly — see the SQL-rewrite session on
+2026-08-24.
 
 ## Frontend
 

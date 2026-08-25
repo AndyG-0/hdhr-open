@@ -11,7 +11,6 @@ import contextlib
 import logging
 import shutil
 from pathlib import Path
-from typing import Any
 
 from app.config import HDHOMERUN_MEDIA_CACHE_DIR, RECORDINGS_DIR
 from app.storage import db
@@ -74,18 +73,7 @@ def enforce_rule_retention_sync(rule_id: str, max_episodes: int) -> int:
         return 0
 
     rule_title = rule.get("title", "").strip().lower()
-    all_recordings = db.list_recordings()
-
-    # Find completed recordings matching this rule
-    matching: list[dict[str, Any]] = []
-    for r in all_recordings:
-        if r.get("status") != "completed":
-            continue
-        if r.get("title", "").strip().lower() == rule_title:
-            matching.append(r)
-
-    # Sort oldest first
-    matching.sort(key=lambda r: r.get("start_ts", 0))
+    matching = db.list_completed_recordings_by_title(rule_title)
 
     excess = len(matching) - max_episodes
     if excess <= 0:
@@ -122,8 +110,7 @@ def enforce_disk_space_limit_sync(min_free_bytes: int = DEFAULT_MIN_FREE_SPACE_B
         min_free_bytes // (1024**3),
     )
 
-    all_recordings = [r for r in db.list_recordings() if r.get("status") == "completed"]
-    all_recordings.sort(key=lambda r: r.get("start_ts", 0))
+    all_recordings = db.list_completed_recordings()
 
     pruned = 0
     for r in all_recordings:

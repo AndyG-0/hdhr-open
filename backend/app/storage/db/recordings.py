@@ -145,6 +145,24 @@ def list_recordings() -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def list_completed_recordings() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM recordings WHERE status = 'completed' ORDER BY start_ts ASC").fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_completed_recordings_by_title(normalized_title: str) -> list[dict[str, Any]]:
+    """`normalized_title` must already be trimmed/lowercased by the caller
+    (matches `LOWER(TRIM(title))`, backed by idx_recordings_status_title).
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM recordings WHERE status = 'completed' AND LOWER(TRIM(title)) = ? ORDER BY start_ts ASC",
+            (normalized_title,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_recording(recording_id: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute("SELECT * FROM recordings WHERE id = ?", (recording_id,)).fetchone()

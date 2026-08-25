@@ -59,6 +59,8 @@ from .recordings import (
     delete_scheduled_recordings_for_rule,
     get_recording,
     get_recording_rule,
+    list_completed_recordings,
+    list_completed_recordings_by_title,
     list_recording_rules,
     list_recordings,
     list_scheduled_recordings,
@@ -186,6 +188,8 @@ __all__ = [
     "create_recording",
     "update_recording",
     "list_recordings",
+    "list_completed_recordings",
+    "list_completed_recordings_by_title",
     "get_recording",
     "delete_recording",
 ]

@@ -175,3 +175,32 @@ def test_migration_3_adds_metadata_columns(tmp_path, monkeypatch):
         assert "episode_number" in sched_cols
         assert "original_air_date" in sched_cols
         assert "category" in sched_cols
+
+
+def test_migration_4_adds_status_title_index(tmp_path, monkeypatch):
+    test_db = tmp_path / "migration4_test.db"
+    monkeypatch.setattr(db, "DB_PATH", test_db)
+
+    with sqlite3.connect(test_db) as conn:
+        conn.executescript("""
+            CREATE TABLE recordings (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                channel_name_snapshot TEXT NOT NULL,
+                start_ts REAL NOT NULL,
+                end_ts REAL,
+                file_path TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'recording'
+            );
+            CREATE INDEX idx_recordings_status ON recordings (status);
+            PRAGMA user_version = 3;
+        """)
+
+    with sqlite3.connect(test_db) as conn:
+        db._apply_migrations(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == len(db._MIGRATIONS)
+
+        index_names = {row[1] for row in conn.execute("PRAGMA index_list(recordings)").fetchall()}
+        assert "idx_recordings_status_title" in index_names
