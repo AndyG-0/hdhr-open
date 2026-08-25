@@ -511,6 +511,99 @@ def test_recording_stream_proceeds_immediately_once_capture_has_data(client, tmp
         capture_pipeline._active_captures.pop("rec_ready", None)
 
 
+@pytest.mark.asyncio
+async def test_recording_stream_spawn_failure_502s_stops_pump_and_skips_hwaccel_probe(tmp_db, tmp_path, monkeypatch):
+    """Reproduces a tail-follow (live) recording-stream whose downstream
+    transcode ffmpeg fails to produce any output: the 502 detail should carry
+    the real ffmpeg-stderr-derived reason, the tail-follow pump feeding that
+    ffmpeg's stdin must be torn down (stop_pump), and - since this is the
+    recording-stream path, not live-channel streaming - the hwaccel
+    diagnostic probe must never run (see the 3d scope decision: recording
+    failures aren't hardware-preset-enriched).
+
+    Calls the route function directly rather than through TestClient: the
+    background tasks under test (drain/terminate/stop_pump, all fired via
+    run_in_background) need to be awaited deterministically afterward, which
+    only works reliably when they're scheduled on this test's own event
+    loop rather than on TestClient's separate portal loop/thread.
+    """
+    from fastapi import HTTPException
+
+    from app import hwaccel
+    from app.api import dvr as dvr_module
+    from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "live_failing.ts"
+    video_file.write_bytes(b"x" * (dvr_api._LIVE_CAPTURE_READY_MIN_BYTES + 1))
+
+    now = time.time()
+    active_capture = ActiveCapture(
+        recording_id="rec_spawn_fail",
+        scheduled_id=None,
+        rule_id=None,
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Live Show",
+        episode_title=None,
+        season_number=None,
+        episode_number=None,
+        start_ts=now - 60,
+        end_ts=now + 600,
+        file_path=video_file,
+        image_url=None,
+        process=None,
+    )
+    capture_pipeline._active_captures["rec_spawn_fail"] = active_capture
+
+    proc = MagicMock()
+    proc.returncode = 1
+    proc.terminate = MagicMock()
+    proc.wait = AsyncMock(return_value=1)
+    proc.stdin = MagicMock()
+    proc.stdin.close = MagicMock()
+    proc.stdout = MagicMock()
+    proc.stdout.read = AsyncMock(return_value=b"")
+    proc.stderr = MagicMock()
+    proc.stderr.read = AsyncMock(side_effect=[b"downstream ffmpeg exploded", b""])
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
+
+    async def fake_pump_tail_follow(file_path, writer, stop_event, is_alive, *, start_offset_bytes=None):
+        await stop_event.wait()
+
+    monkeypatch.setattr(dvr_module, "pump_tail_follow", fake_pump_tail_follow)
+
+    background_tasks: list[asyncio.Task] = []
+
+    def tracking_run_in_background(coro):
+        task = asyncio.ensure_future(coro)
+        background_tasks.append(task)
+        return task
+
+    monkeypatch.setattr(dvr_module, "run_in_background", tracking_run_in_background)
+
+    mock_probe = AsyncMock()
+    monkeypatch.setattr(hwaccel, "probe_transcode", mock_probe)
+
+    try:
+        with pytest.raises(HTTPException) as exc_info:
+            await dvr_module.stream_recording(url=str(video_file), recording_id="rec_spawn_fail")
+
+        assert exc_info.value.status_code == 502
+        detail = exc_info.value.detail
+        assert "Could not start streaming recording" in detail
+        assert "downstream ffmpeg exploded" in detail
+
+        assert len(background_tasks) == 3  # drain_stderr_tail, terminate_process, stop_pump
+        await asyncio.gather(*background_tasks)
+
+        assert proc.stdin.close.called, "stop_pump should have closed the transcode ffmpeg's stdin"
+        mock_probe.assert_not_awaited()
+    finally:
+        capture_pipeline._active_captures.pop("rec_spawn_fail", None)
+
+
 def test_recording_stream_502s_without_spawning_ffmpeg_when_capture_stays_empty(client, tmp_db, tmp_path, monkeypatch):
     """Reproduces the real-world race: a viewer requests a stream for a
     recording_id whose capture was just registered (see

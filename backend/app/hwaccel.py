@@ -29,7 +29,6 @@ the output" entry.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import glob
 import os
 import re
@@ -39,6 +38,7 @@ import sys
 from typing import Any
 
 from app import transcoding
+from app.async_utils import run_subprocess
 
 DRI_DIR = "/dev/dri"
 
@@ -83,29 +83,22 @@ async def _run(argv: list[str], *, timeout: float = _COMMAND_TIMEOUT_SECONDS) ->
     successful run.
     """
     command = shlex.join(argv)
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-    except OSError as exc:
-        return {"command": command, "ok": False, "exit_code": None, "output": f"could not run {argv[0]}: {exc}"}
-
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except TimeoutError:
-        process.kill()
-        with contextlib.suppress(Exception):
-            await process.wait()
+    result = await run_subprocess(argv, timeout=timeout, merge_stderr=True)
+    if result.spawn_error is not None:
+        return {
+            "command": command,
+            "ok": False,
+            "exit_code": None,
+            "output": f"could not run {argv[0]}: {result.spawn_error}",
+        }
+    if result.timed_out:
         return {"command": command, "ok": False, "exit_code": None, "output": f"timed out after {timeout:g}s"}
 
     return {
         "command": command,
-        "ok": process.returncode == 0,
-        "exit_code": process.returncode,
-        "output": _truncate(stdout.decode(errors="replace")),
+        "ok": result.returncode == 0,
+        "exit_code": result.returncode,
+        "output": _truncate(result.stdout.decode(errors="replace")),
     }
 
 
@@ -264,33 +257,21 @@ async def _mpeg2_sample() -> tuple[bytes | None, str | None]:
         "mpegts",
         "pipe:1",
     ]
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError as exc:
-        return None, f"could not run ffmpeg to build a test sample: {exc}"
-
-    try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=_COMMAND_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        with contextlib.suppress(Exception):
-            await process.wait()
+    result = await run_subprocess(argv, timeout=_COMMAND_TIMEOUT_SECONDS)
+    if result.spawn_error is not None:
+        return None, f"could not run ffmpeg to build a test sample: {result.spawn_error}"
+    if result.timed_out:
         return None, "timed out building the MPEG-2 test sample"
 
-    if process.returncode != 0 or not stdout:
-        return None, _truncate(stderr.decode(errors="replace")) or "ffmpeg produced no test sample"
+    if result.returncode != 0 or not result.stdout:
+        return None, _truncate(result.stderr.decode(errors="replace")) or "ffmpeg produced no test sample"
 
     # Drop the lead-in GOP so the probe never sees the clip's very first
     # sequence header, same as tuning into a channel already in progress.
     # The mpegts demuxer resyncs on the next 0x47 sync byte regardless of
     # where this cuts, and PAT/PMT repeat often enough in ffmpeg's muxer
     # output that a later copy is always still ahead in the remaining bytes.
-    joined_mid_stream = stdout[len(stdout) // 4 :]
+    joined_mid_stream = result.stdout[len(result.stdout) // 4 :]
     return joined_mid_stream, None
 
 
@@ -322,22 +303,15 @@ async def probe_transcode(
     # discard it rather than buffering a megabyte of MPEG-TS per probe.
     argv = ["ffmpeg", *args]
     command = shlex.join(argv)
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError as exc:
-        return {"ok": False, "command": command, "exit_code": None, "output": f"could not run ffmpeg: {exc}"}
-
-    try:
-        _, stderr = await asyncio.wait_for(process.communicate(input=sample), timeout=_PROBE_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        with contextlib.suppress(Exception):
-            await process.wait()
+    result = await run_subprocess(argv, timeout=_PROBE_TIMEOUT_SECONDS, stdin_bytes=sample, capture_stdout=False)
+    if result.spawn_error is not None:
+        return {
+            "ok": False,
+            "command": command,
+            "exit_code": None,
+            "output": f"could not run ffmpeg: {result.spawn_error}",
+        }
+    if result.timed_out:
         return {
             "ok": False,
             "command": command,
@@ -346,10 +320,10 @@ async def probe_transcode(
         }
 
     return {
-        "ok": process.returncode == 0,
+        "ok": result.returncode == 0,
         "command": command,
-        "exit_code": process.returncode,
-        "output": _truncate(stderr.decode(errors="replace")),
+        "exit_code": result.returncode,
+        "output": _truncate(result.stderr.decode(errors="replace")),
     }
 
 

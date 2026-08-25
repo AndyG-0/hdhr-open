@@ -199,11 +199,13 @@ async def promote_watch(
     original_air_date: str | None = None,
     category: str | None = None,
     end_ts: float | None = None,
-) -> bool:
+) -> str | None:
     """Turn this session's in-progress auto-capture into a real recording: it
     survives every viewer (including this one) closing the player, keeps
     recording to end_ts (defaulting to its existing safety-cap end), and is
-    no longer eligible for stop_watch/reap_stale_watches teardown.
+    no longer eligible for stop_watch/reap_stale_watches teardown. Returns
+    the promoted recording_id, or None if the session/capture couldn't be
+    promoted.
 
     Acquires its own tuner token (keyed by recording_id, mirroring
     promote_existing_capture_for_schedule) so the channel's tuner stays
@@ -213,17 +215,17 @@ async def promote_watch(
     async with _lock:
         session = _sessions.get(session_id)
     if session is None:
-        return False
+        return None
 
     recording_id = session.recording_id
     row = await asyncio.to_thread(db.get_recording, recording_id)
     if row is None or not row.get("is_temporary"):
-        return False
+        return None
     if await capture_pipeline.get_active_capture(recording_id) is None:
-        return False
+        return None
 
     if not await tuner_allocator.acquire_tuner(recording_id, session.channel_number, settings):
-        return False
+        return None
 
     fields: dict[str, Any] = {"is_temporary": 0}
     if title is not None:
@@ -248,7 +250,7 @@ async def promote_watch(
     await asyncio.to_thread(db.update_recording, recording_id, **fields)
     await capture_pipeline.update_active_capture(recording_id, **fields)
 
-    return True
+    return recording_id
 
 
 async def finalize_capture_release(recording_id: str, channel_number: str) -> None:

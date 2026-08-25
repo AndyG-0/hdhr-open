@@ -23,6 +23,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from app.async_utils import run_subprocess, terminate_process
 from app.config import HDHOMERUN_MEDIA_CACHE_DIR
 from app.dvr.builtin.tail_follow import pump_tail_follow
 
@@ -81,25 +82,10 @@ async def _run_ffmpeg(argv: list[str], timeout: float | None = None) -> bool:
     # monkeypatch it.
     if timeout is None:
         timeout = _GENERATE_TIMEOUT_SECONDS
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError:
+    result = await run_subprocess(argv, timeout=timeout, capture_stdout=False)
+    if result.spawn_error is not None or result.timed_out:
         return False
-
-    try:
-        await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except TimeoutError:
-        process.kill()
-        with contextlib.suppress(Exception):
-            await process.wait()
-        return False
-
-    return process.returncode == 0
+    return result.returncode == 0
 
 
 async def generate_captions_vtt(url: str, recording_id: str) -> Path | None:
@@ -257,18 +243,6 @@ async def _run_live_caption_loop(
         _live_caption_tasks.pop(recording_id, None)
 
 
-async def _terminate_caption_process(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
-    process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        with contextlib.suppress(Exception):
-            await process.wait()
-
-
 async def _drain_stderr_logging(stream: asyncio.StreamReader) -> None:
     """Drain the caption ffmpeg process's stderr, logging anything it says.
 
@@ -406,7 +380,7 @@ async def _run_live_caption_process_once(
             await stop_pump_and_stdin()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await reader_task
-        await _terminate_caption_process(process)
+        await terminate_process(process, timeout=_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS)
         drain_task.cancel()
         raise
 
@@ -418,7 +392,7 @@ async def _run_live_caption_process_once(
             await asyncio.wait_for(reader_task, timeout=_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS)
 
     exit_code = process.returncode
-    await _terminate_caption_process(process)
+    await terminate_process(process, timeout=_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS)
     drain_task.cancel()
     with contextlib.suppress(Exception, asyncio.CancelledError):
         await drain_task

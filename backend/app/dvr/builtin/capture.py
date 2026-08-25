@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from app import media_probe
+from app.async_utils import run_in_background, terminate_process
 from app.config import RECORDINGS_DIR
 from app.dvr import media_cache
 from app.dvr.builtin import poster_lookup
@@ -28,17 +29,6 @@ logger = logging.getLogger(__name__)
 _FFMPEG_TERMINATE_TIMEOUT_SECONDS = 5
 _MIN_RECORDING_BYTES = 10 * 1024  # at least 10KB to consider non-empty
 _FILENAME_SAFE_RE = re.compile(r"[^\w]+")
-
-# Fire-and-forget poster backfills (see _backfill_poster) are
-# tracked here so asyncio doesn't garbage-collect them mid-flight - mirrors
-# the identical pattern in app.api.dvr.
-_background_tasks: set[asyncio.Task[None]] = set()
-
-
-def _run_in_background(coro: Any) -> None:
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 async def _backfill_poster(
@@ -268,11 +258,7 @@ class CapturePipeline:
                 status="recording",
             )
             # Update scheduled recording status
-            with db._connect() as conn:
-                conn.execute(
-                    "UPDATE scheduled_recordings SET status = 'in_progress', recording_id = ? WHERE id = ?",
-                    (recording_id, scheduled_id),
-                )
+            await asyncio.to_thread(db.mark_scheduled_recording_in_progress, scheduled_id, recording_id)
 
         media_cache.ensure_live_captions(
             recording_id,
@@ -295,15 +281,7 @@ class CapturePipeline:
 
         media_cache.stop_live_captions(recording_id)
 
-        process = capture.process
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
-            except TimeoutError:
-                process.kill()
-                with contextlib.suppress(Exception):
-                    await process.wait()
+        await terminate_process(capture.process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
 
         if capture.drain_task and not capture.drain_task.done():
             capture.drain_task.cancel()
@@ -377,14 +355,10 @@ class CapturePipeline:
         )
 
         if capture.scheduled_id:
-            with db._connect() as conn:
-                conn.execute(
-                    "UPDATE scheduled_recordings SET status = ? WHERE id = ?",
-                    (final_status, capture.scheduled_id),
-                )
+            await asyncio.to_thread(db.update_scheduled_recording_status, capture.scheduled_id, final_status)
 
         if final_status == "completed" and not capture.image_url:
-            _run_in_background(
+            run_in_background(
                 _backfill_poster(
                     recording_id,
                     capture.title,

@@ -144,7 +144,7 @@ async def _start_stop_capture_no_image(pipeline, tmp_path, monkeypatch, recordin
 async def test_stop_capture_backfills_poster_from_tmdb_when_missing(tmp_db, tmp_path, monkeypatch):
     pipeline = CapturePipeline()
     scheduled: list = []
-    monkeypatch.setattr(capture_module, "_run_in_background", lambda coro: scheduled.append(coro))
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
     search_mock = AsyncMock(return_value="https://image.tmdb.org/t/p/w500/poster.jpg")
     monkeypatch.setattr(tmdb, "search_poster", search_mock)
 
@@ -169,7 +169,7 @@ async def test_stop_capture_backfill_uses_tv_hint_without_season_episode(tmp_db,
     /search/movie first and surface the wrong poster."""
     pipeline = CapturePipeline()
     scheduled: list = []
-    monkeypatch.setattr(capture_module, "_run_in_background", lambda coro: scheduled.append(coro))
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
     search_mock = AsyncMock(return_value=None)
     monkeypatch.setattr(tmdb, "search_poster", search_mock)
 
@@ -184,7 +184,7 @@ async def test_stop_capture_backfill_uses_tv_hint_without_season_episode(tmp_db,
 async def test_stop_capture_backfill_uses_movie_hint_for_movie_category(tmp_db, tmp_path, monkeypatch):
     pipeline = CapturePipeline()
     scheduled: list = []
-    monkeypatch.setattr(capture_module, "_run_in_background", lambda coro: scheduled.append(coro))
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
     search_mock = AsyncMock(return_value=None)
     monkeypatch.setattr(tmdb, "search_poster", search_mock)
 
@@ -199,7 +199,7 @@ async def test_stop_capture_backfill_uses_movie_hint_for_movie_category(tmp_db, 
 async def test_stop_capture_skips_tmdb_backfill_when_image_already_set(tmp_db, tmp_path, monkeypatch):
     pipeline = CapturePipeline()
     scheduled: list = []
-    monkeypatch.setattr(capture_module, "_run_in_background", lambda coro: scheduled.append(coro))
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
     search_mock = AsyncMock(return_value="https://image.tmdb.org/t/p/w500/should-not-be-used.jpg")
     monkeypatch.setattr(tmdb, "search_poster", search_mock)
 

@@ -68,8 +68,7 @@ class PromoteWatchRequest(BaseModel):
 @router.post("/{session_id}/promote")
 async def promote_watch(session_id: str, payload: PromoteWatchRequest):
     settings = await get_hdhomerun_settings()
-    session = watch._sessions.get(session_id)
-    ok = await watch.promote_watch(
+    recording_id = await watch.promote_watch(
         session_id,
         settings,
         title=payload.title,
@@ -82,8 +81,8 @@ async def promote_watch(session_id: str, payload: PromoteWatchRequest):
         category=payload.category,
         end_ts=payload.end_ts,
     )
-    if not ok or session is None:
+    if recording_id is None:
         raise HTTPException(status_code=404, detail="Watch session not found or already finished")
 
-    rec = db.get_recording(session.recording_id)
+    rec = db.get_recording(recording_id)
     return _format_builtin_recording(rec)

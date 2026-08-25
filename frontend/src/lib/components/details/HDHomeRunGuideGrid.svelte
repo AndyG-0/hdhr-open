@@ -7,6 +7,7 @@
 		HDHomeRunRecordingRule,
 		RecordingRuleOptions,
 	} from '$lib/api';
+	import { findMatchingRecordingRule } from '$lib/recording-rules';
 	import HDHomeRunGuideCellMenu from './HDHomeRunGuideCellMenu.svelte';
 	import HDHomeRunRecordingOptionsDialog from './HDHomeRunRecordingOptionsDialog.svelte';
 
@@ -194,16 +195,7 @@
 	}
 
 	function findExistingRule(airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel): HDHomeRunRecordingRule | null {
-		return (
-			recordingRules.find((r) => {
-				const channelMatches = !r.ChannelOnly || r.ChannelOnly.split('|').includes(channel.channel_number);
-				if (!channelMatches) return false;
-				if (r.DateTimeOnly != null) {
-					return airing.start != null && Math.abs(r.DateTimeOnly - airing.start) < 60;
-				}
-				return !!(r.SeriesID && airing.series_id && r.SeriesID === airing.series_id);
-			}) ?? null
-		);
+		return findMatchingRecordingRule(recordingRules, channel.channel_number, airing);
 	}
 
 	function isLoadingFor(

@@ -15,7 +15,6 @@ import asyncio
 import contextlib
 import logging
 import shlex
-from collections.abc import Coroutine
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -23,32 +22,27 @@ from fastapi.responses import StreamingResponse
 
 from app import hwaccel, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
+from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_admin, get_current_user
 from app.integrations import hdhomerun_client
+from app.subprocess_streaming import (
+    DETAIL_REASON_CHARS,
+    FFMPEG_NOT_FOUND_DETAIL,
+    FFMPEG_STARTUP_TIMEOUT_SECONDS,
+    STDERR_FLUSH_TIMEOUT_SECONDS,
+    STDERR_TAIL_BYTES,
+    STREAM_CHUNK_BYTES,
+    build_ffmpeg_failure_detail,
+    describe_ffmpeg_startup_failure,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/streaming", tags=["streaming"], dependencies=[Depends(get_current_user)])
 
-_STREAM_CHUNK_BYTES = 64 * 1024
-_FFMPEG_STARTUP_TIMEOUT_SECONDS = 8
 _FFMPEG_TERMINATE_TIMEOUT_SECONDS = 5
 _DISCONNECT_POLL_INTERVAL_SECONDS = 1
-_STDERR_TAIL_BYTES = 4000
-_STDERR_FLUSH_TIMEOUT_SECONDS = 2
 _FAILURE_PROBE_TIMEOUT_SECONDS = 15
-_DETAIL_REASON_CHARS = 500
-
-# Cleanup/drain tasks (killing ffmpeg, draining its stderr) are fired from
-# here instead of being awaited directly, and tracked in this set purely so
-# asyncio doesn't garbage-collect a task mid-flight.
-_background_tasks: set[asyncio.Task[None]] = set()
-
-
-def _run_in_background(coro: Coroutine[Any, Any, None]) -> None:
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 @router.get("/transcode-presets")
@@ -69,52 +63,6 @@ async def transcode_presets():
     ]
 
 
-async def _terminate(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
-    process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-
-
-async def _drain_stderr(stderr: asyncio.StreamReader, tail: bytearray, done: asyncio.Event) -> None:
-    # ffmpeg writes a steady trickle of log lines to stderr; if nothing reads
-    # them, the OS pipe buffer eventually fills and ffmpeg blocks on write(),
-    # silently stalling an otherwise-healthy stream. This keeps the pipe
-    # drained for the process's whole lifetime, keeping only the last few KB
-    # around — enough to explain a startup failure (bad channel, busy tuner).
-    try:
-        while True:
-            chunk = await stderr.read(4096)
-            if not chunk:
-                return
-            tail += chunk
-            del tail[: max(0, len(tail) - _STDERR_TAIL_BYTES)]
-    finally:
-        done.set()
-
-
-async def _describe_failure(
-    process: asyncio.subprocess.Process,
-    stderr_tail: bytearray,
-    drain_done: asyncio.Event,
-) -> tuple[str, str]:
-    """Why ffmpeg produced nothing: a one-line cause, and its stderr output."""
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(drain_done.wait(), timeout=_STDERR_FLUSH_TIMEOUT_SECONDS)
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(process.wait(), timeout=_STDERR_FLUSH_TIMEOUT_SECONDS)
-
-    if process.returncode is not None:
-        cause = f"ffmpeg exited with code {process.returncode} before producing any output"
-    else:
-        cause = f"ffmpeg produced no output within {_FFMPEG_STARTUP_TIMEOUT_SECONDS}s and was still running"
-    return cause, bytes(stderr_tail).decode(errors="replace").strip()
-
-
 async def _describe_mid_stream_exit(
     process: asyncio.subprocess.Process,
     stderr_tail: bytearray,
@@ -123,11 +71,11 @@ async def _describe_mid_stream_exit(
 ) -> None:
     """Log a stream that started successfully and then died on its own."""
     with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(process.wait(), timeout=_STDERR_FLUSH_TIMEOUT_SECONDS)
+        await asyncio.wait_for(process.wait(), timeout=STDERR_FLUSH_TIMEOUT_SECONDS)
     if process.returncode in (None, 0):
         return
     with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(drain_done.wait(), timeout=_STDERR_FLUSH_TIMEOUT_SECONDS)
+        await asyncio.wait_for(drain_done.wait(), timeout=STDERR_FLUSH_TIMEOUT_SECONDS)
     logger.warning(
         "Channel %s: ffmpeg exited with code %s mid-stream\nffmpeg output:\n%s",
         channel_number,
@@ -181,14 +129,7 @@ async def stream_channel(channel_number: str, request: Request):
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "ffmpeg is not installed or not on PATH for the backend process. "
-                "If running in Docker/Podman, ffmpeg must be present in the backend image itself — "
-                "installing it on the container host has no effect; rebuild the backend image."
-            ),
-        ) from exc
+        raise HTTPException(status_code=503, detail=FFMPEG_NOT_FOUND_DETAIL) from exc
     assert process.stdout is not None
     assert process.stderr is not None
 
@@ -202,7 +143,7 @@ async def stream_channel(channel_number: str, request: Request):
 
     stderr_tail = bytearray()
     drain_done = asyncio.Event()
-    _run_in_background(_drain_stderr(process.stderr, stderr_tail, drain_done))
+    run_in_background(drain_stderr_tail(process.stderr, stderr_tail, drain_done, tail_bytes=STDERR_TAIL_BYTES))
 
     # A StreamingResponse commits its 200 status as soon as it starts, so any
     # ffmpeg failure (busy tuner, unreachable channel, bad input) has to
@@ -210,14 +151,20 @@ async def stream_channel(channel_number: str, request: Request):
     # produce its first chunk of output or fail.
     try:
         first_chunk = await asyncio.wait_for(
-            process.stdout.read(_STREAM_CHUNK_BYTES), timeout=_FFMPEG_STARTUP_TIMEOUT_SECONDS
+            process.stdout.read(STREAM_CHUNK_BYTES), timeout=FFMPEG_STARTUP_TIMEOUT_SECONDS
         )
     except TimeoutError:
         first_chunk = b""
 
     if not first_chunk:
-        cause, reason = await _describe_failure(process, stderr_tail, drain_done)
-        _run_in_background(_terminate(process))
+        cause, reason = await describe_ffmpeg_startup_failure(
+            process,
+            stderr_tail,
+            drain_done,
+            startup_timeout=FFMPEG_STARTUP_TIMEOUT_SECONDS,
+            flush_timeout=STDERR_FLUSH_TIMEOUT_SECONDS,
+        )
+        run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
         logger.error(
             "Channel %s: %s (preset=%s, device=%s)\ncommand: %s\nffmpeg output:\n%s",
             channel_number,
@@ -228,36 +175,18 @@ async def stream_channel(channel_number: str, request: Request):
             reason or "(none)",
         )
 
-        detail = f"Could not start streaming channel {channel_number}: {cause}"
-        if reason:
-            detail += f". ffmpeg said: {reason[-_DETAIL_REASON_CHARS:]}"
-
         # A hardware preset that fails at startup is the case where the raw
-        # stderr is least likely to be self-explanatory. Re-run the same
+        # stderr is least likely to be self-explanatory - re-run the same
         # arguments against a synthetic MPEG-2 clip at verbose logging, so
         # the very first failure carries a real explanation.
-        if preset.hardware:
-            probe = await _probe_after_failure(settings)
-            if probe is not None:
-                logger.error(
-                    "Diagnostic test transcode with the same settings %s\ncommand: %s\n%s",
-                    "succeeded (so the tuner or channel is the likely problem, not the GPU)"
-                    if probe["ok"]
-                    else "also failed",
-                    probe.get("command"),
-                    probe.get("output") or "(no output)",
-                )
-                if not probe["ok"] and probe.get("output"):
-                    detail += (
-                        " A test transcode with these same settings also failed, so this is a hardware-acceleration "
-                        "problem rather than a tuner problem. Run the hardware acceleration diagnostics for details."
-                    )
-                elif probe["ok"]:
-                    detail += (
-                        " A test transcode with these same settings succeeded, so hardware acceleration is working — "
-                        "the tuner or this channel is the more likely problem."
-                    )
-
+        probe_hook = (lambda: _probe_after_failure(settings)) if preset.hardware else None
+        detail = await build_ffmpeg_failure_detail(
+            f"streaming channel {channel_number}",
+            cause,
+            reason,
+            reason_chars=DETAIL_REASON_CHARS,
+            probe_hook=probe_hook,
+        )
         raise HTTPException(status_code=502, detail=detail)
 
     async def body():
@@ -272,7 +201,7 @@ async def stream_channel(channel_number: str, request: Request):
                     break
                 try:
                     chunk = await asyncio.wait_for(
-                        process.stdout.read(_STREAM_CHUNK_BYTES), timeout=_DISCONNECT_POLL_INTERVAL_SECONDS
+                        process.stdout.read(STREAM_CHUNK_BYTES), timeout=_DISCONNECT_POLL_INTERVAL_SECONDS
                     )
                 except TimeoutError:
                     continue
@@ -289,7 +218,7 @@ async def stream_channel(channel_number: str, request: Request):
             # cancelled (the client-disconnect case), awaiting anything
             # directly here would be cancelled too, before ffmpeg is
             # actually reaped and the tuner released.
-            _run_in_background(_terminate(process))
+            run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
 
     return StreamingResponse(body(), media_type="video/mp2t")
 

@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from app import media_probe, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
+from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_user
 from app.config import RECORDINGS_DIR, resolve_dvr_server_priority
 from app.dvr import media_cache
@@ -33,17 +34,22 @@ from app.dvr.builtin.rule_expander import expand_rules
 from app.dvr.builtin.tail_follow import pump_tail_follow
 from app.integrations import hdhomerun_client
 from app.storage import db
+from app.subprocess_streaming import (
+    DETAIL_REASON_CHARS,
+    FFMPEG_NOT_FOUND_DETAIL,
+    FFMPEG_STARTUP_TIMEOUT_SECONDS,
+    STDERR_FLUSH_TIMEOUT_SECONDS,
+    STDERR_TAIL_BYTES,
+    STREAM_CHUNK_BYTES,
+    build_ffmpeg_failure_detail,
+    describe_ffmpeg_startup_failure,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dvr", tags=["dvr"], dependencies=[Depends(get_current_user)])
 
-_STREAM_CHUNK_BYTES = 64 * 1024
-_FFMPEG_STARTUP_TIMEOUT_SECONDS = 8
 _FFMPEG_TERMINATE_TIMEOUT_SECONDS = 5
-_STDERR_TAIL_BYTES = 4000
-_STDERR_FLUSH_TIMEOUT_SECONDS = 2
-_DETAIL_REASON_CHARS = 500
 
 # A capture is registered (and get_active_capture starts returning it) the
 # instant its writer ffmpeg process is spawned - well before that ffmpeg has
@@ -56,15 +62,6 @@ _DETAIL_REASON_CHARS = 500
 _LIVE_CAPTURE_READY_MIN_BYTES = 32 * 1024
 _LIVE_CAPTURE_READY_TIMEOUT_SECONDS = 20
 _LIVE_CAPTURE_READY_POLL_SECONDS = 0.2
-
-# Cleanup/drain tasks are tracked here so asyncio doesn't garbage-collect them.
-_background_tasks: set[asyncio.Task[None]] = set()
-
-
-def _run_in_background(coro) -> None:
-    task = asyncio.create_task(coro)
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 # ffprobe metadata cache
@@ -228,7 +225,7 @@ async def list_recordings():
         results.append(_format_builtin_recording(row))
         # Best-effort background poster backfill for existing rows lacking image_url
         if not row.get("image_url"):
-            _run_in_background(
+            run_in_background(
                 capture._backfill_poster(
                     row["id"],
                     row.get("title", ""),
@@ -422,7 +419,7 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest):
             }
 
             await asyncio.to_thread(db.create_recording_rule, rule_entry)
-            _run_in_background(expand_rules())
+            run_in_background(expand_rules())
 
             return await list_recording_rules()
 
@@ -445,17 +442,6 @@ async def delete_recording_rule(rule_id: str):
         return await hdhomerun_client.delete_recording_rule(settings, rule_id)
     except hdhomerun_client.HDHomeRunError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-async def _terminate(process: Any) -> None:
-    if process.returncode is not None:
-        return
-    process.terminate()
-    try:
-        await asyncio.wait_for(process.wait(), timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
 
 
 def _estimate_byte_offset(capture: Any, target_start_seconds: float) -> int | None:
@@ -551,7 +537,7 @@ async def stream_recording(
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError as exc:
-            raise HTTPException(status_code=503, detail="ffmpeg is not installed on PATH") from exc
+            raise HTTPException(status_code=503, detail=FFMPEG_NOT_FOUND_DETAIL) from exc
 
         assert process.stdout is not None
         assert process.stderr is not None
@@ -591,59 +577,44 @@ async def stream_recording(
 
         stderr_tail = bytearray()
         drain_done = asyncio.Event()
-
-        async def drain() -> None:
-            try:
-                while True:
-                    chunk = await process.stderr.read(4096)
-                    if not chunk:
-                        return
-                    stderr_tail.extend(chunk)
-                    del stderr_tail[: max(0, len(stderr_tail) - _STDERR_TAIL_BYTES)]
-            finally:
-                drain_done.set()
-
-        _run_in_background(drain())
+        run_in_background(drain_stderr_tail(process.stderr, stderr_tail, drain_done, tail_bytes=STDERR_TAIL_BYTES))
 
         try:
             first_chunk = await asyncio.wait_for(
-                process.stdout.read(_STREAM_CHUNK_BYTES), timeout=_FFMPEG_STARTUP_TIMEOUT_SECONDS
+                process.stdout.read(STREAM_CHUNK_BYTES), timeout=FFMPEG_STARTUP_TIMEOUT_SECONDS
             )
         except TimeoutError:
             first_chunk = b""
 
         if not first_chunk:
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(drain_done.wait(), timeout=_STDERR_FLUSH_TIMEOUT_SECONDS)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(process.wait(), timeout=_STDERR_FLUSH_TIMEOUT_SECONDS)
-            reason = bytes(stderr_tail).decode(errors="replace").strip()
-            cause = (
-                f"ffmpeg exited with code {process.returncode} before producing any output"
-                if process.returncode is not None
-                else f"ffmpeg produced no output within {_FFMPEG_STARTUP_TIMEOUT_SECONDS}s and was still running"
+            cause, reason = await describe_ffmpeg_startup_failure(
+                process,
+                stderr_tail,
+                drain_done,
+                startup_timeout=FFMPEG_STARTUP_TIMEOUT_SECONDS,
+                flush_timeout=STDERR_FLUSH_TIMEOUT_SECONDS,
             )
-            _run_in_background(_terminate(process))
-            _run_in_background(stop_pump())
+            run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
+            run_in_background(stop_pump())
             logger.error(
                 "Recording transcode failed for %s: %s\nffmpeg output:\n%s", target_url, cause, reason or "(none)"
             )
-            detail = f"Could not start streaming recording: {cause}"
-            if reason:
-                detail += f". ffmpeg said: {reason[-_DETAIL_REASON_CHARS:]}"
+            detail = await build_ffmpeg_failure_detail(
+                "streaming recording", cause, reason, reason_chars=DETAIL_REASON_CHARS
+            )
             raise HTTPException(status_code=502, detail=detail)
 
         async def transcode_generator():
             try:
                 yield first_chunk
                 while True:
-                    chunk = await process.stdout.read(_STREAM_CHUNK_BYTES)
+                    chunk = await process.stdout.read(STREAM_CHUNK_BYTES)
                     if not chunk:
                         break
                     yield chunk
             finally:
-                _run_in_background(_terminate(process))
-                _run_in_background(stop_pump())
+                run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
+                run_in_background(stop_pump())
 
         return StreamingResponse(
             transcode_generator(),

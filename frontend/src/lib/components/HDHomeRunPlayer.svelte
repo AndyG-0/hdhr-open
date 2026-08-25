@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type Mpegts from 'mpegts.js';
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
 	import {
@@ -10,7 +9,11 @@
 		type HDHomeRunTranscodeInfo,
 		type RecordingRuleOptions,
 	} from '$lib/api';
-	import HDHomeRunRecordingOptionsDialog from './details/HDHomeRunRecordingOptionsDialog.svelte';
+	import { findMatchingRecordingRule } from '$lib/recording-rules';
+	import { parseThumbnailVtt, type CaptionCue, type ThumbnailCue } from '$lib/vtt-parser';
+	import { createCaptionController } from '$lib/caption-controller';
+	import { createMpegtsPlayer } from '$lib/mpegts-player';
+	import HDHomeRunPlayerRecordMenu from './player/HDHomeRunPlayerRecordMenu.svelte';
 
 	interface Props {
 		src: string;
@@ -71,31 +74,9 @@
 		onCancelRule,
 	}: Props = $props();
 
-	interface ThumbnailCue {
-		startSeconds: number;
-		endSeconds: number;
-		x: number;
-		y: number;
-		w: number;
-		h: number;
-	}
-
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
 	const CAPTION_POLL_INTERVAL_MS = 1_000;
-	// How far the video↔caption offset can drift before it's worth
-	// correcting - avoids re-timing every cue over ordinary network jitter
-	// in the /recording-detail round trip.
-	const RESYNC_DRIFT_THRESHOLD_SECONDS = 1.5;
-	// Live extraction (segment decode + poll interval) routinely delivers a
-	// cue 10-15s after the dialogue it transcribes - well past that cue's own
-	// few-second [start, end] window relative to live playback. A cue that
-	// arrives already-expired would never satisfy the browser's native
-	// "currentTime is inside this cue" activation check, so it would just
-	// silently never render. Stretching such a cue's end to start from
-	// whenever it actually arrives keeps it on screen for a bit instead.
-	const LIVE_CUE_MIN_DISPLAY_SECONDS = 4;
 
-	let player: ReturnType<typeof Mpegts.createPlayer> | undefined;
 	let videoElement = $state<HTMLVideoElement | null>(null);
 	let videoCurrentTime = $state(0);
 	let baseOffsetSeconds = $state(0);
@@ -118,19 +99,6 @@
 	let thumbnailCues: ThumbnailCue[] = [];
 	let thumbSpriteUrl = $state('');
 
-	interface CaptionCue {
-		start: number;
-		end: number;
-		text: string;
-		// Set once, only when this cue first arrives already past its natural
-		// end (see LIVE_CUE_MIN_DISPLAY_SECONDS) - the stretched window it was
-		// given, in the same absolute (capture-start-relative) basis as
-		// start/end so it survives baseOffsetSeconds changing on a later
-		// resync instead of being re-decided (and re-triggered) against
-		// whatever currentTime happens to be at rebuild time.
-		displayStart?: number;
-		displayEnd?: number;
-	}
 	// Captions are extracted once for the whole recording, so their cue
 	// timestamps are absolute (0 = start of the recording). But each seek
 	// tears down and recreates the mpegts player against a freshly
@@ -138,22 +106,10 @@
 	// currentTime back to 0 - so the native VTT cue times would only ever
 	// line up with playback when baseOffsetSeconds is 0. A plain
 	// `<track src>` can't be re-timed after the browser parses it, so
-	// cues are parsed here and re-added to a managed TextTrack, shifted by
-	// -baseOffsetSeconds, every time the playback origin changes.
-	// Plain (not $state) - a live TextTrack is a mutable host object, and
-	// wrapping it in Svelte's deep-reactivity proxy makes every cues
-	// add/remove inside refreshCaptionCues() itself trip the reactivity
-	// that's supposed to call refreshCaptionCues(), which loops forever.
-	// It's refreshed imperatively at every call site that can affect it
-	// instead (see ensureCaptionTrack/seekTo/toggleCaptions).
+	// cues are parsed here and re-added to a managed TextTrack (owned by
+	// captionController below), shifted by -baseOffsetSeconds, every time
+	// the playback origin changes.
 	let captionCues = $state<CaptionCue[]>([]);
-	let capTextTrack: TextTrack | null = null;
-	// Absolute (capture-start-relative) seconds - the earliest a not-yet-decided
-	// stretched cue is allowed to start. Advanced past each stretched cue's
-	// displayEnd as it's assigned so a burst of several already-stale cues
-	// arriving in the same poll get staggered one after another instead of
-	// all piling up on screen from `now` at once.
-	let nextStretchSlotAbsolute = 0;
 
 	let showAudioMenu = $state(false);
 	let showPlaybackInfo = $state(false);
@@ -189,21 +145,7 @@
 	const channelNumber = $derived(channel?.channel_number ?? effectiveAiring?.channel_number);
 	const channelName = $derived(channel?.name ?? channelNumber ?? title);
 
-	const currentRule = $derived.by(() => {
-		if (!recordingRules || recordingRules.length === 0) return null;
-		const chNum = channelNumber;
-		const air = effectiveAiring;
-		return (
-			recordingRules.find((r) => {
-				const channelMatches = !r.ChannelOnly || (chNum && r.ChannelOnly.split('|').includes(chNum));
-				if (!channelMatches) return false;
-				if (r.DateTimeOnly != null && air?.start != null) {
-					return Math.abs(r.DateTimeOnly - air.start) < 60;
-				}
-				return !!(r.SeriesID && air?.series_id && r.SeriesID === air.series_id);
-			}) ?? null
-		);
-	});
+	const currentRule = $derived(findMatchingRecordingRule(recordingRules, channelNumber, effectiveAiring));
 
 	const isPending = $derived(
 		currentRule !== null && pendingRuleIds.has(currentRule.RecordingRuleID),
@@ -334,11 +276,44 @@
 			: '',
 	);
 
+	const captionController = createCaptionController({
+		getVideoElement: () => videoElement,
+		getCaptionsUrl: () => captionsUrl,
+		getSeekable: () => seekable,
+		getCaptionsEnabled: () => captionsEnabled,
+		getIsInProgress: () => isInProgress,
+		getDuration: () => duration,
+		getVideoCurrentTime: () => videoCurrentTime,
+		getCaptionCues: () => captionCues,
+		setCaptionCues: (cues) => {
+			captionCues = cues;
+		},
+		getHasCaptions: () => hasCaptions,
+		setHasCaptions: (value) => {
+			hasCaptions = value;
+		},
+		getBaseOffsetSeconds: () => baseOffsetSeconds,
+		setBaseOffsetSeconds: (value) => {
+			baseOffsetSeconds = value;
+		},
+	});
+
 	function genericHint() {
 		return get(_)('hdhomerun.detail.playback_failed_hint', {
 			values: { action: get(_)('hdhomerun.detail.open_external') },
 		});
 	}
+
+	const mpegtsPlayer = createMpegtsPlayer({
+		getDestroyed: () => destroyed,
+		setErrorMessage: (message) => {
+			errorMessage = message;
+		},
+		setErrorDetail: (detail) => {
+			errorDetail = detail;
+		},
+		genericHint,
+	});
 
 	function formatTime(seconds: number): string {
 		if (isNaN(seconds) || seconds < 0) return '0:00';
@@ -383,34 +358,6 @@
 		}
 	}
 
-	function parseThumbnailVtt(text: string): ThumbnailCue[] {
-		const cues: ThumbnailCue[] = [];
-		const timeToSeconds = (ts: string): number => {
-			const match = ts.match(/(\d+):(\d+):(\d+(?:\.\d+)?)/);
-			if (!match) return 0;
-			return Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-		};
-		const blocks = text.split(/\r?\n\r?\n/);
-		for (const block of blocks) {
-			const lines = block.split(/\r?\n/).filter((l) => l.trim());
-			const cueLine = lines.find((l) => l.includes('-->'));
-			const xywhLine = lines.find((l) => l.includes('#xywh='));
-			if (!cueLine || !xywhLine) continue;
-			const [startRaw, endRaw] = cueLine.split('-->').map((s) => s.trim());
-			const xywhMatch = xywhLine.match(/#xywh=(\d+),(\d+),(\d+),(\d+)/);
-			if (!xywhMatch) continue;
-			cues.push({
-				startSeconds: timeToSeconds(startRaw),
-				endSeconds: timeToSeconds(endRaw),
-				x: Number(xywhMatch[1]),
-				y: Number(xywhMatch[2]),
-				w: Number(xywhMatch[3]),
-				h: Number(xywhMatch[4]),
-			});
-		}
-		return cues;
-	}
-
 	async function loadThumbnails(): Promise<void> {
 		if (!seekable || !playUrl || isInProgress) return;
 		try {
@@ -436,46 +383,6 @@
 		}
 	}
 
-	function parseVttTimestamp(raw: string): number {
-		const parts = raw.trim().split(':');
-		if (parts.length === 3) {
-			return Number(parts[0]) * 3600 + Number(parts[1]) * 60 + Number(parts[2]);
-		} else if (parts.length === 2) {
-			return Number(parts[0]) * 60 + Number(parts[1]);
-		} else if (parts.length === 1) {
-			return Number(parts[0]) || 0;
-		}
-		return 0;
-	}
-
-	function parseCaptionsVtt(text: string): CaptionCue[] {
-		const cues: CaptionCue[] = [];
-		const blocks = text.replace(/\r\n/g, '\n').split(/\n\n+/);
-		for (const block of blocks) {
-			const lines = block.split('\n').filter((l) => l.length > 0);
-			const cueLineIndex = lines.findIndex((l) => l.includes('-->'));
-			if (cueLineIndex === -1) continue;
-			const [startRaw, endRaw] = lines[cueLineIndex].split('-->');
-			const start = parseVttTimestamp(startRaw);
-			const end = parseVttTimestamp(endRaw.trim().split(/\s+/)[0]);
-			const textLines = lines.slice(cueLineIndex + 1);
-			if (textLines.length === 0) continue;
-			// ffmpeg's CEA-608 decoder writes the literal two characters "\h"
-			// for a caption-positioning space code (used for indentation)
-			// instead of an actual space - a run of "\h\h\h\h" is just
-			// indentation that never got converted to real whitespace, so
-			// swap it for a real space so it reads as normal text instead of
-			// showing the literal escape code. Also strip any WebVTT tags.
-			const cleanedText = textLines
-				.join('\n')
-				.replace(/\\h/g, ' ')
-				.replace(/<[^>]+>/g, '');
-			if (!cleanedText.trim()) continue;
-			cues.push({ start, end, text: cleanedText });
-		}
-		return cues;
-	}
-
 	const activeCaptionLines = $derived.by<string[]>(() => {
 		if (!captionsEnabled || captionCues.length === 0) return [];
 		const pos = displayedPosition;
@@ -494,103 +401,6 @@
 		return lines;
 	});
 
-	function ensureCaptionTrack() {
-		if (capTextTrack || !videoElement) return;
-		capTextTrack = videoElement.addTextTrack('subtitles', 'Captions', 'en');
-		capTextTrack.mode = captionsEnabled ? 'showing' : 'hidden';
-	}
-
-	// `allowStretch` is only true for cues genuinely new to this session
-	// (pollLiveCaptions). refreshCaptionCues() re-renders the *entire*
-	// captionCues history on every resync/seek - deciding stretch there too
-	// would flag every already-expired cue ever received (i.e. nearly all of
-	// history) as "just arrived", flooding the screen with the whole
-	// transcript at once. Cues that were already stretched keep that decision
-	// via displayStart/displayEnd regardless of which path re-renders them.
-	function appendCaptionCues(cues: CaptionCue[], { allowStretch = false }: { allowStretch?: boolean } = {}) {
-		if (!capTextTrack) return;
-		for (const cue of cues) {
-			if (allowStretch && isInProgress && videoElement && cue.displayEnd === undefined) {
-				const naturalEnd = cue.end - baseOffsetSeconds;
-				// See LIVE_CUE_MIN_DISPLAY_SECONDS: while live, a cue that's
-				// already past its natural end by the time it arrives gets held
-				// on screen for a bit instead of being dropped as stale.
-				if (naturalEnd <= videoElement.currentTime) {
-					const nowAbsolute = baseOffsetSeconds + videoElement.currentTime;
-					const slotStart = Math.max(cue.start, nextStretchSlotAbsolute, nowAbsolute);
-					cue.displayStart = slotStart;
-					cue.displayEnd = slotStart + LIVE_CUE_MIN_DISPLAY_SECONDS;
-					nextStretchSlotAbsolute = cue.displayEnd;
-				}
-			}
-			const start = (cue.displayStart ?? cue.start) - baseOffsetSeconds;
-			const end = (cue.displayEnd ?? cue.end) - baseOffsetSeconds;
-			if (end <= 0) continue;
-			try {
-				capTextTrack.addCue(new VTTCue(Math.max(0, start), end, cue.text));
-			} catch {
-				// A malformed cue shouldn't take down the rest of the track.
-			}
-		}
-	}
-
-	function refreshCaptionCues() {
-		if (!capTextTrack) return;
-		while (capTextTrack.cues && capTextTrack.cues.length > 0) {
-			capTextTrack.removeCue(capTextTrack.cues[0]);
-		}
-		appendCaptionCues(captionCues);
-	}
-
-	async function loadCaptions(): Promise<void> {
-		if (!seekable || !captionsUrl) return;
-		try {
-			const response = await fetch(captionsUrl, { credentials: 'include' });
-			if (!response.ok) return;
-			const text = await response.text();
-			const cues = parseCaptionsVtt(text);
-			if (cues.length === 0) return;
-			captionCues = cues;
-			if (!hasCaptions) {
-				hasCaptions = true;
-			}
-			ensureCaptionTrack();
-			refreshCaptionCues();
-		} catch {
-			// No captions: the CC button stays visible per hasCaptions, but
-			// toggling it just won't show anything.
-		}
-	}
-
-	// While live, the server's .live.vtt grows in place - it's strictly
-	// append-only and already de-duplicated server-side - so rather than
-	// loadCaptions()'s wholesale replace-and-rebuild, only the cues beyond
-	// what we've already parsed (captionCues.length, which doubles as the
-	// cursor) get appended directly to the TextTrack. A seek doesn't reset
-	// this: it calls refreshCaptionCues() to re-render the same captionCues
-	// against the new baseOffsetSeconds, so the length-based cursor still
-	// lines up with what's actually in the track afterward.
-	async function pollLiveCaptions(): Promise<void> {
-		if (!seekable || !captionsUrl) return;
-		try {
-			const response = await fetch(captionsUrl, { credentials: 'include' });
-			if (!response.ok) return;
-			const text = await response.text();
-			const cues = parseCaptionsVtt(text);
-			if (cues.length > 0 && !hasCaptions) {
-				hasCaptions = true;
-			}
-			if (cues.length <= captionCues.length) return;
-			const newCues = cues.slice(captionCues.length);
-			captionCues = cues;
-			ensureCaptionTrack();
-			appendCaptionCues(newCues, { allowStretch: true });
-		} catch {
-			// Live captions are a best-effort enhancement; a failed poll just
-			// means the client tries again on the next interval.
-		}
-	}
-
 	function findCueAt(seconds: number): ThumbnailCue | null {
 		if (thumbnailCues.length === 0) return null;
 		let found = thumbnailCues[0];
@@ -599,30 +409,6 @@
 			found = cue;
 		}
 		return found;
-	}
-
-	// baseOffsetSeconds is set once at attach from a /recording-detail
-	// snapshot taken before the stream has even started producing frames, so
-	// it's off by however long stream spin-up takes - and with nothing to
-	// correct it afterward, that error (plus any longer-session drift) would
-	// otherwise stick around for the rest of the live view. duration (wall
-	// clock elapsed since capture start, refreshed every detail poll) and
-	// videoCurrentTime (the real, accurate playback position) are on a
-	// shared clock, so duration - videoCurrentTime is always a sound
-	// estimate of what baseOffsetSeconds should currently be - this just
-	// re-checks it on every poll and nudges it back in line if it's drifted.
-	function maybeResyncBaseOffset() {
-		if (!isInProgress || duration === null || !videoElement) return;
-		// currentTime freezes while paused but duration keeps advancing, so
-		// resyncing here would push the offset forward for no playback
-		// progress. videoCurrentTime === 0 also covers the moment right
-		// after a manual seekTo() resets it, before playback has resumed.
-		if (videoElement.paused || videoCurrentTime <= 0) return;
-		const candidate = Math.max(0, duration - videoCurrentTime);
-		if (Math.abs(candidate - baseOffsetSeconds) > RESYNC_DRIFT_THRESHOLD_SECONDS) {
-			baseOffsetSeconds = candidate;
-			refreshCaptionCues();
-		}
 	}
 
 	function stopPolling() {
@@ -637,12 +423,12 @@
 		detailPollHandle = setInterval(async () => {
 			const wasInProgress = isInProgress;
 			await loadDetail();
-			maybeResyncBaseOffset();
+			captionController.maybeResyncBaseOffset();
 			if (wasInProgress && !isInProgress) {
 				stopPolling();
 				stopCaptionPolling();
 				loadThumbnails();
-				loadCaptions();
+				captionController.loadCaptions();
 			}
 		}, DETAIL_POLL_INTERVAL_MS);
 	}
@@ -664,85 +450,23 @@
 			if (captionsPollInFlight) return;
 			captionsPollInFlight = true;
 			try {
-				await pollLiveCaptions();
+				await captionController.pollLiveCaptions();
 			} finally {
 				captionsPollInFlight = false;
 			}
 		}, CAPTION_POLL_INTERVAL_MS);
 	}
 
-	// mpegts.js reports a failed stream request as a bare "network error" and
-	// throws the response body away, so the backend's carefully built 502
-	// detail — which names the actual ffmpeg failure — never reaches the
-	// user. Re-requesting the same URL is the only way to read it, and it's
-	// cheap: the request has already failed, and the backend fails the same
-	// way again in well under a second.
-	async function fetchServerDetail(url: string) {
-		try {
-			const response = await fetch(url, { credentials: 'include' });
-			if (response.ok) {
-				response.body?.cancel();
-				return null;
-			}
-			const body = await response.json();
-			return typeof body?.detail === 'string' ? body.detail : null;
-		} catch {
-			return null;
-		}
-	}
-
-	function teardownPlayer() {
-		player?.pause();
-		player?.unload();
-		player?.detachMediaElement();
-		player?.destroy();
-		player = undefined;
-	}
-
-	function createPlayerAt(node: HTMLVideoElement, url: string) {
-		errorMessage = null;
-		errorDetail = null;
-		// mpegts.js's UMD bundle references `window` at import time, so a
-		// static import would crash SvelteKit's server-side render of this
-		// page (Node has no `window`). Deferring to a dynamic import here
-		// means it only ever loads client-side, once this action runs.
-		import('mpegts.js').then(({ default: mpegts }) => {
-			if (destroyed) return;
-			player = mpegts.createPlayer(
-				{ type: 'mse', isLive: true, url, withCredentials: true },
-				// liveBufferLatencyChasing auto-seeks forward whenever the playhead
-				// falls behind the live edge — which is exactly what a manual
-				// buffer-rewind (see rewind()/fastForward() below) does, so leaving
-				// it on snaps the video straight back to live the instant you
-				// scrub backward. Off, so a manual seek stays where you put it.
-				{ enableStashBuffer: false, liveBufferLatencyChasing: false },
-			);
-			player.on(mpegts.Events.ERROR, (errorType: string) => {
-				errorMessage = genericHint();
-				if (errorType !== mpegts.ErrorTypes.NETWORK_ERROR) return;
-				fetchServerDetail(url).then((detail) => {
-					if (!destroyed) errorDetail = detail;
-				});
-			});
-			player.attachMediaElement(node);
-			player.load();
-			player.play();
-		});
-	}
-
 	function seekTo(targetSeconds: number) {
 		if (!seekable || !videoElement) return;
 		let clamped = Math.max(0, targetSeconds);
 		if (duration !== null) clamped = Math.min(clamped, duration);
-		teardownPlayer();
+		mpegtsPlayer.teardownPlayer();
 		baseOffsetSeconds = clamped;
 		videoCurrentTime = 0;
-		// A stale slot from before the seek is on the old absolute clock and
-		// could push a freshly-stretched cue arbitrarily far into the future
-		// relative to the new origin.
-		nextStretchSlotAbsolute = 0;
-		refreshCaptionCues();
-		createPlayerAt(videoElement, buildStreamUrl(clamped, currentAudioIndex));
+		captionController.resetStretchCursor();
+		captionController.refreshCaptionCues();
+		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(clamped, currentAudioIndex));
 	}
 
 	function rewind(seconds = 10) {
@@ -782,8 +506,8 @@
 
 	function toggleCaptions() {
 		captionsEnabled = !captionsEnabled;
-		ensureCaptionTrack();
-		if (capTextTrack) capTextTrack.mode = captionsEnabled ? 'showing' : 'hidden';
+		captionController.ensureCaptionTrack();
+		captionController.setMode(captionsEnabled);
 	}
 
 	function selectAudioTrack(index: number) {
@@ -865,18 +589,18 @@
 				if (destroyed) return;
 				if (isInProgress) {
 					baseOffsetSeconds = duration ?? 0;
-					createPlayerAt(node, buildStreamUrl(undefined, currentAudioIndex));
-					pollLiveCaptions();
+					mpegtsPlayer.createPlayerAt(node, buildStreamUrl(undefined, currentAudioIndex));
+					captionController.pollLiveCaptions();
 					startPolling();
 					startCaptionPolling();
 				} else {
 					baseOffsetSeconds = 0;
-					createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
+					mpegtsPlayer.createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
 					loadThumbnails();
-					loadCaptions();
+					captionController.loadCaptions();
 				}
 			} else {
-				createPlayerAt(node, src);
+				mpegtsPlayer.createPlayerAt(node, src);
 			}
 		})();
 
@@ -888,11 +612,10 @@
 				destroyed = true;
 				stopPolling();
 				stopCaptionPolling();
-				teardownPlayer();
+				mpegtsPlayer.teardownPlayer();
 				videoElement = null;
-				capTextTrack = null;
+				captionController.teardown();
 				captionCues = [];
-				nextStretchSlotAbsolute = 0;
 			},
 		};
 	}
@@ -905,72 +628,20 @@
 		<h2>{title}</h2>
 		<div class="controls">
 			{#if canRecord}
-				<div class="menu-popover-wrap">
-					<button
-						class="control-btn record-btn"
-						class:active={showRecordMenu}
-						class:recording={currentRule !== null}
-						onclick={() => (showRecordMenu = !showRecordMenu)}
-						disabled={isActionLoading}
-						aria-label={currentRule ? $_('player.recording_active') : $_('player.record')}
-						title={currentRule ? $_('player.recording_active') : $_('player.record')}
-					>
-						<span class="record-dot" class:pulsing={isPending}></span>
-						{#if currentRule}
-							{$_('player.recording_active')}
-						{:else}
-							{$_('player.record')}
-						{/if}
-					</button>
-					{#if showRecordMenu}
-						<div class="popover-menu record-popover">
-							<div class="menu-header">
-								{effectiveAiring?.title ?? channelName}
-							</div>
-							<div class="menu-items">
-								{#if currentRule}
-									{#if isPending}
-										<div class="pending-hint">{$_('player.pending_confirmation')}</div>
-									{/if}
-									<button
-										class="menu-item danger"
-										disabled={isActionLoading}
-										onclick={handleCancelRecording}
-									>
-										{$_('player.cancel_recording')}
-									</button>
-								{:else}
-									<button
-										class="menu-item"
-										disabled={isActionLoading}
-										onclick={() => handleRecordEpisode()}
-									>
-										🔴 {$_('player.record_episode')}
-									</button>
-									{#if effectiveAiring?.series_id}
-										<button
-											class="menu-item"
-											disabled={isActionLoading}
-											onclick={() => handleRecordSeries()}
-										>
-											{$_('player.record_series')}
-										</button>
-									{/if}
-									<button
-										class="menu-item"
-										disabled={isActionLoading}
-										onclick={() => {
-											showRecordMenu = false;
-											showOptionsDialog = true;
-										}}
-									>
-										⚙️ {$_('player.recording_options')}
-									</button>
-								{/if}
-							</div>
-						</div>
-					{/if}
-				</div>
+				<HDHomeRunPlayerRecordMenu
+					{currentRule}
+					{isPending}
+					{isActionLoading}
+					{channelName}
+					{effectiveAiring}
+					{officialDvrActive}
+					bind:showRecordMenu
+					bind:showOptionsDialog
+					onRecordEpisode={handleRecordEpisode}
+					onRecordSeries={handleRecordSeries}
+					onCancelRecording={handleCancelRecording}
+					onConfirmOptions={handleConfirmOptions}
+				/>
 			{/if}
 			{#if seekable && (videoInfo || audioTracks.length > 0 || transcodeInfo)}
 				<button
@@ -1166,17 +837,6 @@
 		</div>
 	{/if}
 
-	{#if showOptionsDialog && effectiveAiring}
-		<HDHomeRunRecordingOptionsDialog
-			airing={effectiveAiring}
-			channelName={channelName}
-			canRecordSeries={Boolean(effectiveAiring.series_id)}
-			{officialDvrActive}
-			loading={isActionLoading}
-			onConfirm={handleConfirmOptions}
-			onClose={() => (showOptionsDialog = false)}
-		/>
-	{/if}
 </div>
 
 <style>
@@ -1542,61 +1202,4 @@
 		color: #38bdf8;
 	}
 
-	.record-btn {
-		position: relative;
-	}
-
-	.record-btn.recording {
-		background: rgba(224, 90, 90, 0.25);
-		border-color: rgba(224, 90, 90, 0.6);
-		color: #ffb4b4;
-	}
-
-	.record-btn.recording:hover {
-		background: rgba(224, 90, 90, 0.35);
-	}
-
-	.record-dot {
-		display: inline-block;
-		width: 0.55rem;
-		height: 0.55rem;
-		border-radius: 50%;
-		background: #ff5555;
-	}
-
-	.record-dot.pulsing {
-		animation: record-pulse 1.5s infinite;
-	}
-
-	@keyframes record-pulse {
-		0%,
-		100% {
-			opacity: 1;
-			transform: scale(1);
-		}
-		50% {
-			opacity: 0.4;
-			transform: scale(0.85);
-		}
-	}
-
-	.record-popover {
-		width: 14rem;
-	}
-
-	.menu-item.danger {
-		color: #ff8888;
-	}
-
-	.menu-item.danger:hover {
-		background: rgba(224, 90, 90, 0.2);
-		color: #ffb4b4;
-	}
-
-	.pending-hint {
-		padding: 0.35rem 0.75rem;
-		font-size: 0.75rem;
-		color: #eab308;
-		font-style: italic;
-	}
 </style>

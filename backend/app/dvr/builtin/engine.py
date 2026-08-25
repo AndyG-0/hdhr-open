@@ -65,10 +65,7 @@ class DVREngine:
                 file_size_bytes=file_size,
             )
 
-        with db._connect() as conn:
-            conn.execute(
-                "UPDATE scheduled_recordings SET status = 'interrupted' WHERE status = 'in_progress'"
-            )
+        await asyncio.to_thread(db.mark_in_progress_scheduled_recordings_interrupted)
 
     async def tick(self) -> None:
         """Main engine tick: stops finished captures and launches ready scheduled recordings."""
@@ -116,8 +113,7 @@ class DVREngine:
 
             # If recording has already expired, mark missed
             if end_ts <= now:
-                with db._connect() as conn:
-                    conn.execute("UPDATE scheduled_recordings SET status = 'missed' WHERE id = ?", (sched["id"],))
+                await asyncio.to_thread(db.update_scheduled_recording_status, sched["id"], "missed")
                 continue
 
             # If it's time to start

@@ -9,11 +9,11 @@ gives an unreliable/partial duration and stream list.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 from pathlib import Path
 from typing import Any
+
+from app.async_utils import run_subprocess
 
 _PROBE_TIMEOUT_SECONDS = 20
 
@@ -49,29 +49,15 @@ async def probe(url: str) -> dict[str, Any] | None:
         "-show_streams",
         url,
     ]
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except OSError:
+    result = await run_subprocess(argv, timeout=_PROBE_TIMEOUT_SECONDS)
+    if result.spawn_error is not None or result.timed_out:
+        return None
+
+    if result.returncode != 0 or not result.stdout:
         return None
 
     try:
-        stdout, _stderr = await asyncio.wait_for(process.communicate(), timeout=_PROBE_TIMEOUT_SECONDS)
-    except TimeoutError:
-        process.kill()
-        with contextlib.suppress(Exception):
-            await process.wait()
-        return None
-
-    if process.returncode != 0 or not stdout:
-        return None
-
-    try:
-        payload = json.loads(stdout)
+        payload = json.loads(result.stdout)
     except json.JSONDecodeError:
         return None
 
