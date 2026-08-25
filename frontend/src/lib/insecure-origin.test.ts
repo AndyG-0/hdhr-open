@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getInsecureOriginInfo, isChromeBrowser, isPrivateIpHostname } from './network';
+import { getInsecureOriginInfo, isChromeBrowser, isPrivateIpHostname } from './insecure-origin';
 
-describe('network', () => {
+describe('insecure-origin', () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 	});

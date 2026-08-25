@@ -12,12 +12,11 @@ won't match what SiliconDust's DVR engine expects internally — meaning
 official-DVR recording rules created from an XMLTV-sourced guide may not
 actually work. This needs real-world verification against a live tuner.
 
-## Native apps (iPhone, Android, Apple TV, Android TV)
+## Native apps (Apple TV, iOS, Android, Android TV)
 
-None of these exist yet — there's no scaffolding of any kind in this repo
-today. This should be scoped as a separate future workstream once the web
-client and REST API are stable. Native clients would consume the same
-backend API as the web client, gated behind the bearer-token auth path
-already in place (`app/auth.py`, `app/api/users.py`). Whether to build fully
-native apps per platform or lean on cross-platform tooling is an open
-question, not yet decided.
+- **Apple TV (tvOS) & iOS (iPhone/iPad)**: Implemented in `apple/` using a
+  shared Swift framework (`HDHROpenKit`), featuring 10-foot Siri Remote navigation,
+  touch controls, live watch sessions with pause/rewind/scrub, DVR scheduling/library,
+  tuner signal meters, and Bearer token auth via Keychain.
+- **Android / Android TV**: Planned for a future workstream, consuming the same
+  FastAPI REST and streaming endpoints.

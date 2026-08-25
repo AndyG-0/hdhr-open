@@ -34,6 +34,8 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
 - **`frontend/`** — SvelteKit 2 / Svelte 5, using `mpegts.js` for in-browser
   playback (MSE). `frontend/src/lib/api.ts` is the single point of contact
   with the backend REST API.
+- **`apple/`** — Native Apple TV (tvOS) and iOS client apps sharing a unified
+  Swift framework (`HDHROpenKit`). See `apple/README.md`.
 
 ## Running it
 

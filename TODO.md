@@ -13,40 +13,10 @@ fixes, the `HDHomeRunPlayer.svelte` split, and the ffmpeg-streaming-pipeline
 architecture-cleanup session on 2026-08-24. The `retention.py`/
 `rule_expander.py` SQL-ification and dict-keyed dedup rewrite (the sole
 Backend item) was also fixed directly — see the SQL-rewrite session on
-2026-08-24.
-
-## Frontend
-
-- **Split `routes/settings/+page.svelte`** (2621 lines, ~14 independent
-  settings sections in one file/script scope) into per-section
-  subcomponents. In the process, dedupe: the repeated admin-gated
-  load-effect boilerplate (4x), the repeated `saving/saved/error`
-  save-flow triad (12x), the identical `moveGuidePriorityUp/Down` vs
-  `moveDvrPriorityUp/Down` reorder logic, and the duplicated priority-list
-  reorder markup block. Why: one file covering 14 unrelated settings
-  sections is hard to navigate, and the duplicated patterns mean a fix to
-  one save-flow/reorder implementation doesn't propagate to its siblings.
-- **Add virtualization to `HDHomeRunGuideGrid.svelte`** for large channel
-  lineups (currently renders every channel × every cell unconditionally —
-  hundreds to low-thousands of DOM nodes for a full cable lineup); memoize
-  `findExistingRule` into a lookup map instead of an O(cells × rules) scan
-  recomputed on every render (including the 30s tick). Why: performance —
-  full lineups on real cable/satellite systems can be large enough for
-  this to visibly lag, especially on lower-powered client devices.
-- **Decide the fate of `polling.ts`'s intended pattern more broadly.** Even
-  after removing the dead `pollWidget` export, the 3 places that pattern
-  was meant to replace (`HDHomeRunGuideGrid.svelte`'s `nowSeconds` ticker,
-  `HDHomeRunPlayer.svelte`'s detail/caption polling, `+page.svelte`'s
-  watch heartbeat) still hand-roll `setInterval`/`clearInterval`
-  independently. Why: either adopt a shared helper for consistency, or
-  explicitly accept the current hand-rolled approach as intentional so a
-  future contributor doesn't reintroduce a similarly-dead abstraction.
-- **Minor/style, low priority:**
-  - `breakpoint.ts`'s module-level `resize` listener is never removed
-    (harmless — the singleton store lives for the app's lifetime, but
-    inconsistent with "own your cleanup" elsewhere in the codebase).
-  - `network.ts` is a misleading name for what's actually an
-    insecure-origin/mic-permission utility, not an HTTP layer.
-  - `routes/+page.svelte` uses a dependency-free `$effect` instead of
-    `onMount` for its one-time initial load — the only place in the app
-    doing it that way.
+2026-08-24. The `routes/settings/+page.svelte` split (14 sections into
+per-component subfiles sharing new `loadOnceWhen`/`SaveState`
+composables) and the `HDHomeRunGuideGrid.svelte` virtualization
+(memoized recording-rule lookups, a stabilized `windowBounds`
+derivation, and windowed channel-row rendering) — the two remaining
+Frontend items — were also fixed directly — see the frontend-split
+session on 2026-08-24.

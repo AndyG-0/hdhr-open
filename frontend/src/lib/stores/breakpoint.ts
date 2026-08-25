@@ -18,6 +18,10 @@ export const breakpoint = writable<Breakpoint>(currentBreakpoint());
 // A plain `resize` listener (rather than `matchMedia`, which jsdom doesn't
 // implement) reacting to the threshold being crossed — e.g. a tablet
 // rotated, or a browser window resized — not on every pixel of resize.
+//
+// Intentionally never removed: this is a page-lifetime singleton (one
+// listener for the app's whole session), not a per-component effect, so
+// there's no owning lifecycle to unregister it from.
 if (browser) {
 	window.addEventListener('resize', () => breakpoint.set(currentBreakpoint()));
 }

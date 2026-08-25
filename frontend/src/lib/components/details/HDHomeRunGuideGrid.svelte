@@ -7,7 +7,7 @@
 		HDHomeRunRecordingRule,
 		RecordingRuleOptions,
 	} from '$lib/api';
-	import { findMatchingRecordingRule } from '$lib/recording-rules';
+	import { buildRecordingRuleIndex, findMatchingRecordingRuleIndexed } from '$lib/recording-rules';
 	import HDHomeRunGuideCellMenu from './HDHomeRunGuideCellMenu.svelte';
 	import HDHomeRunRecordingOptionsDialog from './HDHomeRunRecordingOptionsDialog.svelte';
 
@@ -57,6 +57,30 @@
 	let nowSeconds = $state(Math.floor(Date.now() / 1000));
 	let hasAutoScrolled = false;
 
+	// Vertical virtualization: only render channel rows within the scrolled
+	// viewport (+ overscan). ROW_HEIGHT is a fixed estimate — acceptable
+	// since .channel-name never wraps (nowrap + ellipsis), so rows are
+	// effectively uniform height.
+	const ROW_HEIGHT = 65;
+	const OVERSCAN = 5;
+	let scrollTop = $state(0);
+	let viewportHeight = $state(0);
+
+	function onGuideGridScroll(e: Event) {
+		cancelPress();
+		scrollTop = (e.currentTarget as HTMLElement).scrollTop;
+	}
+
+	$effect(() => {
+		if (!scrollEl) return;
+		const el = scrollEl;
+		const ro = new ResizeObserver(() => {
+			viewportHeight = el.clientHeight;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+
 	$effect(() => {
 		const interval = setInterval(() => {
 			nowSeconds = Math.floor(Date.now() / 1000);
@@ -78,6 +102,10 @@
 		return [...favorites, ...rest];
 	});
 
+	let cachedWindowBounds = { start: 0, end: 0 };
+	// Returns the same object reference when the computed bounds haven't
+	// changed, so downstream $derived reads (hourMarks, dayMarks, per-row
+	// cell layout) don't re-run on every 30s nowSeconds tick.
 	const windowBounds = $derived.by(() => {
 		let minStart = nowSeconds - 2 * HOUR_SECONDS;
 		let maxEnd = nowSeconds + 4 * HOUR_SECONDS;
@@ -91,7 +119,10 @@
 		minStart = Math.max(minStart, earliestAllowed);
 		// Align to the half hour for a cleaner ruler.
 		const start = Math.floor(minStart / 1800) * 1800;
-		return { start, end: maxEnd };
+		if (start !== cachedWindowBounds.start || maxEnd !== cachedWindowBounds.end) {
+			cachedWindowBounds = { start, end: maxEnd };
+		}
+		return cachedWindowBounds;
 	});
 
 	const hourMarks = $derived.by(() => {
@@ -194,8 +225,10 @@
 		return airing.start != null && airing.end != null && airing.start <= nowSeconds && nowSeconds < airing.end;
 	}
 
+	const ruleIndex = $derived.by(() => buildRecordingRuleIndex(recordingRules));
+
 	function findExistingRule(airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel): HDHomeRunRecordingRule | null {
-		return findMatchingRecordingRule(recordingRules, channel.channel_number, airing);
+		return findMatchingRecordingRuleIndexed(ruleIndex, channel.channel_number, airing);
 	}
 
 	function isLoadingFor(
@@ -275,6 +308,16 @@
 		if (matchingChannelNumbers === null) return orderedChannels;
 		return orderedChannels.filter((c) => matchingChannelNumbers.has(c.channel_number));
 	});
+
+	const visibleRange = $derived.by(() => {
+		const total = visibleChannels.length;
+		const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+		const end = Math.min(total, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+		return { start, end };
+	});
+	const windowedChannels = $derived(visibleChannels.slice(visibleRange.start, visibleRange.end));
+	const topSpacerHeight = $derived(visibleRange.start * ROW_HEIGHT);
+	const bottomSpacerHeight = $derived((visibleChannels.length - visibleRange.end) * ROW_HEIGHT);
 
 	function scrollToAiring(airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel) {
 		if (!scrollEl || airing.start == null) return;
@@ -480,7 +523,7 @@
 	</div>
 {/if}
 
-<div class="guide-grid" bind:this={scrollEl} onscroll={cancelPress}>
+<div class="guide-grid" bind:this={scrollEl} onscroll={onGuideGridScroll}>
 	<div class="grid-inner" style={`width: ${totalWidth + 160}px;`}>
 		<div class="day-corner"></div>
 		<div class="day-ruler" style={`width: ${totalWidth}px;`}>
@@ -500,7 +543,10 @@
 			<div class="now-line" style={`left: ${nowLeft}px;`}></div>
 		</div>
 
-		{#each visibleChannels as channel (channel.channel_number)}
+		{#if topSpacerHeight > 0}
+			<div class="row-spacer" style={`height: ${topSpacerHeight}px;`}></div>
+		{/if}
+		{#each windowedChannels as channel (channel.channel_number)}
 			{@const guideEntry = guideByChannel.get(channel.channel_number)}
 			{@const airings = mergeAiringsWithNowNext(guideEntry?.airings ?? [], channel.now, channel.next)}
 			{@const cells = computeCellLayout(airings, windowBounds.start, windowBounds.end)}
@@ -577,6 +623,9 @@
 				{/each}
 			</div>
 		{/each}
+		{#if bottomSpacerHeight > 0}
+			<div class="row-spacer" style={`height: ${bottomSpacerHeight}px;`}></div>
+		{/if}
 	</div>
 </div>
 
@@ -950,6 +999,10 @@
 		white-space: nowrap;
 		padding-left: 0.25rem;
 		border-left: 1px solid var(--color-border);
+	}
+
+	.row-spacer {
+		grid-column: 1 / -1;
 	}
 
 	.channel-col {
