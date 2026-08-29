@@ -3,3 +3,5 @@
 IDEAS.md
 docker-compose.override.yml
 .DS_Store
+backend/recordings/*.ts
+apple/HDHROpenKit/.build/
