@@ -97,6 +97,8 @@
 			"record_episode": "Folge aufnehmen",
 			"record_series": "Serie aufnehmen",
 			"cancel_recording": "Abbrechen",
+			"delete_recording_button": "Löschen",
+			"deleting_button": "Wird gelöscht…",
 			"recording_options": "Aufnahmeoptionen…",
 			"recording_options_title": "Aufnahmeoptionen",
 			"server_label": "Aufnahmeserver",

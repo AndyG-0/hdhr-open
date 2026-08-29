@@ -509,6 +509,7 @@ export const api = {
 	}) => postJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules', rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>
 		deleteJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`),
+	deleteRecording: (recordingId: string) => deleteJSON<{ status: string }>(`/api/dvr/recordings/${recordingId}`),
 	getHDHomeRunGuide: () => getJSON<HDHomeRunFullGuideChannel[]>('/api/guide'),
 	getHDHomeRunChannels: () => getJSON<HDHomeRunChannelsResponse>('/api/guide/channels'),
 	getDvrInfo: () => getJSON<HDHomeRunDvrInfo>('/api/dvr/info'),

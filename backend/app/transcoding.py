@@ -28,7 +28,20 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
+
+# ffmpeg -f hls muxer settings for the native-client (Apple) packaging path -
+# app/hls_streaming.py imports these rather than each module picking its own
+# numbers. ~2s segments, a 12-segment (~24s) rolling window kept on disk.
+# Segment length was 4s until it became clear AVPlayer needs several
+# segments of live-edge cushion (see HLS_READY_MIN_SEGMENTS in
+# app/hls_streaming.py) to join a live playlist without immediately stalling
+# - 2s segments let that cushion accumulate inside the existing ffmpeg
+# startup budget instead of stretching it out.
+HLS_SEGMENT_SECONDS = 2
+HLS_LIST_SIZE = 12
+HLS_FLAGS = "delete_segments+append_list+independent_segments"
 
 DEFAULT_PRESET = "software"
 DEFAULT_HWACCEL_DEVICE = "/dev/dri/renderD128"
@@ -277,8 +290,17 @@ def build_ffmpeg_args(
     *,
     seek_seconds: float | None = None,
     audio_index: int | None = None,
+    output_format: Literal["mpegts", "hls"] = "mpegts",
+    hls_playlist_path: Path | None = None,
+    hls_segment_pattern: str | None = None,
 ) -> list[str]:
-    """Full ffmpeg arg list (excluding the "ffmpeg" program name itself)."""
+    """Full ffmpeg arg list (excluding the "ffmpeg" program name itself).
+
+    `output_format="hls"` is the native-client (Apple) packaging path - the
+    hwaccel preset's input_args/output_args are unaffected, only the trailing
+    muxer/output framing changes. `hls_playlist_path`/`hls_segment_pattern`
+    are required when `output_format="hls"`.
+    """
     preset = resolve_preset(settings.get("hwaccel", DEFAULT_PRESET))
     device = resolve_device(settings)
 
@@ -303,6 +325,25 @@ def build_ffmpeg_args(
         # default stream selection is otherwise left alone.
         output_args = ["-map", "0:v:0", "-map", f"0:a:{audio_index}", *output_args]
 
+    if output_format == "hls":
+        if hls_playlist_path is None or hls_segment_pattern is None:
+            raise ValueError("hls_playlist_path and hls_segment_pattern are required for output_format='hls'")
+        output_framing = [
+            "-f",
+            "hls",
+            "-hls_time",
+            str(HLS_SEGMENT_SECONDS),
+            "-hls_list_size",
+            str(HLS_LIST_SIZE),
+            "-hls_flags",
+            HLS_FLAGS,
+            "-hls_segment_filename",
+            hls_segment_pattern,
+            str(hls_playlist_path),
+        ]
+    else:
+        output_framing = ["-f", "mpegts", "pipe:1"]
+
     return [
         "-hide_banner",
         "-loglevel",
@@ -314,9 +355,7 @@ def build_ffmpeg_args(
         # Custom args get the same substitution, so "{device}" is usable as a
         # portable stand-in there too rather than forcing a hardcoded path.
         *output_args,
-        "-f",
-        "mpegts",
-        "pipe:1",
+        *output_framing,
     ]
 
 

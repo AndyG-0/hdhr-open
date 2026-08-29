@@ -97,6 +97,8 @@
 			"record_episode": "Grabar episodio",
 			"record_series": "Grabar serie",
 			"cancel_recording": "Cancelar",
+			"delete_recording_button": "Eliminar",
+			"deleting_button": "Eliminando…",
 			"recording_options": "Opciones de grabación…",
 			"recording_options_title": "Opciones de grabación",
 			"server_label": "Servidor de grabación",

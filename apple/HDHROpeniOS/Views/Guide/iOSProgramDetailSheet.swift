@@ -1,0 +1,142 @@
+import SwiftUI
+import HDHROpenKit
+
+public struct iOSProgramDetailSheet: View {
+    let channel: HDHomeRunChannel
+    let airing: HDHomeRunGuideEntry
+
+    @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var playerViewModel: PlayerViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    public init(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry) {
+        self.channel = channel
+        self.airing = airing
+    }
+
+    public var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let img = airing.imageUrl, let url = URL(string: img) {
+                        AsyncImage(url: url) { image in
+                            image
+                                .resizable()
+                                .aspectRatio(16/9, contentMode: .fill)
+                        } placeholder: {
+                            Color.gray.opacity(0.2)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: 200)
+                        .cornerRadius(12)
+                        .clipped()
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(channel.channelNumber)
+                                .font(.subheadline.bold())
+                                .foregroundColor(.blue)
+                            Text(channel.name)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text(airing.title)
+                            .font(.title2.bold())
+
+                        if let ep = airing.episodeTitle {
+                            Text(ep)
+                                .font(.headline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Text(TimeFormatting.formatTimeRange(start: airing.start, end: airing.end))
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let syn = airing.synopsis, !syn.isEmpty {
+                        Text(syn)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                    }
+
+                    Divider().padding(.vertical, 8)
+
+                    let existingRule = guideViewModel.findRule(for: channel.channelNumber, airing: airing)
+
+                    VStack(spacing: 12) {
+                        if airing.isCurrentlyAiring() {
+                            Button(action: {
+                                dismiss()
+                                Task {
+                                    await playerViewModel.playChannel(channel: channel, airing: airing)
+                                }
+                            }) {
+                                Label("Watch Live", systemImage: "play.fill")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+
+                        if let rule = existingRule {
+                            Button(role: .destructive, action: {
+                                Task {
+                                    try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId)
+                                    dismiss()
+                                }
+                            }) {
+                                Label("Cancel Recording", systemImage: "record.circle")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button(action: {
+                                Task {
+                                    try? await guideViewModel.recordEpisode(
+                                        seriesId: airing.seriesId,
+                                        channelNumber: channel.channelNumber,
+                                        start: airing.start
+                                    )
+                                    dismiss()
+                                }
+                            }) {
+                                Label("Record Episode", systemImage: "record.circle")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.bordered)
+
+                            if let seriesId = airing.seriesId, !seriesId.isEmpty {
+                                Button(action: {
+                                    Task {
+                                        try? await guideViewModel.recordSeries(
+                                            seriesId: seriesId,
+                                            channelNumber: channel.channelNumber
+                                        )
+                                        dismiss()
+                                    }
+                                }) {
+                                    Label("Record Series", systemImage: "recordingtape")
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Program Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}

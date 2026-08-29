@@ -15,12 +15,13 @@ import asyncio
 import contextlib
 import logging
 import shlex
+import shutil
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
-from app import hwaccel, transcoding
+from app import hls_streaming, hwaccel, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_admin, get_current_user
@@ -221,6 +222,49 @@ async def stream_channel(channel_number: str, request: Request):
             run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
 
     return StreamingResponse(body(), media_type="video/mp2t")
+
+
+@router.post("/hls/{channel_number}")
+async def stream_channel_hls(channel_number: str):
+    """Busy-tuner-fallback HLS entry point for native (Apple) clients — the
+    primary playback path is `/api/dvr/recording-stream-hls` (every live
+    watch goes through a builtin-DVR capture first); this exists for the
+    "official HDHomeRun DVR" / tuner-busy fallback that `/stream/{channel}`
+    already serves to the web frontend as raw mpegts.
+    """
+    settings = await get_hdhomerun_settings()
+    if not hdhomerun_client.is_tuner_configured(settings):
+        raise HTTPException(status_code=404, detail="Tuner not configured")
+
+    raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
+    session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    try:
+        ffmpeg_args = transcoding.build_ffmpeg_args(
+            settings,
+            raw_url,
+            output_format="hls",
+            hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
+            hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
+        )
+    except transcoding.InvalidCustomFfmpegArgsError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        session = await hls_streaming.create_session(
+            session_id,
+            tmp_dir,
+            ffmpeg_args,
+            label=f"channel {channel_number}",
+            min_segments=hls_streaming.HLS_READY_MIN_SEGMENTS,
+        )
+    except hls_streaming.HLSStartupError as exc:
+        raise HTTPException(status_code=502, detail=exc.detail) from exc
+
+    return {
+        "session_id": session.session_id,
+        "playlist_url": f"/api/hls/{session.session_id}/playlist.m3u8",
+    }
 
 
 @router.get("/hwaccel-diagnostics", dependencies=[Depends(get_current_admin)])

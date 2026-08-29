@@ -8,10 +8,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import hls_streaming
 from app.api import admin as admin_api
 from app.api import devices as devices_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
+from app.api import hls as hls_api
 from app.api import network_settings as network_settings_api
 from app.api import settings as settings_api
 from app.api import setup as setup_api
@@ -57,6 +59,7 @@ async def lifespan(app: FastAPI):
     xmltv_guide.register(scheduler)
     schedules_direct_guide.register(scheduler)
     dvr_engine.register(scheduler)
+    hls_streaming.register(scheduler)
     scheduler.start()
     yield
     scheduler.shutdown()
@@ -93,6 +96,7 @@ async def add_request_id(request: Request, call_next):
 app.include_router(tuner_api.router)
 app.include_router(streaming_api.router)
 app.include_router(guide_api.router)
+app.include_router(hls_api.router)
 app.include_router(dvr_api.router)
 app.include_router(network_settings_api.router)
 app.include_router(settings_api.router)

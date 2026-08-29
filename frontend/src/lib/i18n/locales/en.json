@@ -97,6 +97,8 @@
 			"record_episode": "Record Episode",
 			"record_series": "Record Series",
 			"cancel_recording": "Cancel",
+			"delete_recording_button": "Delete",
+			"deleting_button": "Deleting…",
 			"recording_options": "Recording options…",
 			"recording_options_title": "Recording Options",
 			"server_label": "Recording Server",

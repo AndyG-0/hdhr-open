@@ -1,0 +1,69 @@
+import SwiftUI
+import HDHROpenKit
+
+public struct iOSGuideView: View {
+    @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var playerViewModel: PlayerViewModel
+
+    @State private var searchText: String = ""
+    @State private var selectedAiringForSheet: (channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry)?
+
+    public init() {}
+
+    private var filteredChannels: [HDHomeRunChannel] {
+        let base = guideViewModel.displayedChannels
+        if searchText.isEmpty { return base }
+        return base.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.channelNumber.contains(searchText) ||
+            ($0.now?.title.localizedCaseInsensitiveContains(searchText) == true)
+        }
+    }
+
+    public var body: some View {
+        iOSGuideGridView(
+            channels: filteredChannels,
+            onSelectAiring: { channel, airing in
+                selectedAiringForSheet = (channel, airing)
+            },
+            onTuneChannel: { channel in
+                Task { await playerViewModel.playChannel(channel: channel) }
+            }
+        )
+        .searchable(text: $searchText, prompt: "Search channels or shows")
+        .navigationTitle("Live Guide")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Toggle(isOn: $guideViewModel.filterOnlyFavorites) {
+                    Image(systemName: guideViewModel.filterOnlyFavorites ? "star.fill" : "star")
+                        .foregroundColor(guideViewModel.filterOnlyFavorites ? .yellow : .primary)
+                }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
+                    Task { await guideViewModel.loadData() }
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+        }
+        .sheet(item: Binding(
+            get: { selectedAiringForSheet.map { AiringWrapper(channel: $0.channel, airing: $0.airing) } },
+            set: { _ in selectedAiringForSheet = nil }
+        )) { wrapper in
+            iOSProgramDetailSheet(channel: wrapper.channel, airing: wrapper.airing)
+        }
+        .task {
+            if guideViewModel.channels.isEmpty {
+                await guideViewModel.loadData()
+            }
+        }
+    }
+}
+
+private struct AiringWrapper: Identifiable {
+    var id: String { "\(channel.channelNumber)_\(airing.id)" }
+    let channel: HDHomeRunChannel
+    let airing: HDHomeRunGuideEntry
+}

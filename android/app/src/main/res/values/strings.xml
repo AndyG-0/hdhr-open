@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">HDHR Open</string>
+    <string name="tab_guide">Guide</string>
+    <string name="tab_recordings">Recordings</string>
+    <string name="tab_tuners">Tuners</string>
+    <string name="tab_settings">Settings</string>
+</resources>

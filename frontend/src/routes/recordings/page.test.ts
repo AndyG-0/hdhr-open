@@ -8,6 +8,7 @@ const {
 	getHDHomeRunChannels,
 	getNetworkIntegration,
 	deleteHDHomeRunRecordingRule,
+	deleteRecording,
 	addHDHomeRunRecordingRule,
 	getTunerInfo,
 	getTunerStatus,
@@ -25,6 +26,7 @@ const {
 	getHDHomeRunChannels: vi.fn(),
 	getNetworkIntegration: vi.fn(),
 	deleteHDHomeRunRecordingRule: vi.fn(),
+	deleteRecording: vi.fn(),
 	addHDHomeRunRecordingRule: vi.fn(),
 	getTunerInfo: vi.fn(),
 	getTunerStatus: vi.fn(),
@@ -69,6 +71,7 @@ vi.mock('$lib/api', () => ({
 		getHDHomeRunChannels,
 		getNetworkIntegration,
 		deleteHDHomeRunRecordingRule,
+		deleteRecording,
 		addHDHomeRunRecordingRule,
 		getTunerInfo,
 		getTunerStatus,
@@ -165,6 +168,61 @@ describe('recordings +page.svelte', () => {
 		const bigGameCard = screen.getByText('Big Game').closest('.recording');
 		expect(bigGameCard).not.toBeNull();
 		expect(within(bigGameCard as HTMLElement).queryByRole('button', { name: /Watch$/ })).toBeNull();
+
+		// Nor should it offer a delete button — only completed recordings can be deleted.
+		expect(within(bigGameCard as HTMLElement).queryByRole('button', { name: 'Delete' })).toBeNull();
+
+		const finishedShowCard = screen.getByText('Finished Show').closest('.recording');
+		expect(finishedShowCard).not.toBeNull();
+		expect(within(finishedShowCard as HTMLElement).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+	});
+
+	it('deletes a completed recording', async () => {
+		listRecordings.mockResolvedValue([
+			{
+				recording_id: 'rec-done',
+				title: 'Finished Show',
+				channel_name: 'KDFW',
+				channel_number: '4.1',
+				start: nowSeconds() - 7200,
+				record_end: nowSeconds() - 3600,
+				is_dvr_file: true,
+			},
+		]);
+		deleteRecording.mockResolvedValue({ status: 'deleted' });
+
+		render(Page);
+
+		expect(await screen.findByText('Finished Show')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+		expect(deleteRecording).toHaveBeenCalledWith('rec-done');
+		await vi.waitFor(() => expect(screen.queryByText('Finished Show')).not.toBeInTheDocument());
+	});
+
+	it('shows an error and keeps the recording when deleting fails', async () => {
+		listRecordings.mockResolvedValue([
+			{
+				recording_id: 'rec-done',
+				title: 'Finished Show',
+				channel_name: 'KDFW',
+				channel_number: '4.1',
+				start: nowSeconds() - 7200,
+				record_end: nowSeconds() - 3600,
+				is_dvr_file: true,
+			},
+		]);
+		deleteRecording.mockRejectedValue(new Error('Recording is still in progress'));
+
+		render(Page);
+
+		expect(await screen.findByText('Finished Show')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+		expect(await screen.findByText('Recording is still in progress')).toBeInTheDocument();
+		expect(screen.getByText('Finished Show')).toBeInTheDocument();
 	});
 
 	it('offers a Watch Live button for an in-progress recording and opens the player', async () => {

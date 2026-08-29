@@ -10,9 +10,11 @@
 		onImageError: () => void;
 		onWatchLive?: () => void;
 		onPlay?: () => void;
+		onDelete?: () => void;
+		deleting?: boolean;
 	}
 
-	let { recording, variant, failed, onImageError, onWatchLive, onPlay }: Props = $props();
+	let { recording, variant, failed, onImageError, onWatchLive, onPlay, onDelete, deleting }: Props = $props();
 
 	function formatBytes(bytes: number | null | undefined): string {
 		if (bytes === null || bytes === undefined) return get(_)('common.unknown');
@@ -256,6 +258,19 @@
 					{$_('hdhomerun.detail.open_external')}
 				</a>
 			{/if}
+			{#if onDelete}
+				<button
+					type="button"
+					class="delete-recording small"
+					disabled={deleting}
+					onclick={(e) => {
+						e.stopPropagation();
+						onDelete?.();
+					}}
+				>
+					{deleting ? $_('hdhomerun.detail.deleting_button') : $_('hdhomerun.detail.delete_recording_button')}
+				</button>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -450,6 +465,24 @@
 	.open-external.small {
 		font-size: 0.75rem;
 		padding: 0.25rem 0.5rem;
+	}
+
+	.delete-recording {
+		background: none;
+		border: 1px solid var(--color-border);
+		color: var(--color-error, #e05a5a);
+		border-radius: 0.4rem;
+		cursor: pointer;
+	}
+
+	.delete-recording.small {
+		padding: 0.2rem 0.5rem;
+		font-size: 0.75rem;
+	}
+
+	.delete-recording:disabled {
+		opacity: 0.6;
+		cursor: default;
 	}
 
 	.watch-live-btn {

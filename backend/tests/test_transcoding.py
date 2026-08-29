@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app import transcoding
@@ -241,3 +243,39 @@ def test_all_hwaccel_presets_force_stereo_audio():
             continue
         assert "-ac" in preset.output_args, preset_id
         assert preset.output_args[preset.output_args.index("-ac") + 1] == "2", preset_id
+
+
+def test_build_ffmpeg_args_defaults_to_mpegts_output():
+    # Regression guard: adding output_format="hls" support must not change
+    # the default (mpegts) code path's args at all.
+    args = transcoding.build_ffmpeg_args({}, "url")
+
+    assert args[-3:] == ["-f", "mpegts", "pipe:1"]
+
+
+def test_build_ffmpeg_args_hls_mode_swaps_output_framing():
+    playlist = Path("/tmp/hls-session/stream.m3u8")
+    args = transcoding.build_ffmpeg_args(
+        {},
+        "url",
+        output_format="hls",
+        hls_playlist_path=playlist,
+        hls_segment_pattern="/tmp/hls-session/segment%05d.ts",
+    )
+
+    assert "-f" in args
+    assert args[args.index("-f") + 1] == "hls"
+    assert "-hls_time" in args
+    assert args[args.index("-hls_time") + 1] == str(transcoding.HLS_SEGMENT_SECONDS)
+    assert "-hls_list_size" in args
+    assert args[args.index("-hls_list_size") + 1] == str(transcoding.HLS_LIST_SIZE)
+    assert "-hls_segment_filename" in args
+    assert args[args.index("-hls_segment_filename") + 1] == "/tmp/hls-session/segment%05d.ts"
+    assert args[-1] == str(playlist)
+    # mpegts's trailing "pipe:1" output target must not leak into HLS mode.
+    assert "pipe:1" not in args
+
+
+def test_build_ffmpeg_args_hls_mode_requires_playlist_and_segment_paths():
+    with pytest.raises(ValueError):
+        transcoding.build_ffmpeg_args({}, "url", output_format="hls")

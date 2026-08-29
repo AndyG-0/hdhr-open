@@ -18,5 +18,8 @@ actually work. This needs real-world verification against a live tuner.
   shared Swift framework (`HDHROpenKit`), featuring 10-foot Siri Remote navigation,
   touch controls, live watch sessions with pause/rewind/scrub, DVR scheduling/library,
   tuner signal meters, and Bearer token auth via Keychain.
-- **Android / Android TV**: Planned for a future workstream, consuming the same
-  FastAPI REST and streaming endpoints.
+- **Android (Phone & Tablet)**: Implemented in `android/` using Jetpack Compose
+  and a shared core module (`core`), featuring touch controls, 2D time-based EPG guide grid,
+  live watch sessions with pause/rewind/scrub, DVR scheduling/library, tuner signal meters,
+  mDNS server discovery, closed captions, and Bearer token auth via Encrypted Preferences.
+- **Android TV**: Planned for a future workstream, building on the shared `core` module.

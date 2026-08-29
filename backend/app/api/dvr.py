@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from app import media_probe, transcoding
+from app import hls_streaming, media_probe, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_user
@@ -276,6 +276,8 @@ async def get_recording_poster(recording_id: str):
 
 @router.delete("/recordings/{recording_id}")
 async def delete_recording(recording_id: str):
+    if capture_pipeline.is_capture_active(recording_id):
+        raise HTTPException(status_code=409, detail="Recording is still in progress")
     deleted = await retention.delete_local_recording(recording_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Recording not found")
@@ -641,6 +643,116 @@ async def stream_recording(
             yield b""
 
     return StreamingResponse(stream_generator(), media_type="video/mp2t")
+
+
+class RecordingStreamHLSRequest(BaseModel):
+    url: str
+    recording_id: str | None = None
+    start: float | None = None
+    audio_index: int | None = None
+
+
+@router.post("/recording-stream-hls")
+async def stream_recording_hls(body: RecordingStreamHLSRequest):
+    """HLS entry point for native (Apple) clients - the primary playback path
+    (see PlayerViewModel.playChannel). Unlike /recording-stream, this always
+    transcodes: AVFoundation (iOS/tvOS's only player) can't decode raw
+    MPEG-2, so the direct-file/remote-proxy fallback branches that
+    /recording-stream uses for playback_mode != "server_transcode" don't
+    apply here regardless of the user's saved playback_mode setting.
+    """
+    settings = await get_hdhomerun_settings()
+    active_capture = (
+        await capture_pipeline.get_active_capture(body.recording_id) if body.recording_id else None
+    )
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, body.url, body.recording_id)
+
+    if active_capture is not None and not await _wait_for_live_capture_data(active_capture, body.recording_id):
+        logger.error(
+            "Recording HLS transcode aborted for %s: capture produced no data within %ss (tuner likely still locking)",
+            target_url,
+            _LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not start streaming recording: tuner did not produce any data within "
+                f"{_LIVE_CAPTURE_READY_TIMEOUT_SECONDS}s"
+            ),
+        )
+
+    input_url = "pipe:0" if active_capture is not None else target_url
+    # Demuxer-side -ss can't seek a pipe; a seek into a live capture is
+    # instead handled by starting the tail-follow pump at an estimated byte
+    # offset (below) - same split as /recording-stream.
+    seek_seconds = None if active_capture is not None else body.start
+
+    session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    try:
+        ffmpeg_args = transcoding.build_ffmpeg_args(
+            settings,
+            input_url,
+            seek_seconds=seek_seconds,
+            audio_index=body.audio_index,
+            output_format="hls",
+            hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
+            hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
+        )
+    except transcoding.InvalidCustomFfmpegArgsError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Started from create_session's on_process_spawned callback (below) so the
+    # tail-follow pump is already feeding ffmpeg's stdin *before* create_session
+    # starts waiting for a playlist to appear - otherwise ffmpeg sits reading
+    # from an open-but-unfed pipe and can never produce output within the
+    # startup timeout (see on_process_spawned's docstring in hls_streaming.py).
+    pump_task: asyncio.Task[None] | None = None
+    pump_stop_event: asyncio.Event | None = None
+
+    def _start_pump(process: asyncio.subprocess.Process) -> None:
+        nonlocal pump_task, pump_stop_event
+        if active_capture is None:
+            return
+        assert process.stdin is not None
+        start_offset_bytes = _estimate_byte_offset(active_capture, body.start) if body.start is not None else None
+        pump_stop_event = asyncio.Event()
+        pump_task = asyncio.create_task(
+            pump_tail_follow(
+                active_capture.file_path,
+                process.stdin,
+                pump_stop_event,
+                lambda: capture_pipeline.is_capture_active(body.recording_id),
+                start_offset_bytes=start_offset_bytes,
+            )
+        )
+
+    try:
+        session = await hls_streaming.create_session(
+            session_id,
+            tmp_dir,
+            ffmpeg_args,
+            label=f"recording {body.recording_id or target_url}",
+            stdin_pipe=active_capture is not None,
+            on_process_spawned=_start_pump,
+            min_segments=hls_streaming.HLS_READY_MIN_SEGMENTS,
+        )
+    except hls_streaming.HLSStartupError as exc:
+        if pump_stop_event is not None:
+            pump_stop_event.set()
+        if pump_task is not None:
+            with contextlib.suppress(Exception):
+                await pump_task
+        raise HTTPException(status_code=502, detail=exc.detail) from exc
+
+    if active_capture is not None:
+        assert pump_task is not None and pump_stop_event is not None
+        await hls_streaming.attach_pump(session_id, pump_task, pump_stop_event)
+
+    return {
+        "session_id": session.session_id,
+        "playlist_url": f"/api/hls/{session.session_id}/playlist.m3u8",
+    }
 
 
 def _resolve_transcode_info(settings: dict[str, Any]) -> dict[str, Any]:

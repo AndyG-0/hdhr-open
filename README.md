@@ -36,6 +36,8 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
   with the backend REST API.
 - **`apple/`** — Native Apple TV (tvOS) and iOS client apps sharing a unified
   Swift framework (`HDHROpenKit`). See `apple/README.md`.
+- **`android/`** — Native Android mobile client app built with Jetpack Compose
+  and a shared core module (`core`). See `android/README.md`.
 
 ## Running it
 

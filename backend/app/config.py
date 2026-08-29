@@ -31,6 +31,13 @@ HDHOMERUN_MEDIA_CACHE_DIR = Path(
 # roughly 2-4 GB/hour, so this typically points at a NAS mount or a big USB
 # disk, not a Pi's boot media.
 RECORDINGS_DIR = Path(os.environ.get("RECORDINGS_DIR", str(BACKEND_ROOT / "recordings")))
+# Per-session temp directories for HLS packaging (app/hls_streaming.py) - each
+# native-client playback session gets a subdirectory here holding its rolling
+# window of ffmpeg-written segments + playlist. Ephemeral by design (sessions
+# never need to survive a restart), but still overridable via env so a
+# container without a writable BACKEND_ROOT can point it at a tmpfs/volume.
+HLS_SESSION_DIR = Path(os.environ.get("HLS_SESSION_DIR", str(BACKEND_ROOT / "hls_sessions")))
+HLS_SESSION_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class Settings(BaseSettings):

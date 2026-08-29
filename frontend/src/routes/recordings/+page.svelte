@@ -23,6 +23,7 @@
 	let recordingRules = $state<HDHomeRunRecordingRule[]>([]);
 	let channels = $state<HDHomeRunChannel[]>([]);
 	let recordingLoading = $state<string | null>(null);
+	let deletingRecordingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
 	let playbackMode = $state('server_transcode');
 	let tunerInfo = $state<HDHomeRunTunerInfo | null>(null);
@@ -287,6 +288,20 @@
 			recordingLoading = null;
 		}
 	}
+
+	async function deleteRecording(recording: HDHomeRunRecording) {
+		const id = recording.recording_id;
+		if (!id) return;
+		deletingRecordingId = id;
+		try {
+			await api.deleteRecording(id);
+			allRecordings = allRecordings.filter((r) => r.recording_id !== id);
+		} catch (err) {
+			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			deletingRecordingId = null;
+		}
+	}
 </script>
 
 <div class="recordings-page">
@@ -465,6 +480,8 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
+								onDelete={() => deleteRecording(recording)}
+								deleting={deletingRecordingId === recording.recording_id}
 							/>
 						{/each}
 					</div>
@@ -481,6 +498,8 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
+								onDelete={() => deleteRecording(recording)}
+								deleting={deletingRecordingId === recording.recording_id}
 							/>
 						{/each}
 					</div>
@@ -497,6 +516,8 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
+								onDelete={() => deleteRecording(recording)}
+								deleting={deletingRecordingId === recording.recording_id}
 							/>
 						{/each}
 					</div>
@@ -515,6 +536,8 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
+							onDelete={() => deleteRecording(recording)}
+							deleting={deletingRecordingId === recording.recording_id}
 						/>
 					{/each}
 				</div>
@@ -534,6 +557,8 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
+							onDelete={() => deleteRecording(recording)}
+							deleting={deletingRecordingId === recording.recording_id}
 						/>
 					{/each}
 				</div>
@@ -553,6 +578,8 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
+							onDelete={() => deleteRecording(recording)}
+							deleting={deletingRecordingId === recording.recording_id}
 						/>
 					{/each}
 				</div>

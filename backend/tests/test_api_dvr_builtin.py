@@ -230,6 +230,57 @@ def test_delete_recording_not_found(client, tmp_db):
     assert res.status_code == 404
 
 
+def test_delete_recording_rejects_in_progress(client, tmp_db, tmp_path, monkeypatch):
+    from app.dvr.builtin import retention
+    from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+
+    monkeypatch.setattr(retention, "RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(retention, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path / "cache")
+
+    video_file = tmp_path / "rec_live.ts"
+    video_file.write_bytes(b"DATA")
+
+    db.create_recording(
+        {
+            "id": "rec_live",
+            "title": "Live Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "recording",
+        }
+    )
+
+    now = time.time()
+    active_capture = ActiveCapture(
+        recording_id="rec_live",
+        scheduled_id=None,
+        rule_id=None,
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Live Show",
+        episode_title=None,
+        season_number=None,
+        episode_number=None,
+        start_ts=now - 60,
+        end_ts=now + 600,
+        file_path=video_file,
+        image_url=None,
+        process=None,
+    )
+    capture_pipeline._active_captures["rec_live"] = active_capture
+
+    try:
+        res = client.delete("/api/dvr/recordings/rec_live")
+        assert res.status_code == 409
+        assert video_file.exists()
+        assert db.get_recording("rec_live") is not None
+    finally:
+        capture_pipeline._active_captures.pop("rec_live", None)
+
+
 def test_create_recording_rule_respects_dvr_server_priority(client, tmp_db, monkeypatch):
     from app.integrations import hdhomerun_client
 
