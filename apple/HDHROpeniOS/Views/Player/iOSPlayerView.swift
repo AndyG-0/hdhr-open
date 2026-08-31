@@ -132,7 +132,7 @@ public struct iOSPlayerView: View {
                     // Center Play / Skip Controls
                     HStack(spacing: 48) {
                         if playerViewModel.playerEngine.isSeekable {
-                            Button(action: { playerViewModel.playerEngine.skipBackward(seconds: 10) }) {
+                            Button(action: { playerViewModel.skipBackward(seconds: 10) }) {
                                 Image(systemName: "gobackward.10")
                                     .font(.system(size: 32))
                                     .foregroundColor(.white)
@@ -146,7 +146,7 @@ public struct iOSPlayerView: View {
                         }
 
                         if playerViewModel.playerEngine.isSeekable {
-                            Button(action: { playerViewModel.playerEngine.skipForward(seconds: 10) }) {
+                            Button(action: { playerViewModel.skipForward(seconds: 10) }) {
                                 Image(systemName: "goforward.10")
                                     .font(.system(size: 32))
                                     .foregroundColor(.white)
@@ -166,7 +166,7 @@ public struct iOSPlayerView: View {
                             thumbnailCues: playerViewModel.thumbnailCues,
                             spriteURL: playerViewModel.thumbnailSpriteURL,
                             onSeek: { target in
-                                playerViewModel.playerEngine.seek(to: target)
+                                playerViewModel.seek(to: target)
                             }
                         )
 

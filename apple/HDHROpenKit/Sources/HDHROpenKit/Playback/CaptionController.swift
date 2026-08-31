@@ -11,7 +11,7 @@ public final class CaptionController: ObservableObject {
         }
     }
 
-    private var cues: [CaptionCue] = []
+    var cues: [CaptionCue] = []
     private var baseOffset: Double = 0.0
 
     public init() {}
@@ -19,6 +19,12 @@ public final class CaptionController: ObservableObject {
     public func setCues(_ cues: [CaptionCue], baseOffset: Double = 0.0) {
         self.cues = cues
         self.baseOffset = baseOffset
+    }
+
+    public func reset() {
+        cues = []
+        baseOffset = 0.0
+        activeCueText = nil
     }
 
     public func updatePlaybackTime(_ currentTime: Double) {

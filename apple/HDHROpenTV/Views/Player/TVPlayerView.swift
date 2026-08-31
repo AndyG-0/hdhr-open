@@ -108,7 +108,7 @@ public struct TVPlayerView: View {
                             thumbnailCues: playerViewModel.thumbnailCues,
                             spriteURL: playerViewModel.thumbnailSpriteURL,
                             onSeek: { target in
-                                playerViewModel.playerEngine.seek(to: target)
+                                playerViewModel.seek(to: target)
                             }
                         )
 
@@ -119,11 +119,11 @@ public struct TVPlayerView: View {
                                 resetControlsTimer()
                             },
                             onSkipBackward: {
-                                playerViewModel.playerEngine.skipBackward(seconds: 10)
+                                playerViewModel.skipBackward(seconds: 10)
                                 resetControlsTimer()
                             },
                             onSkipForward: {
-                                playerViewModel.playerEngine.skipForward(seconds: 10)
+                                playerViewModel.skipForward(seconds: 10)
                                 resetControlsTimer()
                             },
                             onClose: {

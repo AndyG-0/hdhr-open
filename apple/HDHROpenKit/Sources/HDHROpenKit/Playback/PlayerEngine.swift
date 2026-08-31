@@ -141,10 +141,15 @@ public final class PlayerEngine: ObservableObject {
 
     public func seek(to seconds: Double) {
         guard isSeekable else { return }
-        let targetTime = CMTime(seconds: max(0, min(seconds, duration > 0 ? duration : seconds)), preferredTimescale: 600)
+        let clamped = max(0, min(seconds, duration > 0 ? duration : seconds))
+        // Set optimistically, before the AVPlayer seek completes, so
+        // dependents that read `currentTime` right after calling `seek`
+        // (e.g. caption resync) see the new position immediately.
+        currentTime = clamped
+        let targetTime = CMTime(seconds: clamped, preferredTimescale: 600)
         avPlayer?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
-                self?.currentTime = seconds
+                self?.currentTime = clamped
             }
         }
     }
