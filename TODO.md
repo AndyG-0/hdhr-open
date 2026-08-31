@@ -317,14 +317,22 @@ Decided artifact venue: **GitHub Releases**.
   keystore-related was ever staged or committed. YAML validated with
   Ruby's Psych parser (same approach as CI-1/CI-2, since this environment
   has no `pyyaml`/`actionlint`).
-  **Explicitly not done, stopped here per the plan**: generating the real
-  release keystore (`keytool -genkeypair`) and adding the four
-  `ANDROID_KEYSTORE_*` secrets to the repo. That keystore is the app's
-  long-lived signing identity — every future release has to be signed with
-  the same one, and losing it means all existing installs can never
-  receive a signed update again. Needs the user's explicit sign-off on
-  where the keystore itself gets generated, stored, and backed up before
-  it's created.
+  **Update**: with the user's explicit go-ahead, the real release keystore
+  now exists — `keytool -genkeypair`, alias `hdhropen-release`, PKCS12,
+  10000-day validity (until 2054), stored outside the repo at
+  `~/hdhr-open-android-release-key/` (never committed) with its password
+  and SHA-256 cert fingerprint recorded in a `CREDENTIALS.txt` alongside
+  it, which the user still needs to back up externally (password
+  manager/encrypted storage) — this machine is not a durable store.
+  Verified end-to-end: built and `apksigner verify --print-certs`-checked
+  a real signed release APK against this keystore (cert DN and SHA-256
+  fingerprint matched), then cleaned up the build output and the local
+  `keystore.properties` used for the check.
+  **Still not done**: adding the four `ANDROID_KEYSTORE_*` GitHub Actions
+  secrets — this repo has no GitHub remote configured at all
+  (`git remote -v` is empty), so there's nowhere to add them yet. Once a
+  remote exists, run `base64 -i android-release.jks | pbcopy` on the file
+  above and `gh secret set` the four values (all in `CREDENTIALS.txt`).
 
 - [x] **BUILD-2 — Apple sideload docs (free-tier) + future paid-account
   plan.** Added a `## Sideloading` section to `apple/README.md` (after
