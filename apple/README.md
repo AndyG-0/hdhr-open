@@ -61,3 +61,68 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-pa
 
 ### Opening in Xcode
 Open the `apple/` folder or `apple/HDHROpenKit` in Xcode 15+. Select the **HDHROpenTV** or **HDHROpeniOS** scheme and choose your Apple TV or iPhone simulator.
+
+## Sideloading
+
+Both app targets use `CODE_SIGN_STYLE = Automatic` with no team/certificate/
+provisioning profile baked into the project, so they'll build and sign with
+whatever Apple ID you have configured in Xcode — including a free-tier
+**Personal Team**, no paid Apple Developer Program membership required.
+
+### Free-tier (Personal Team) install
+
+1. In Xcode, go to **Settings → Accounts** and sign in with your Apple ID if
+   you haven't already. This adds a "(Personal Team)" team you can select
+   per-target.
+2. Open `apple/HDHROpen.xcodeproj`. For each target you want to install
+   (**HDHROpenTV**, **HDHROpeniOS**), select it in the project navigator,
+   go to **Signing & Capabilities**, and pick your Personal Team from the
+   **Team** dropdown. Xcode will generate a personal provisioning profile
+   automatically.
+3. Connect your device (iPhone/iPad over USB, or an Apple TV on the same
+   network paired via **Xcode → Window → Devices and Simulators**) and
+   register it: select the device as the run destination and build — Xcode
+   prompts to register the device's UDID against your account the first
+   time.
+4. On the device, trust the developer certificate once: **Settings →
+   General → VPN & Device Management** (iOS) and the equivalent under
+   **Settings → General** on tvOS, then select your Apple ID and tap
+   **Trust**.
+5. Build and run (⌘R) from Xcode to install.
+
+**Limitations of a Personal Team build**, all inherent to free-tier signing
+(not specific to this app):
+- **Apps expire after 7 days.** A free-tier provisioning profile is only
+  valid for a week; after that the app refuses to launch until you rebuild
+  and reinstall from Xcode. There's no way around this without a paid
+  account — plan on a weekly `⌘R` from a machine with the project open.
+- **Up to 3 apps at a time** can be signed with a single free Apple ID
+  across all your devices (an Xcode/App Store limit, not an HDHR Open one).
+- **Device registration is manual and per-device** — each new iPhone, iPad,
+  or Apple TV you want to install on has to go through step 3 above.
+- This is a local-only workflow: there's no CI involvement, and nothing here
+  produces a distributable build artifact — each install is built straight
+  from your own Xcode.
+
+### With a paid Apple Developer Program account
+
+A paid membership ($99/year) removes the 7-day expiry (profiles last a
+year) and the 3-app cap, and unlocks ad-hoc/TestFlight distribution so
+installs don't require Xcode connected to the device at all. None of this
+is wired up yet — the notes below are what a future session would need to
+add it, mirroring `android/`'s planned signed-release-build shape
+([BUILD-1](../TODO.md)):
+
+- Switch `CODE_SIGN_STYLE` to `Manual` (or keep `Automatic` but pin a
+  `DEVELOPMENT_TEAM`) once a paid team ID exists, and add an ad-hoc (or
+  App Store) export options plist per target.
+- Store the distribution certificate, provisioning profiles, and team ID as
+  GitHub Actions secrets rather than relying on a developer's local
+  Xcode keychain.
+- Add a CI job (parallel to the existing `apple` test job in
+  `.github/workflows/ci.yml`) that runs `xcodebuild archive` +
+  `xcodebuild -exportArchive` to produce a signed `.ipa`, then publishes it
+  to a GitHub Release the same way a future Android release workflow would
+  publish a signed `.apk`.
+- Decide on TestFlight vs. plain ad-hoc `.ipa` distribution for testers who
+  aren't running Xcode themselves.

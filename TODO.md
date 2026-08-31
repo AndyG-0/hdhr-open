@@ -291,13 +291,17 @@ Decided artifact venue: **GitHub Releases**.
   Release. Document install steps ("unknown sources" / install-from-APK) in
   `android/README.md`.
 
-- [ ] **BUILD-2 — Apple sideload docs (free-tier) + future paid-account
-  plan.** No paid Apple Developer account exists yet, so this is
-  documentation-only for now: add a section to `apple/README.md` covering
-  local Xcode "Personal Team" build+install for iOS and tvOS (free-tier
-  signing, 7-day resign expiry, device UDID registration, periodic
-  reinstall via Xcode). Separately document what changes if a paid
-  Developer Program account is added later (ad-hoc export options plist,
-  `DEVELOPMENT_TEAM`/cert/profile as GitHub secrets, a CI job producing a
-  durable `.ipa` published to GitHub Releases like BUILD-1) so that upgrade
-  path doesn't require re-planning.
+- [x] **BUILD-2 — Apple sideload docs (free-tier) + future paid-account
+  plan.** Added a `## Sideloading` section to `apple/README.md` (after
+  `## Running & Testing`): step-by-step Personal Team build+install
+  (Xcode account sign-in, per-target Team selection under Signing &
+  Capabilities, device UDID registration, trusting the developer cert on
+  the device) plus a called-out limitations list (7-day profile expiry
+  with no workaround short of a paid account, the 3-app free-tier cap,
+  per-device manual registration, no CI/distributable-artifact
+  involvement). Separately documented the paid Developer Program path as
+  not-yet-wired-up notes for a future session: switching
+  `CODE_SIGN_STYLE`, storing cert/profile/team ID as GitHub secrets, a CI
+  job archiving + exporting a signed `.ipa` alongside the existing `apple`
+  CI test job, publishing to GitHub Releases the same way BUILD-1's
+  Android release workflow would. Docs only, no code changes.
