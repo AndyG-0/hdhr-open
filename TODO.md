@@ -231,15 +231,19 @@ Each client wires it up differently and incompletely — see below.
 `.github/workflows/ci.yml` currently only has `backend` and `frontend` jobs
 — no coverage for `apple/` or `android/` at all.
 
-- [ ] **CI-1 — Android GitHub Actions job.** Add an `android` job to
-  `.github/workflows/ci.yml`: setup JDK 17 + Gradle, run
-  `./gradlew :core:test` (5 existing test files under
-  `android/core/src/test/`) and lint. No signing needed for this job.
+- [x] **CI-1 — Android GitHub Actions job.** Added an `android` job to
+  `.github/workflows/ci.yml`: `actions/setup-java@v4` (temurin, JDK 17) then
+  `./gradlew :core:test`, matching the `backend`/`frontend` jobs'
+  `defaults.run.working-directory` style. No ktlint/detekt config exists in
+  the repo, so no separate lint step. Unverified until pushed (GitHub
+  Actions can't be dry-run locally) — YAML syntax checked with Ruby's
+  built-in `Psych` parser.
 
-- [ ] **CI-2 — Apple GitHub Actions job.** Add an `apple` job on a
-  `macos-latest` runner: run `swift test --package-path apple/HDHROpenKit`
-  (12 existing tests across `HDHROpenKitTests`), matching the command
-  already documented in `apple/README.md`.
+- [x] **CI-2 — Apple GitHub Actions job.** Added an `apple` job to
+  `.github/workflows/ci.yml`: `swift test --package-path apple/HDHROpenKit`
+  on `macos-15` (pinned rather than `macos-latest`, so the preinstalled
+  Xcode version — and its iOS/tvOS 17 SDK support — doesn't silently shift
+  over time). Unverified until pushed, same caveat as CI-1.
 
 ## Sideload Build Artifacts
 
