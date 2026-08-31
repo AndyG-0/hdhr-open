@@ -1,0 +1,54 @@
+name: Android Release
+
+# Manual only - this builds and publishes a signed release APK, so it should
+# never fire on an ordinary push/PR. Requires ANDROID_KEYSTORE_BASE64,
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD
+# repo secrets (a base64-encoded release keystore + its passwords) - none of
+# which exist yet as of this workflow being added. See BUILD-1 in TODO.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Version name for this release (e.g. 1.1.0)"
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Decode release keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > release.jks
+
+      - name: Build signed release APK
+        env:
+          ANDROID_KEYSTORE_PATH: release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        # versionCode is the CI run number - monotonically increasing across
+        # every workflow run, which is all the Play/APK installer contract
+        # requires, without needing a separately tracked counter.
+        run: |
+          ./gradlew :app:assembleRelease \
+            -PversionName=${{ inputs.version_name }} \
+            -PversionCode=${{ github.run_number }}
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f release.jks
+
+      - name: Publish to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v${{ inputs.version_name }}
+          name: Android v${{ inputs.version_name }}
+          files: android/app/build/outputs/apk/release/app-release.apk

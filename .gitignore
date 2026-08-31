@@ -12,3 +12,6 @@ android/core/build/
 android/build/
 android/.idea/
 android/.kotlin/
+android/keystore.properties
+android/*.jks
+android/*.keystore

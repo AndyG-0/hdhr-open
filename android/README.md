@@ -76,3 +76,56 @@ android/
 ```bash
 ./gradlew :core:test
 ```
+
+## Installing a Release Build
+
+`app/build.gradle.kts`'s `release` build type signs itself when release
+signing material is available (a local `android/keystore.properties`, or the
+`ANDROID_KEYSTORE_*` env vars below), and otherwise builds a plain unsigned
+APK - so `./gradlew :app:assembleRelease` always works, but only produces an
+installable APK once it's signed.
+
+### For local builds: `keystore.properties`
+
+Create `android/keystore.properties` (gitignored, never commit it or the
+`.jks`/`.keystore` file it points at):
+
+```properties
+storeFile=/absolute/path/to/your-release-key.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
+
+Then `./gradlew :app:assembleRelease` produces a signed
+`app/build/outputs/apk/release/app-release.apk`. The same four values can be
+supplied as `ANDROID_KEYSTORE_PATH` / `ANDROID_KEYSTORE_PASSWORD` /
+`ANDROID_KEY_ALIAS` / `ANDROID_KEY_PASSWORD` env vars instead if you'd rather
+not keep a properties file around - `keystore.properties` wins if both are
+present.
+
+### From CI: the Android Release workflow
+
+`.github/workflows/android-release.yml` is a manual (`workflow_dispatch`)
+workflow that builds a signed release APK and publishes it to a GitHub
+Release, given a version name input. It needs four repository secrets that
+don't exist yet - **do not add these without deliberately generating and
+backing up a real release keystore first**; see [BUILD-1 in
+`TODO.md`](../TODO.md) for why this is treated as a separate, explicit step
+rather than something to wire up casually:
+- `ANDROID_KEYSTORE_BASE64` - `base64 -i your-release-key.jks | pbcopy` (macOS)
+  output of the keystore file
+- `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
+
+### Installing the APK on a device
+
+No Play Store distribution exists (or is planned) - installs are sideloaded:
+1. Transfer `app-release.apk` to the device (download link, `adb push`, etc).
+2. On the device, allow "Install unknown apps" for whichever app you used to
+   open the APK (**Settings → Apps → Special app access → Install unknown
+   apps**, exact path varies by Android version/OEM skin).
+3. Open the APK file to install.
+
+Unlike the Apple sideloading path (see `apple/README.md`), a signed Android
+APK has no expiry - it stays installed and functional until you replace it
+with a new build.

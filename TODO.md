@@ -283,13 +283,48 @@ keystore/signingConfig, `assembleRelease` would emit an unsigned APK). No
 App Store / TestFlight plans currently — builds are for side-loading only.
 Decided artifact venue: **GitHub Releases**.
 
-- [ ] **BUILD-1 — Android signed release APK via CI → GitHub Releases.**
-  Generate a release keystore (stored as GitHub Actions secrets, not
-  committed), wire a `signingConfig` into `android/app/build.gradle.kts`,
-  add a workflow (manual `workflow_dispatch` or on version tag) that runs
-  `./gradlew :app:assembleRelease` and publishes the signed APK to a GitHub
-  Release. Document install steps ("unknown sources" / install-from-APK) in
-  `android/README.md`.
+- [x] **BUILD-1 — Android signed release APK via CI → GitHub Releases
+  (wiring only — no keystore generated yet).** Wired everything except the
+  actual release keystore, which needs the user directly in the loop (see
+  below) — the code/workflow/docs are all in place and dry-run-verified.
+  `android/app/build.gradle.kts` reads `storeFile`/`storePassword`/
+  `keyAlias`/`keyPassword` from a local (gitignored) `keystore.properties`
+  via `rootProject.file(...)`, falling back to `ANDROID_KEYSTORE_*` env vars
+  so CI can supply them from secrets; when neither is present,
+  `releaseStoreFile` stays `null` and the `release` build type gets no
+  `signingConfig` at all, so a bare `./gradlew :app:assembleRelease`
+  still produces an unsigned APK exactly as before this change (verified).
+  `versionCode`/`versionName` are now overridable via
+  `-PversionCode=/-PversionName=` (falling back to the old hardcoded
+  `1`/`"1.0.0"`), so a release build isn't stuck re-shipping the same
+  version. New `.github/workflows/android-release.yml`: manual
+  `workflow_dispatch` (takes a `version_name` input), decodes an
+  `ANDROID_KEYSTORE_BASE64` secret to a temp `.jks`, builds with
+  `-PversionCode=${{ github.run_number }}` (monotonically increasing, no
+  separate counter to maintain), deletes the temp keystore file
+  unconditionally after, and publishes the signed APK to a GitHub Release
+  via `softprops/action-gh-release@v2`. Added `keystore.properties`/`*.jks`/
+  `*.keystore` to `.gitignore`. Documented both the local-dev
+  `keystore.properties` flow and the CI secrets flow in `android/README.md`
+  under a new "Installing a Release Build" section, plus sideload/install
+  steps for the resulting APK. **Dry-run verified**: generated a
+  throwaway, non-committed local keystore, confirmed
+  `./gradlew :app:assembleRelease -PversionName=1.1.0-dryrun
+  -PversionCode=999` produces a signed APK with those exact version values
+  (`validateSigningRelease`/`writeReleaseSigningConfigVersions` tasks ran,
+  which only happens when a `signingConfig` is actually attached), then
+  deleted the throwaway keystore and `keystore.properties` — nothing
+  keystore-related was ever staged or committed. YAML validated with
+  Ruby's Psych parser (same approach as CI-1/CI-2, since this environment
+  has no `pyyaml`/`actionlint`).
+  **Explicitly not done, stopped here per the plan**: generating the real
+  release keystore (`keytool -genkeypair`) and adding the four
+  `ANDROID_KEYSTORE_*` secrets to the repo. That keystore is the app's
+  long-lived signing identity — every future release has to be signed with
+  the same one, and losing it means all existing installs can never
+  receive a signed update again. Needs the user's explicit sign-off on
+  where the keystore itself gets generated, stored, and backed up before
+  it's created.
 
 - [x] **BUILD-2 — Apple sideload docs (free-tier) + future paid-account
   plan.** Added a `## Sideloading` section to `apple/README.md` (after
