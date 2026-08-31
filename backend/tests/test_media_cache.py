@@ -176,6 +176,61 @@ async def test_generate_captions_vtt_uses_cached_file_on_second_call(monkeypatch
     assert result == cache_path
 
 
+async def test_generate_captions_vtt_coalesces_concurrent_calls(monkeypatch, tmp_path):
+    # CC-4 added a second (eager, on-recording-finish) trigger for the same
+    # generate_captions_vtt() a client's lazy on-request fetch already calls -
+    # without coalescing, both could see the cache missing and race ffmpeg
+    # against the same tmp_path.
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    media_cache._generate_captions_inflight.clear()
+
+    call_count = 0
+    release = asyncio.Event()
+
+    async def fake_exec(*argv, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise AssertionError("ffmpeg should only be invoked once for concurrent callers")
+        await release.wait()
+        out_path = argv[-1]
+        with open(out_path, "w") as f:
+            f.write("WEBVTT\n")
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(media_cache.asyncio, "create_subprocess_exec", fake_exec)
+
+    task1 = asyncio.create_task(media_cache.generate_captions_vtt("url", "rec1"))
+    task2 = asyncio.create_task(media_cache.generate_captions_vtt("url", "rec1"))
+    await asyncio.sleep(0.01)  # let both reach generate_captions_vtt's in-flight check
+
+    release.set()
+    result1, result2 = await asyncio.wait_for(asyncio.gather(task1, task2), timeout=1.0)
+
+    assert call_count == 1
+    assert result1 is not None
+    assert result1 == result2
+    assert "rec1" not in media_cache._generate_captions_inflight
+
+
+async def test_generate_captions_vtt_strips_cc_transparent_space_artifacts(monkeypatch, tmp_path):
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+
+    async def fake_exec(*argv, **kwargs):
+        out_path = argv[-1]
+        with open(out_path, "w") as f:
+            f.write("WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n\\hHello\\h\\hworld\\h\n\n")
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(media_cache.asyncio, "create_subprocess_exec", fake_exec)
+
+    result = await media_cache.generate_captions_vtt("url", "rec1")
+
+    assert result is not None
+    assert "\\h" not in result.read_text()
+    assert "Hello world" in result.read_text()
+
+
 def test_parse_vtt_timestamp_supports_various_formats():
     assert media_cache._parse_vtt_timestamp("00:00:01.000") == 1.0
     assert media_cache._parse_vtt_timestamp("01:02:03.456") == 3723.456
@@ -224,6 +279,19 @@ def test_parse_vtt_block_parses_single_cue():
 def test_parse_vtt_block_returns_none_for_header_or_missing_timing():
     assert media_cache._parse_vtt_block("WEBVTT") is None
     assert media_cache._parse_vtt_block("just text, no arrow here") is None
+
+
+def test_parse_vtt_block_strips_cc_transparent_space_artifacts():
+    # ffmpeg's CEA-608 decoder renders the "transparent space" special
+    # character as the literal ASS override sequence "\h" (doubled for the
+    # double-width form); the webvtt muxer passes it through unchanged.
+    block = "00:00:05.000 --> 00:00:07.000\n\\hHello\\h\\hworld\\h"
+    assert media_cache._parse_vtt_block(block) == (5.0, 7.0, "Hello world")
+
+
+def test_strip_cc_control_artifacts_preserves_multiline_text():
+    text = "\\hLine one\nLine\\htwo\\h\\h"
+    assert media_cache._strip_cc_control_artifacts(text) == "Line one\nLine two"
 
 
 async def test_ensure_live_captions_is_idempotent(monkeypatch):
@@ -490,6 +558,109 @@ async def test_live_caption_loop_truncates_output_on_restart_avoiding_duplicates
     text = output_path.read_text()
     assert text.count("First") == 1
     assert "rec1" not in media_cache._live_caption_tasks
+
+
+async def test_run_live_caption_process_once_cue_silence_watchdog_trips(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    # Cue-silence budget much tighter than the raw stdout-stall one, so a
+    # process that keeps dribbling bytes without ever completing a "\n\n"
+    # cue block trips the cue-silence watchdog, not the stall one.
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_CUE_SILENCE_SECONDS", 0.05)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_STDOUT_STALL_SECONDS", 10.0)
+    output_path = tmp_path / "rec1.live.vtt"
+
+    fake_process = _FakeCaptionProcess()
+
+    async def fake_exec(*argv, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(media_cache.asyncio, "create_subprocess_exec", fake_exec)
+
+    pump_started = asyncio.Event()
+
+    async def fake_pump(file_path, writer, stop_event, is_source_alive, start_offset_bytes=None):
+        pump_started.set()
+        while not stop_event.is_set():
+            await asyncio.sleep(0.005)
+
+    monkeypatch.setattr(media_cache, "pump_tail_follow", fake_pump)
+    caplog.set_level(logging.WARNING, logger="app.dvr.media_cache")
+
+    task = asyncio.create_task(
+        media_cache._run_live_caption_process_once(tmp_path / "capture.ts", output_path, lambda: True)
+    )
+    await pump_started.wait()
+
+    # Bytes keep flowing but never complete a cue block.
+    fake_process.stdout.push(b"WEBVTT\npartial-no-terminator")
+
+    should_restart = await asyncio.wait_for(task, timeout=2.0)
+
+    assert should_restart is True
+    assert "completed no cue" in caplog.text
+    assert not output_path.exists() or "Hi" not in output_path.read_text()
+
+
+async def test_live_caption_loop_backoff_schedule_and_circuit_breaker(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(media_cache.asyncio, "sleep", fake_sleep)
+
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None):
+        return True  # "should restart", finishing instantly every time (a quick failure)
+
+    monkeypatch.setattr(media_cache, "_run_live_caption_process_once", fake_process_once)
+    caplog.set_level(logging.ERROR, logger="app.dvr.media_cache")
+
+    media_cache._live_caption_tasks.clear()
+    media_cache._live_caption_disabled.clear()
+    media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True)
+
+    await asyncio.wait_for(media_cache._live_caption_tasks["rec1"], timeout=1.0)
+
+    # POLL_SECONDS(2.0) * 2**n capped at MAX_BACKOFF(120.0), for n=1..7 -
+    # the 8th consecutive quick failure trips the circuit breaker before a
+    # further backoff/sleep is scheduled.
+    assert sleeps == [4.0, 8.0, 16.0, 32.0, 64.0, 120.0, 120.0]
+    assert "rec1" in media_cache._live_caption_disabled
+    assert "giving up" in caplog.text.lower()
+
+
+async def test_ensure_live_captions_noop_when_disabled(monkeypatch, tmp_path):
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    media_cache._live_caption_tasks.clear()
+    media_cache._live_caption_disabled.clear()
+    media_cache._live_caption_disabled.add("rec1")
+
+    started = []
+
+    async def fake_loop(recording_id, file_path, is_source_alive, capture_start_ts=None):
+        started.append(recording_id)
+
+    monkeypatch.setattr(media_cache, "_run_live_caption_loop", fake_loop)
+
+    media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True)
+    await asyncio.sleep(0)
+
+    assert started == []
+    assert "rec1" not in media_cache._live_caption_tasks
+
+    media_cache._live_caption_disabled.discard("rec1")
+
+
+def test_stop_live_captions_clears_disabled_flag():
+    media_cache._live_caption_tasks.clear()
+    media_cache._live_caption_disabled.clear()
+    media_cache._live_caption_disabled.add("rec1")
+
+    media_cache.stop_live_captions("rec1")
+
+    assert "rec1" not in media_cache._live_caption_disabled
 
 
 async def test_stop_live_captions_cancellation_terminates_process(monkeypatch, tmp_path):

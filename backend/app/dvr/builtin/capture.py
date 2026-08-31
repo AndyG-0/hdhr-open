@@ -377,6 +377,9 @@ class CapturePipeline:
                 )
             )
 
+        if is_success and has_captions:
+            run_in_background(media_cache.generate_captions_vtt(str(capture.file_path), recording_id))
+
         return {
             "recording_id": recording_id,
             "status": final_status,

@@ -62,6 +62,11 @@ async def test_start_and_stop_capture_lifecycle(tmp_db, tmp_path, monkeypatch):
         "has_captions": True,
     }
     monkeypatch.setattr("app.media_probe.probe", AsyncMock(return_value=fake_probe))
+    # fake_probe has_captions=True triggers the eager caption-generation
+    # background task; this test isn't exercising that path (see the
+    # dedicated tests below), so just discard the scheduled coroutine
+    # instead of letting a real ffmpeg call race against mock_proc.
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: coro.close())
 
     capture = await pipeline.start_capture(
         recording_id="rec123",
@@ -211,3 +216,58 @@ async def test_stop_capture_skips_tmdb_backfill_when_image_already_set(tmp_db, t
     search_mock.assert_not_called()
     rec = db.get_recording("rec-has-image")
     assert rec["image_url"] == "http://example.com/news.jpg"
+
+
+@pytest.mark.asyncio
+async def test_stop_capture_schedules_eager_caption_generation_when_has_captions(tmp_db, tmp_path, monkeypatch):
+    pipeline = CapturePipeline()
+    monkeypatch.setattr(pipeline, "_ensure_recordings_dir", lambda: tmp_path)
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.terminate = MagicMock()
+    mock_proc.wait = AsyncMock(return_value=0)
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(return_value=b"")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc))
+    monkeypatch.setattr("app.media_probe.probe", AsyncMock(return_value={"has_captions": True}))
+
+    scheduled: list = []
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
+    generate_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(capture_module.media_cache, "generate_captions_vtt", generate_mock)
+
+    capture = await pipeline.start_capture(
+        recording_id="rec-captions",
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Caption Show",
+        start_ts=1000.0,
+        end_ts=1060.0,
+        settings={"tuner_host": "192.168.1.100", "tuner_port": 80},
+        image_url="http://example.com/already-has-image.jpg",
+    )
+    capture.file_path.write_bytes(b"MPEG-TS data" * 10000)
+
+    stats = await pipeline.stop_capture("rec-captions")
+    assert stats["status"] == "completed"
+
+    assert len(scheduled) == 1
+    await scheduled[0]
+    generate_mock.assert_awaited_once_with(str(capture.file_path), "rec-captions")
+
+
+@pytest.mark.asyncio
+async def test_stop_capture_does_not_schedule_caption_generation_when_no_captions(tmp_db, tmp_path, monkeypatch):
+    pipeline = CapturePipeline()
+    scheduled: list = []
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
+    generate_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(capture_module.media_cache, "generate_captions_vtt", generate_mock)
+
+    await _start_stop_capture_no_image(
+        pipeline, tmp_path, monkeypatch, "rec-no-captions", image_url="http://example.com/img.jpg"
+    )
+
+    assert scheduled == []
+    generate_mock.assert_not_called()

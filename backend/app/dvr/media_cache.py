@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import logging
 import math
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -59,6 +60,7 @@ def stop_live_captions(recording_id: str) -> None:
     task = _live_caption_tasks.pop(recording_id, None)
     if task and not task.done():
         task.cancel()
+    _live_caption_disabled.discard(recording_id)
 
 
 def _escape_movie_filter_url(url: str) -> str:
@@ -88,19 +90,43 @@ async def _run_ffmpeg(argv: list[str], timeout: float | None = None) -> bool:
     return result.returncode == 0
 
 
+# Recording_id -> in-flight generate_captions_vtt() call, so a client's lazy
+# on-request fetch and the eager post-recording trigger (see capture.py's
+# stop_capture) never race each other into running ffmpeg twice against the
+# same file. Mirrors _live_caption_tasks's dict-of-tasks pattern.
+_generate_captions_inflight: dict[str, asyncio.Task[Path | None]] = {}
+
+
 async def generate_captions_vtt(url: str, recording_id: str) -> Path | None:
     """The cached WebVTT captions file for `recording_id`, generating it first if needed.
 
-    Returns None if extraction fails or the recording has no embedded
-    CEA-608/708 captions - both look identical from here (ffmpeg exits 0
-    either way when the source has no caption data, just with an
-    effectively empty subtitle stream), so a missing/empty result is
-    treated as "no captions" rather than surfaced as an error.
+    Coalesces concurrent callers for the same recording_id (e.g. a client's
+    on-request fetch racing the eager post-recording trigger) onto a single
+    ffmpeg invocation rather than running it twice against the same file.
     """
     cache_path = _cache_dir() / f"{recording_id}.vtt"
     if cache_path.exists():
         return cache_path if cache_path.stat().st_size > 0 else None
 
+    existing = _generate_captions_inflight.get(recording_id)
+    if existing is not None:
+        return await existing
+
+    task = asyncio.create_task(_generate_captions_vtt_uncached(url, cache_path))
+    _generate_captions_inflight[recording_id] = task
+    try:
+        return await task
+    finally:
+        _generate_captions_inflight.pop(recording_id, None)
+
+
+async def _generate_captions_vtt_uncached(url: str, cache_path: Path) -> Path | None:
+    """Returns None if extraction fails or the recording has no embedded
+    CEA-608/708 captions - both look identical from here (ffmpeg exits 0
+    either way when the source has no caption data, just with an
+    effectively empty subtitle stream), so a missing/empty result is
+    treated as "no captions" rather than surfaced as an error.
+    """
     tmp_path = cache_path.with_suffix(".vtt.tmp")
     escaped_url = _escape_movie_filter_url(url)
     argv = [
@@ -134,6 +160,11 @@ async def generate_captions_vtt(url: str, recording_id: str) -> Path | None:
         cache_path.touch()
         return None
 
+    raw_text = tmp_path.read_text(encoding="utf-8", errors="replace")
+    cleaned_text = _strip_cc_control_artifacts(raw_text)
+    if cleaned_text != raw_text:
+        tmp_path.write_text(cleaned_text, encoding="utf-8")
+
     tmp_path.replace(cache_path)
     return cache_path if cache_path.stat().st_size > 0 else None
 
@@ -158,6 +189,13 @@ async def generate_captions_vtt(url: str, recording_id: str) -> Path | None:
 # (the only way to regain decoder continuity) and the output file is
 # truncated and regenerated to match, rather than trying to dedup two
 # separate decode passes against each other.
+#
+# The remaining 10-15s+ (sometimes 20s+) end-to-end cue lag is not a bug or a
+# buffering knob - it's inherent to CEA-608/708 roll-up decode + WebVTT muxer
+# semantics: a cue isn't flushed until the roll-up buffer advances. This has
+# been confirmed and should not be re-investigated absent a live tuner to test
+# against; see TODO.md's CC-3 entry. What follows is resiliency/observability
+# hardening around that fixed latency, not an attempt to reduce it.
 
 _LIVE_CAPTION_POLL_SECONDS = 2.0  # backoff between a dead/hung process and the next restart attempt
 # Watchdog: a legitimately quiet caption stream (no dialogue) is normal and
@@ -171,7 +209,31 @@ _LIVE_CAPTION_POLL_SECONDS = 2.0  # backoff between a dead/hung process and the 
 # slower detection of a genuine hang, while the cost of it firing falsely is
 # a full, possibly multi-minute re-decode from byte 0.
 _LIVE_CAPTION_STDOUT_STALL_SECONDS = 60.0
+# A second, longer watchdog distinct from the one above: that one only fires
+# on *total* stdout silence, but a wedged WebVTT muxer can keep dribbling
+# partial bytes forever without ever completing a "\n\n"-terminated cue
+# block, which resets the stall timer indefinitely while producing zero
+# cues. This tracks time since the last successfully parsed cue instead.
+_LIVE_CAPTION_CUE_SILENCE_SECONDS = 180.0
 _LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS = 5.0
+
+# Escalating backoff + circuit breaker: an attempt that dies this fast is
+# treated as a crash-loop signal rather than a legitimate stall/cue-silence
+# restart (which by definition takes at least _LIVE_CAPTION_STDOUT_STALL_
+# SECONDS to fire), so a source with persistently corrupt/unsupported CC
+# data doesn't hot-loop full byte-0 re-decodes forever.
+_LIVE_CAPTION_QUICK_FAIL_SECONDS = 10.0
+_LIVE_CAPTION_MAX_BACKOFF_SECONDS = 120.0
+# 2,4,8,16,32,64,120,120 - roughly 6 minutes of total backoff before giving up.
+_LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES = 8
+
+# recording_ids for which live captions have been permanently given up on for
+# the rest of this capture, after too many consecutive quick failures. Once a
+# recording_id is here, ensure_live_captions() is a no-op for it - otherwise
+# every viewer's poll would immediately re-trigger the whole backoff cycle
+# again the moment the loop above exits and pops itself from
+# _live_caption_tasks, defeating the breaker. Cleared by stop_live_captions.
+_live_caption_disabled: set[str] = set()
 
 
 def _live_caption_path(recording_id: str) -> Path:
@@ -194,8 +256,9 @@ def ensure_live_captions(
 ) -> None:
     """Lazily start the background live-caption extraction loop for
     recording_id if one isn't already running. Safe to call on every viewer's
-    captions request - a no-op once the loop is already going."""
-    if recording_id in _live_caption_tasks:
+    captions request - a no-op once the loop is already going, or once it's
+    been permanently disabled for this capture after too many crashes."""
+    if recording_id in _live_caption_tasks or recording_id in _live_caption_disabled:
         return
     task = asyncio.create_task(
         _run_live_caption_loop(recording_id, file_path, is_source_alive, capture_start_ts)
@@ -217,26 +280,62 @@ async def _run_live_caption_loop(
     """Supervise the single long-lived captioning ffmpeg process for
     recording_id for the lifetime of the capture, restarting it (from byte 0
     again, with output truncated and regenerated) if it dies or hangs while
-    the source is still alive."""
+    the source is still alive. Backs off exponentially on consecutive quick
+    failures and gives up entirely (see _live_caption_disabled) after too
+    many, rather than hot-looping full byte-0 re-decodes forever against a
+    persistently broken source."""
     output_path = _live_caption_path(recording_id)
+    consecutive_quick_failures = 0
     try:
         while is_source_alive():
             _reset_live_caption_output(output_path)
+            attempt_start = time.monotonic()
             should_restart = await _run_live_caption_process_once(
                 file_path, output_path, is_source_alive, capture_start_ts
             )
+            attempt_duration = time.monotonic() - attempt_start
+
+            if attempt_duration < _LIVE_CAPTION_QUICK_FAIL_SECONDS:
+                consecutive_quick_failures += 1
+            else:
+                consecutive_quick_failures = 0
+
+            if consecutive_quick_failures >= _LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES:
+                logger.error(
+                    "Live captions disabled for recording %s after %d consecutive crashes "
+                    "within %.0fs of starting each time - giving up for the rest of this "
+                    "capture (source likely has corrupted/unsupported caption data)",
+                    recording_id,
+                    consecutive_quick_failures,
+                    _LIVE_CAPTION_QUICK_FAIL_SECONDS,
+                )
+                _live_caption_disabled.add(recording_id)
+                break
+
             if should_restart and is_source_alive():
+                backoff = (
+                    min(
+                        _LIVE_CAPTION_POLL_SECONDS * (2**consecutive_quick_failures),
+                        _LIVE_CAPTION_MAX_BACKOFF_SECONDS,
+                    )
+                    if consecutive_quick_failures > 0
+                    else _LIVE_CAPTION_POLL_SECONDS
+                )
                 elapsed = (
                     f"{time.time() - capture_start_ts:.0f}s into the capture"
                     if capture_start_ts is not None
                     else "unknown position in capture"
                 )
                 logger.warning(
-                    "Live caption process restarting from byte 0 (%s) - full re-decode required", elapsed
+                    "Live caption process restarting from byte 0 (%s) - full re-decode required "
+                    "(backing off %.0fs, %d consecutive quick failures)",
+                    elapsed,
+                    backoff,
+                    consecutive_quick_failures,
                 )
             if not should_restart or not is_source_alive():
                 break
-            await asyncio.sleep(_LIVE_CAPTION_POLL_SECONDS)
+            await asyncio.sleep(backoff)
     except asyncio.CancelledError:
         raise
     finally:
@@ -310,16 +409,18 @@ async def _run_live_caption_process_once(
     drain_task = asyncio.create_task(_drain_stderr_logging(process.stderr))
 
     stalled = False
+    cue_stalled = False
 
     async def stdout_reader() -> None:
         # Never let an exception here go unretrieved - this task is only
         # ever awaited on the cancellation path, so anything raised here
         # instead of returned/logged would otherwise surface as a
         # "Task exception was never retrieved" leak with no diagnostics.
-        nonlocal stalled
+        nonlocal stalled, cue_stalled
         buffer = ""
         lag_samples: list[float] = []
         last_summary_monotonic = time.monotonic()
+        last_cue_monotonic = time.monotonic()
 
         def _record_lag_sample(lag: float) -> None:
             nonlocal last_summary_monotonic
@@ -339,12 +440,26 @@ async def _run_live_caption_process_once(
 
         try:
             while True:
+                # Two independent watchdogs share this one read loop: a raw
+                # stdout-silence timeout (_LIVE_CAPTION_STDOUT_STALL_SECONDS)
+                # and a longer cue-silence timeout
+                # (_LIVE_CAPTION_CUE_SILENCE_SECONDS) for a muxer that keeps
+                # producing bytes but never completes a cue block. Whichever
+                # budget is smaller bounds this read.
+                cue_budget_remaining = _LIVE_CAPTION_CUE_SILENCE_SECONDS - (
+                    time.monotonic() - last_cue_monotonic
+                )
+                if cue_budget_remaining <= 0:
+                    cue_stalled = True
+                    return
+                read_timeout = min(_LIVE_CAPTION_STDOUT_STALL_SECONDS, cue_budget_remaining)
                 try:
-                    chunk = await asyncio.wait_for(
-                        process.stdout.read(4096), timeout=_LIVE_CAPTION_STDOUT_STALL_SECONDS
-                    )
+                    chunk = await asyncio.wait_for(process.stdout.read(4096), timeout=read_timeout)
                 except TimeoutError:
-                    stalled = True
+                    if time.monotonic() - last_cue_monotonic >= _LIVE_CAPTION_CUE_SILENCE_SECONDS:
+                        cue_stalled = True
+                    else:
+                        stalled = True
                     return
                 if not chunk:
                     return
@@ -353,6 +468,7 @@ async def _run_live_caption_process_once(
                     block, buffer = buffer.split("\n\n", 1)
                     cue = _parse_vtt_block(block)
                     if cue is not None:
+                        last_cue_monotonic = time.monotonic()
                         _append_live_cues(output_path, [cue])
                         if capture_start_ts is not None:
                             lag = (time.time() - capture_start_ts) - cue[1]
@@ -401,10 +517,36 @@ async def _run_live_caption_process_once(
         logger.warning(
             "Live caption ffmpeg process stalled with no output for %.0fs", _LIVE_CAPTION_STDOUT_STALL_SECONDS
         )
+    elif cue_stalled:
+        logger.warning(
+            "Live caption ffmpeg process produced bytes but completed no cue for %.0fs - treating as hung",
+            _LIVE_CAPTION_CUE_SILENCE_SECONDS,
+        )
     elif exit_code not in (0, None):
         logger.warning("Live caption ffmpeg process exited with code %s", exit_code)
 
     return is_source_alive()
+
+
+# FFmpeg's CEA-608 decoder (ccaption_dec.c) renders the "transparent space"
+# special character - the doubled-width blank in CC's Special North American
+# Character Set - as the literal ASS/SSA override sequence "\h" (or "\h\h"
+# for the double-width form). The webvtt muxer has no concept of ASS
+# override tags and passes decoded cue text through unchanged, so this
+# leaks into displayed captions verbatim instead of rendering as a space.
+_CC_TRANSPARENT_SPACE_RE = re.compile(r"(?:\\h)+")
+
+
+def _strip_cc_control_artifacts(text: str) -> str:
+    """Clean literal CEA-608 decoder escape artifacts (see
+    `_CC_TRANSPARENT_SPACE_RE`) out of decoded cue text, collapsing each run
+    down to a single ordinary space per line."""
+    lines = []
+    for line in text.split("\n"):
+        cleaned = _CC_TRANSPARENT_SPACE_RE.sub(" ", line)
+        cleaned = re.sub(r" {2,}", " ", cleaned).strip()
+        lines.append(cleaned)
+    return "\n".join(lines)
 
 
 def _parse_vtt_timestamp(raw: str) -> float:
@@ -435,7 +577,7 @@ def _parse_vtt_block(block: str) -> tuple[float, float, str] | None:
         end = _parse_vtt_timestamp(end_raw.split(" ")[0])
     except ValueError:
         return None
-    return (start, end, "\n".join(text_lines))
+    return (start, end, _strip_cc_control_artifacts("\n".join(text_lines)))
 
 
 def _parse_vtt_cues(text: str) -> list[tuple[float, float, str]]:
