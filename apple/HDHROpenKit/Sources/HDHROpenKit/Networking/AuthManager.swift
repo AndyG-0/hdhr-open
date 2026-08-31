@@ -22,6 +22,9 @@ public final class AuthManager: ObservableObject {
     }
 
     public func restoreSession() async {
+        if let storedDeviceId = loadKeychainString(key: deviceIdKey) {
+            await apiClient.setDeviceId(storedDeviceId)
+        }
         await registerDeviceIfNeeded()
 
         guard let token = loadKeychainString(key: tokenKey) else {
@@ -44,11 +47,16 @@ public final class AuthManager: ObservableObject {
     /// never auto-provisions one), so a device must be registered before login can
     /// ever succeed. Idempotent server-side — safe to call on every launch and every
     /// server-address change, not just the first time.
-    private func registerDeviceIfNeeded() async {
+    @discardableResult
+    public func registerDeviceIfNeeded() async -> Bool {
         do {
-            _ = try await apiClient.registerDevice()
+            let result = try await apiClient.registerDevice()
+            saveKeychainString(key: deviceIdKey, value: result.id)
+            await apiClient.setDeviceId(result.id)
+            return true
         } catch {
             Log.auth.warning("Device registration failed: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -70,6 +78,12 @@ public final class AuthManager: ObservableObject {
         authError = nil
         defer { isLoading = false }
 
+        // Guarantee that device registration has been attempted before sending login request
+        let hasDeviceId = await apiClient.currentDeviceId() != nil
+        if !hasDeviceId {
+            _ = await registerDeviceIfNeeded()
+        }
+
         do {
             let loggedInUser = try await apiClient.login(userId: user.id, pin: pin, tokenName: deviceName)
             if let token = loggedInUser.token {
@@ -78,6 +92,21 @@ public final class AuthManager: ObservableObject {
             }
             self.currentUser = loggedInUser
             Log.auth.info("Successfully logged in as \(loggedInUser.name)")
+        } catch APIError.unauthorized(let detail) where detail.lowercased().contains("device") {
+            Log.auth.warning("Login failed due to unregistered device, auto-registering and retrying...")
+            let registered = await registerDeviceIfNeeded()
+            if registered {
+                let loggedInUser = try await apiClient.login(userId: user.id, pin: pin, tokenName: deviceName)
+                if let token = loggedInUser.token {
+                    saveKeychainString(key: tokenKey, value: token)
+                    await apiClient.setBearerToken(token)
+                }
+                self.currentUser = loggedInUser
+                Log.auth.info("Successfully logged in as \(loggedInUser.name) after auto-registration")
+                return
+            }
+            authError = detail
+            throw APIError.unauthorized(detail)
         } catch {
             authError = error.localizedDescription
             throw error

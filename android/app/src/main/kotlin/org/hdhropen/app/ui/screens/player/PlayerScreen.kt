@@ -46,6 +46,10 @@ fun PlayerScreen(
     val isSeekable by playerEngine.isSeekable.collectAsState()
     val availableAudioTracks by playerEngine.availableAudioTracks.collectAsState()
     val currentAudioTrack by playerEngine.currentAudioTrack.collectAsState()
+    val videoSpecs by playerEngine.videoSpecs.collectAsState()
+    val transcodeInfo by playerEngine.transcodeInfo.collectAsState()
+    val observedBitrateBps by playerEngine.observedBitrateBps.collectAsState()
+    val playbackMode by playerViewModel.playbackMode.collectAsState()
 
     val captionController = playerViewModel.captionController
     val activeCaptionText by captionController.activeCueText.collectAsState()
@@ -55,9 +59,11 @@ fun PlayerScreen(
     val isWatchSession by playerViewModel.isWatchSession.collectAsState()
     val isPromoted by playerViewModel.isPromoted.collectAsState()
     val isPromoting by playerViewModel.isPromoting.collectAsState()
+    val isSwitchingAudioTrack by playerViewModel.isSwitchingAudioTrack.collectAsState()
 
     var showControls by remember { mutableStateOf(true) }
     var showAudioMenu by remember { mutableStateOf(false) }
+    var showPlaybackInfo by remember { mutableStateOf(false) }
 
     // Auto-hide controls timer
     LaunchedEffect(showControls, state) {
@@ -138,7 +144,7 @@ fun PlayerScreen(
             val errorMsg = (state as PlaybackState.Failed).message
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface.copy(alpha = 0.9f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(32.dp)
@@ -156,12 +162,12 @@ fun PlayerScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = "Playback Error",
-                        style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = errorMsg,
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary, textAlign = TextAlign.Center)
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
@@ -169,9 +175,9 @@ fun PlayerScreen(
                             playerViewModel.closePlayer()
                             onDismiss()
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Text("Close", color = TextPrimary)
+                        Text("Close", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -201,6 +207,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
+                        .statusBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 20.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -236,6 +243,15 @@ fun PlayerScreen(
                                 maxLines = 1
                             )
                         }
+                    }
+
+                    // Playback Info Toggle
+                    IconButton(onClick = { showPlaybackInfo = true }) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = "Playback Info",
+                            tint = Color.White
+                        )
                     }
 
                     // Captions Toggle
@@ -300,6 +316,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 20.dp)
                 ) {
                     ScrubBar(
@@ -356,18 +373,19 @@ fun PlayerScreen(
                                 DropdownMenu(
                                     expanded = showAudioMenu,
                                     onDismissRequest = { showAudioMenu = false },
-                                    modifier = Modifier.background(DarkSurface)
+                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                                 ) {
                                     availableAudioTracks.forEach { track ->
                                         DropdownMenuItem(
                                             text = {
                                                 Text(
                                                     text = track.displayLabel,
-                                                    color = if (track.id == currentAudioTrack?.id) BluePrimary else TextPrimary
+                                                    color = if (track.index == currentAudioTrack?.index) BluePrimary else MaterialTheme.colorScheme.onSurface
                                                 )
                                             },
+                                            enabled = !isSwitchingAudioTrack,
                                             onClick = {
-                                                playerEngine.selectAudioTrack(track)
+                                                playerViewModel.selectAudioTrack(track)
                                                 showAudioMenu = false
                                             }
                                         )
@@ -378,6 +396,17 @@ fun PlayerScreen(
                     }
                 }
             }
+        }
+
+        if (showPlaybackInfo) {
+            PlaybackInfoDialog(
+                playbackMode = playbackMode,
+                transcodeInfo = transcodeInfo,
+                videoSpecs = videoSpecs,
+                audioTracks = availableAudioTracks,
+                observedBitrateBps = observedBitrateBps,
+                onDismiss = { showPlaybackInfo = false }
+            )
         }
     }
 }

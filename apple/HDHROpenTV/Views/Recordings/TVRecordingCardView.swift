@@ -23,14 +23,14 @@ public struct TVRecordingCardView: View {
                                 .resizable()
                                 .aspectRatio(16/9, contentMode: .fill)
                         } placeholder: {
-                            Color(white: 0.2)
+                            Theme.appSurfaceVariant
                         }
                     } else {
                         ZStack {
-                            Color(white: 0.15)
+                            Theme.appSurface
                             Image(systemName: "film")
                                 .font(.system(size: 40))
-                                .foregroundColor(.gray)
+                                .foregroundColor(Theme.textMuted)
                         }
                     }
 
@@ -56,13 +56,13 @@ public struct TVRecordingCardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(recording.title)
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                         .lineLimit(1)
 
                     if let ep = recording.episodeTitle, !ep.isEmpty {
                         Text(ep)
                             .font(.subheadline)
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.textSecondary)
                             .lineLimit(1)
                     }
 
@@ -81,6 +81,10 @@ public struct TVRecordingCardView: View {
 
                         Spacer()
 
+                        Text(recording.isHDHomeRunNative ? "HDHomeRun DVR" : "Built-in")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+
                         if !recording.formattedFileSize.isEmpty {
                             Text(recording.formattedFileSize)
                                 .font(.caption2)
@@ -93,7 +97,7 @@ public struct TVRecordingCardView: View {
             .frame(width: 280)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isFocused ? Color.white : Color.clear, lineWidth: 4)
+                    .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
             )
             .scaleEffect(isFocused ? 1.05 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: isFocused)

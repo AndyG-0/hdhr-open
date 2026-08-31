@@ -62,7 +62,10 @@ def _normalize_host(host: str) -> str:
     for prefix in ("http://", "https://"):
         if host.startswith(prefix):
             host = host[len(prefix) :]
-    return host.rstrip("/")
+    host = host.rstrip("/")
+    if ":" in host and not host.startswith("["):
+        host = host.split(":", 1)[0]
+    return host
 
 
 def _tuner_base_url(settings: dict[str, Any]) -> str:
@@ -78,7 +81,9 @@ def raw_stream_url(settings: dict[str, Any], channel_number: str) -> str:
 
 
 def _dvr_base_url(settings: dict[str, Any]) -> str:
-    return f"http://{_normalize_host(settings['dvr_host'])}:{settings.get('dvr_port', 59090)}"
+    host = settings.get("dvr_host") or settings.get("tuner_host", "")
+    port = settings.get("dvr_port") or 59090
+    return f"http://{_normalize_host(host)}:{port}"
 
 
 def resolve_recording_url(settings: dict[str, Any], url: str) -> str:
@@ -93,13 +98,13 @@ def resolve_recording_url(settings: dict[str, Any], url: str) -> str:
         if url.startswith("/auto/v"):
             tuner_host = _normalize_host(settings.get("tuner_host", ""))
             return f"http://{tuner_host}:5004{url}"
-        dvr_host = _normalize_host(settings.get("dvr_host", ""))
-        dvr_port = settings.get("dvr_port", 50000)
-        return f"http://{dvr_host}:{dvr_port}{url}"
+        dvr_host = _normalize_host(settings.get("dvr_host") or settings.get("tuner_host", ""))
+        port = settings.get("dvr_port") or 59090
+        return f"http://{dvr_host}:{port}{url}"
     if not url.startswith("http"):
-        dvr_host = _normalize_host(settings.get("dvr_host", ""))
-        dvr_port = settings.get("dvr_port", 50000)
-        return f"http://{dvr_host}:{dvr_port}/{url}"
+        dvr_host = _normalize_host(settings.get("dvr_host") or settings.get("tuner_host", ""))
+        port = settings.get("dvr_port") or 59090
+        return f"http://{dvr_host}:{port}/{url}"
     return url
 
 
@@ -344,10 +349,13 @@ def _classify_hdhomerun_category(entry: dict[str, Any]) -> str:
 
 async def fetch_dvr_recordings(settings: dict[str, Any]) -> list[dict[str, Any]]:
     try:
-        discover = await _get_json(f"{_dvr_base_url(settings)}/discover.json")
+        dvr_base = _dvr_base_url(settings)
+        discover = await _get_json(f"{dvr_base}/discover.json")
         storage_url = discover.get("StorageURL")
         if not storage_url:
             return []
+        if not storage_url.startswith("http"):
+            storage_url = f"{dvr_base}/{storage_url.lstrip('/')}"
         data = await _get_json(storage_url)
     except HDHomeRunError:
         logger.debug("Could not fetch DVR recordings", exc_info=True)
@@ -361,6 +369,8 @@ async def fetch_dvr_recordings(settings: dict[str, Any]) -> list[dict[str, Any]]
             for entry in data:
                 episodes_url = entry.get("EpisodesURL")
                 if episodes_url:
+                    if not episodes_url.startswith("http"):
+                        episodes_url = f"{dvr_base}/{episodes_url.lstrip('/')}"
                     resp = await client.get(episodes_url)
                     if resp.status_code < 400:
                         episodes.extend(resp.json())

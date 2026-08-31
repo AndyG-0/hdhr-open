@@ -56,24 +56,24 @@ fun RecordingsScreen(
                 title = {
                     Text(
                         text = "Recordings",
-                        style = MaterialTheme.typography.titleLarge.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
                 },
                 actions = {
                     // Scheduled Rules Button
                     IconButton(onClick = { showRulesDialog = true }) {
-                        Icon(Icons.Default.List, contentDescription = "Rules", tint = TextPrimary)
+                        Icon(Icons.Default.List, contentDescription = "Rules", tint = MaterialTheme.colorScheme.onSurface)
                     }
 
                     // Refresh Button
                     IconButton(onClick = { recordingsViewModel.loadData() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TextPrimary)
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        containerColor = DarkBackground
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -84,7 +84,7 @@ fun RecordingsScreen(
             dvrInfo?.let { info ->
                 Card(
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -100,14 +100,14 @@ fun RecordingsScreen(
                             Text(
                                 text = info.friendlyName.ifEmpty { "HDHomeRun DVR" },
                                 style = MaterialTheme.typography.titleMedium.copy(
-                                    color = TextPrimary,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             )
                             Text(
                                 text = "${recordings.size} total recordings",
-                                style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
+                                style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                             )
                         }
 
@@ -138,16 +138,16 @@ fun RecordingsScreen(
                             Text(
                                 text = filter.label,
                                 style = MaterialTheme.typography.labelMedium.copy(
-                                    color = if (selectedFilter == filter) TextPrimary else TextSecondary
+                                    color = if (selectedFilter == filter) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             )
                         },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = BluePrimary,
-                            containerColor = DarkSurface
+                            containerColor = MaterialTheme.colorScheme.surface
                         ),
                         border = FilterChipDefaults.filterChipBorder(
-                            borderColor = DarkBorder,
+                            borderColor = MaterialTheme.colorScheme.outline,
                             selectedBorderColor = BluePrimary,
                             enabled = true,
                             selected = selectedFilter == filter
@@ -163,7 +163,7 @@ fun RecordingsScreen(
                 }
             } else if (filteredList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No recordings found.", color = TextMuted)
+                    Text("No recordings found.", color = MaterialTheme.extendedColors.textMuted)
                 }
             } else {
                 LazyColumn(

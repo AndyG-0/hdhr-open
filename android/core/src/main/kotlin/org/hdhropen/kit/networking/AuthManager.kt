@@ -26,6 +26,7 @@ class AuthManager(
     val authError: StateFlow<String?> = _authError.asStateFlow()
 
     private val tokenKey = "org.hdhropen.client.bearerToken"
+    private val deviceIdKey = "org.hdhropen.client.deviceId"
     private val prefsName = "hdhr_open_auth_prefs"
 
     private val prefs: SharedPreferences? by lazy {
@@ -36,6 +37,9 @@ class AuthManager(
         get() = _currentUser.value != null
 
     suspend fun restoreSession() {
+        prefs?.getString(deviceIdKey, null)?.let { storedDeviceId ->
+            apiClient.deviceId = storedDeviceId
+        }
         registerDeviceIfNeeded()
 
         val token = prefs?.getString(tokenKey, null) ?: return
@@ -53,11 +57,15 @@ class AuthManager(
         }
     }
 
-    private suspend fun registerDeviceIfNeeded() {
-        try {
-            apiClient.registerDevice()
+    suspend fun registerDeviceIfNeeded(): Boolean {
+        return try {
+            val result = apiClient.registerDevice()
+            prefs?.edit()?.putString(deviceIdKey, result.id)?.apply()
+            apiClient.deviceId = result.id
+            true
         } catch (e: Exception) {
             Log.auth.warning("Device registration failed: ${e.localizedMessage}")
+            false
         }
     }
 
@@ -79,7 +87,26 @@ class AuthManager(
         _isLoading.value = true
         _authError.value = null
         try {
-            val loggedInUser = apiClient.login(userId = user.id, pin = pin, tokenName = deviceName)
+            if (apiClient.deviceId == null) {
+                registerDeviceIfNeeded()
+            }
+
+            val loggedInUser = try {
+                apiClient.login(userId = user.id, pin = pin, tokenName = deviceName)
+            } catch (e: APIError.Unauthorized) {
+                if (e.message.contains("device", ignoreCase = true)) {
+                    Log.auth.warning("Login failed due to unregistered device, auto-registering and retrying...")
+                    val registered = registerDeviceIfNeeded()
+                    if (registered) {
+                        apiClient.login(userId = user.id, pin = pin, tokenName = deviceName)
+                    } else {
+                        throw e
+                    }
+                } else {
+                    throw e
+                }
+            }
+
             loggedInUser.token?.let { token ->
                 prefs?.edit()?.putString(tokenKey, token)?.apply()
                 apiClient.bearerToken = token

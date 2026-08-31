@@ -57,6 +57,15 @@ HLS_IDLE_TIMEOUT_SECONDS = 30
 # belt and suspenders against a runaway ffmpeg if the reaper never runs for
 # some reason. Mirrors app.dvr.builtin.watch.WATCH_MAX_DURATION_SECONDS.
 HLS_MAX_SESSION_SECONDS = 4 * 3600
+# Grace period before an untracked HLS_SESSION_DIR entry is treated as
+# orphaned rather than a session still between allocate_session_dir() and
+# being registered in _sessions - must safely exceed the worst case there
+# (FFMPEG_STARTUP_TIMEOUT_SECONDS + HLS_CUSHION_TIMEOUT_SECONDS, ~35s).
+ORPHAN_SESSION_DIR_GRACE_SECONDS = 120
+# Backstop cadence - orphans should be rare now that create_session's own
+# cleanup and the startup/shutdown sweeps cover the common leak paths; this
+# only needs to catch what those miss.
+ORPHAN_SESSION_DIR_SWEEP_INTERVAL_SECONDS = 300
 
 _PLAYLIST_FILENAME = "stream.m3u8"
 _SEGMENT_PATTERN = "segment%05d.ts"
@@ -168,75 +177,90 @@ async def create_session(
     FFMPEG_STARTUP_TIMEOUT_SECONDS deadline. If ffmpeg exits on its own first
     (e.g. a short on-demand clip that will never reach `min_segments`), a
     non-empty playlist is still accepted - there's nothing left to wait for.
+
+    Cleanup on any failure to reach a registered session - a spawn error, a
+    failure to produce a playlist, `on_process_spawned` raising, or this
+    coroutine's own task being cancelled while awaiting playlist readiness
+    (e.g. the client disconnecting mid-startup) - is centralized in the
+    `finally` below via the `registered` flag, rather than duplicated at each
+    failure site, so no path can register neither a session nor cleanup.
     """
+    process: asyncio.subprocess.Process | None = None
+    registered = False
     try:
-        process = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            *ffmpeg_args,
-            stdin=asyncio.subprocess.PIPE if stdin_pipe else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "ffmpeg",
+                *ffmpeg_args,
+                stdin=asyncio.subprocess.PIPE if stdin_pipe else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            raise HLSStartupError(FFMPEG_NOT_FOUND_DETAIL) from exc
+
+        if on_process_spawned is not None:
+            on_process_spawned(process)
+
+        assert process.stderr is not None
+
+        now = time.time()
+        session = HLSSession(
+            session_id=session_id,
+            process=process,
+            tmp_dir=tmp_dir,
+            created_at=now,
+            last_request_at=now,
+            label=label,
         )
-    except FileNotFoundError as exc:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise HLSStartupError(FFMPEG_NOT_FOUND_DETAIL) from exc
 
-    if on_process_spawned is not None:
-        on_process_spawned(process)
-
-    assert process.stderr is not None
-
-    now = time.time()
-    session = HLSSession(
-        session_id=session_id,
-        process=process,
-        tmp_dir=tmp_dir,
-        created_at=now,
-        last_request_at=now,
-        label=label,
-    )
-
-    drain_done = asyncio.Event()
-    run_in_background(
-        drain_stderr_tail(process.stderr, session._stderr_tail, drain_done, tail_bytes=STDERR_TAIL_BYTES)
-    )
-
-    plist = playlist_path(tmp_dir)
-    now0 = time.monotonic()
-    # Two separate deadlines, not one shared budget: `startup_deadline` is
-    # only about proving ffmpeg is alive and producing output at all (a
-    # non-empty playlist), while `cushion_deadline` covers the (often much
-    # longer) time it takes real segments to accumulate up to `min_segments`
-    # once ffmpeg is already known-healthy - see HLS_CUSHION_TIMEOUT_SECONDS.
-    startup_deadline = now0 + FFMPEG_STARTUP_TIMEOUT_SECONDS
-    cushion_deadline = now0 + HLS_CUSHION_TIMEOUT_SECONDS
-    while True:
-        ready = plist.exists() and plist.stat().st_size > 0
-        now = time.monotonic()
-        if ready and (process.returncode is not None or _segment_count(plist) >= min_segments or now >= cushion_deadline):
-            break
-        if not ready and (process.returncode is not None or now >= startup_deadline):
-            break
-        await asyncio.sleep(_PLAYLIST_POLL_SECONDS)
-
-    if not plist.exists() or plist.stat().st_size == 0 or _segment_count(plist) == 0:
-        cause, reason = await describe_ffmpeg_startup_failure(
-            process,
-            session._stderr_tail,
-            drain_done,
-            startup_timeout=FFMPEG_STARTUP_TIMEOUT_SECONDS,
-            flush_timeout=STDERR_FLUSH_TIMEOUT_SECONDS,
+        drain_done = asyncio.Event()
+        run_in_background(
+            drain_stderr_tail(process.stderr, session._stderr_tail, drain_done, tail_bytes=STDERR_TAIL_BYTES)
         )
-        run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        logger.error("HLS session for %s failed to start: %s\nffmpeg output:\n%s", label, cause, reason or "(none)")
-        detail = await build_ffmpeg_failure_detail(label, cause, reason, reason_chars=DETAIL_REASON_CHARS)
-        raise HLSStartupError(detail)
 
-    async with _lock:
-        _sessions[session_id] = session
-    logger.info("HLS session [%s] started for %s (dir=%s)", session_id, label, tmp_dir)
-    return session
+        plist = playlist_path(tmp_dir)
+        now0 = time.monotonic()
+        # Two separate deadlines, not one shared budget: `startup_deadline` is
+        # only about proving ffmpeg is alive and producing output at all (a
+        # non-empty playlist), while `cushion_deadline` covers the (often much
+        # longer) time it takes real segments to accumulate up to `min_segments`
+        # once ffmpeg is already known-healthy - see HLS_CUSHION_TIMEOUT_SECONDS.
+        startup_deadline = now0 + FFMPEG_STARTUP_TIMEOUT_SECONDS
+        cushion_deadline = now0 + HLS_CUSHION_TIMEOUT_SECONDS
+        while True:
+            ready = plist.exists() and plist.stat().st_size > 0
+            now = time.monotonic()
+            if ready and (
+                process.returncode is not None or _segment_count(plist) >= min_segments or now >= cushion_deadline
+            ):
+                break
+            if not ready and (process.returncode is not None or now >= startup_deadline):
+                break
+            await asyncio.sleep(_PLAYLIST_POLL_SECONDS)
+
+        if not plist.exists() or plist.stat().st_size == 0 or _segment_count(plist) == 0:
+            cause, reason = await describe_ffmpeg_startup_failure(
+                process,
+                session._stderr_tail,
+                drain_done,
+                startup_timeout=FFMPEG_STARTUP_TIMEOUT_SECONDS,
+                flush_timeout=STDERR_FLUSH_TIMEOUT_SECONDS,
+            )
+            logger.error("HLS session for %s failed to start: %s\nffmpeg output:\n%s", label, cause, reason or "(none)")
+            detail = await build_ffmpeg_failure_detail(label, cause, reason, reason_chars=DETAIL_REASON_CHARS)
+            raise HLSStartupError(detail)
+
+        async with _lock:
+            _sessions[session_id] = session
+        registered = True
+        logger.info("HLS session [%s] started for %s (dir=%s)", session_id, label, tmp_dir)
+        return session
+    finally:
+        if not registered:
+            if process is not None:
+                run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
+            await asyncio.to_thread(shutil.rmtree, tmp_dir, ignore_errors=True)
 
 
 async def touch(session_id: str) -> HLSSession | None:
@@ -277,6 +301,22 @@ async def teardown_session(session_id: str) -> None:
     logger.info("HLS session [%s] torn down (%s)", session_id, session.label)
 
 
+async def teardown_all_sessions() -> None:
+    """Best-effort teardown of every still-active session at process
+    shutdown (a clean restart/deploy, not just a crash) - without this, a
+    live session's ffmpeg child and directory outlive a graceful restart just
+    as easily as a crash. Each id is torn down concurrently via
+    teardown_session, with one id's failure isolated from the rest."""
+    async with _lock:
+        session_ids = list(_sessions.keys())
+    if not session_ids:
+        return
+    results = await asyncio.gather(*(teardown_session(sid) for sid in session_ids), return_exceptions=True)
+    for session_id, result in zip(session_ids, results, strict=True):
+        if isinstance(result, Exception):
+            logger.warning("Error tearing down HLS session [%s] at shutdown: %s", session_id, result)
+
+
 async def reap_idle_sessions() -> None:
     """Backstop for a native client that never called .../stop (app killed,
     crashed, lost network) - the periodic job registered by `register()`."""
@@ -292,14 +332,77 @@ async def reap_idle_sessions() -> None:
         await teardown_session(session_id)
 
 
+async def sweep_session_dir_on_startup() -> None:
+    """Unconditionally wipe every existing entry under HLS_SESSION_DIR at
+    process boot. Safe unconditionally because `_sessions` is always empty at
+    boot (in-memory only) and HLS session directories are ephemeral by design
+    (see app.config's HLS_SESSION_DIR comment) - unlike
+    DVREngine.recover_on_startup()'s DB-record reconciliation, there's no
+    "still in progress" case to preserve here. Catches anything a prior
+    crash (or a bug) left behind that reap_idle_sessions/teardown_session
+    never got the chance to clean up."""
+    if not HLS_SESSION_DIR.exists():
+        return
+    entries = await asyncio.to_thread(list, HLS_SESSION_DIR.iterdir())
+    removed = 0
+    for entry in entries:
+        if entry.is_dir():
+            await asyncio.to_thread(shutil.rmtree, entry, ignore_errors=True)
+            removed += 1
+    if removed:
+        logger.info(
+            "Startup sweep removed %d leftover HLS session director%s from %s",
+            removed,
+            "y" if removed == 1 else "ies",
+            HLS_SESSION_DIR,
+        )
+
+
+async def sweep_orphaned_session_dirs() -> None:
+    """Backstop: list HLS_SESSION_DIR's actual contents and remove any
+    subdirectory that isn't tracked in `_sessions` and is older than
+    ORPHAN_SESSION_DIR_GRACE_SECONDS. Directory names are
+    f"{session_id}-{mkdtemp's random suffix}" (see allocate_session_dir), not
+    the bare session_id, so matching is a startswith check rather than an
+    exact key lookup. Meant to be rare given create_session's own cleanup and
+    the startup/shutdown sweeps - this only needs to catch what those miss."""
+    if not HLS_SESSION_DIR.exists():
+        return
+    async with _lock:
+        tracked_prefixes = tuple(f"{sid}-" for sid in _sessions)
+    now = time.time()
+    entries = await asyncio.to_thread(list, HLS_SESSION_DIR.iterdir())
+    for entry in entries:
+        if not entry.is_dir() or entry.name.startswith(tracked_prefixes):
+            continue
+        try:
+            mtime = entry.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        if now - mtime < ORPHAN_SESSION_DIR_GRACE_SECONDS:
+            continue
+        logger.warning("Sweeping orphaned HLS session directory not tracked in memory: %s", entry)
+        await asyncio.to_thread(shutil.rmtree, entry, ignore_errors=True)
+
+
 def register(scheduler: AsyncIOScheduler) -> None:
-    """Register the idle-session reaper with APScheduler. Kept independent of
-    DVREngine.tick() - HLS packaging sessions aren't DVR captures."""
+    """Register the idle-session reaper and the orphaned-directory sweep with
+    APScheduler. Kept independent of DVREngine.tick() - HLS packaging
+    sessions aren't DVR captures."""
     scheduler.add_job(
         reap_idle_sessions,
         "interval",
         seconds=10,
         id="hls_streaming_reap_idle_sessions",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        sweep_orphaned_session_dirs,
+        "interval",
+        seconds=ORPHAN_SESSION_DIR_SWEEP_INTERVAL_SECONDS,
+        id="hls_streaming_sweep_orphaned_session_dirs",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

@@ -2,9 +2,13 @@ package org.hdhropen.kit
 
 import org.hdhropen.kit.models.*
 import org.hdhropen.kit.networking.APIClient
+import org.hdhropen.kit.networking.AuthManager
+import org.hdhropen.kit.networking.InMemoryCookieJar
+import org.hdhropen.kit.networking.ServerDiscovery
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.RecordingCategoryFilter
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -78,5 +82,64 @@ class ViewModelsTest {
         val airings = vm.getAirings("5.1")
         assertEquals(1, airings.size)
         assertEquals("Morning News", airings[0].title)
+    }
+
+    @Test
+    fun testServerDiscoveryURLUpdate() {
+        val discovery = ServerDiscovery(null, "http://127.0.0.1:8000")
+        assertEquals("http://127.0.0.1:8000", discovery.serverURLString.value)
+
+        val client = APIClient(discovery.serverURLString.value)
+        assertEquals("http://127.0.0.1:8000", client.baseURL)
+
+        val newUrl = "http://192.168.1.100:8000"
+        discovery.setServerURL(newUrl)
+        client.baseURL = newUrl
+
+        assertEquals(newUrl, discovery.serverURLString.value)
+        assertEquals(newUrl, client.baseURL)
+    }
+
+    @Test
+    fun testAuthManagerInitialState() {
+        val client = APIClient("http://127.0.0.1:8000")
+        val authManager = AuthManager(client, null)
+
+        assertNull(authManager.currentUser.value)
+        assertFalse(authManager.isAuthenticated)
+        assertTrue(authManager.profiles.value.isEmpty())
+        assertFalse(authManager.isLoading.value)
+        assertNull(authManager.authError.value)
+    }
+
+    @Test
+    fun testInMemoryCookieJar() {
+        val jar = InMemoryCookieJar()
+        val url = "http://127.0.0.1:8000/api/devices/register".toHttpUrl()
+        val cookie = okhttp3.Cookie.Builder()
+            .name("hdhropen_device")
+            .value("device-abc-123")
+            .domain("127.0.0.1")
+            .path("/")
+            .build()
+
+        jar.saveFromResponse(url, listOf(cookie))
+        val loaded = jar.loadForRequest(url)
+        assertEquals(1, loaded.size)
+        val firstCookie = loaded.first()
+        assertEquals("hdhropen_device", firstCookie.name)
+        assertEquals("device-abc-123", firstCookie.value)
+
+        jar.clear()
+        val empty = jar.loadForRequest(url)
+        assertEquals(0, empty.size)
+    }
+
+    @Test
+    fun testAPIClientDeviceIdField() {
+        val client = APIClient("http://127.0.0.1:8000")
+        assertNull(client.deviceId)
+        client.deviceId = "dev-test-123"
+        assertEquals("dev-test-123", client.deviceId)
     }
 }

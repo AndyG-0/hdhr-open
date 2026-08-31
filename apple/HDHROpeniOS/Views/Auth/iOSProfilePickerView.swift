@@ -91,6 +91,12 @@ public struct iOSProfilePickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: { Task { await authManager.fetchProfiles() } }) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(authManager.isLoading)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { showServerSetup = true }) {
                         Image(systemName: "gearshape")
                     }

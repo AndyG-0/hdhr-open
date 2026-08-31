@@ -35,7 +35,7 @@ fun RecordingRulesDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = DarkSurface,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(16.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -46,10 +46,10 @@ fun RecordingRulesDialog(
                 ) {
                     Text(
                         text = "Scheduled Rules",
-                        style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary)
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -57,7 +57,7 @@ fun RecordingRulesDialog(
 
                 if (rules.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No scheduled rules.", color = TextMuted)
+                        Text("No scheduled rules.", color = MaterialTheme.extendedColors.textMuted)
                     }
                 } else {
                     LazyColumn(
@@ -67,7 +67,7 @@ fun RecordingRulesDialog(
                         items(rules, key = { it.recordingRuleId }) { rule ->
                             Card(
                                 shape = RoundedCornerShape(10.dp),
-                                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -79,7 +79,7 @@ fun RecordingRulesDialog(
                                         Text(
                                             text = rule.title,
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                color = TextPrimary,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -89,7 +89,7 @@ fun RecordingRulesDialog(
                                         val ch = rule.channelOnly?.let { " • Ch $it" } ?: ""
                                         Text(
                                             text = "$type$ch",
-                                            style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
+                                            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         )
                                     }
 

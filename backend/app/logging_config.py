@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging.config
 from contextvars import ContextVar
 
-from app.config import settings
+from app.config import LOG_DIR, settings
 
 # Set by the request-id middleware (see main.py) before a request is
 # dispatched. contextvars propagate correctly into the async task each
@@ -48,9 +48,22 @@ def configure_logging() -> None:
                     "formatter": "default",
                     "filters": ["request_id"],
                 },
+                # Console output doesn't survive a dev-server reload or a
+                # crash - the retention/disk-space safeguard's decisions are
+                # exactly the kind of thing you need to reconstruct after the
+                # fact, so persist everything to disk too, rotated to bound
+                # growth (10MB x 5 files ~= 50MB worst case).
+                "file": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "formatter": "default",
+                    "filters": ["request_id"],
+                    "filename": str(LOG_DIR / "backend.log"),
+                    "maxBytes": 10 * 1024 * 1024,
+                    "backupCount": 5,
+                },
             },
             "root": {
-                "handlers": ["console"],
+                "handlers": ["console", "file"],
                 "level": settings.log_level,
             },
         }

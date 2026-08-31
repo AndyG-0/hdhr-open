@@ -28,6 +28,7 @@ public final class GuideViewModel: ObservableObject {
     }
 
     public func loadData() async {
+        guard !isLoading else { return }
         isLoading = true
         error = nil
         defer { isLoading = false }
@@ -53,7 +54,8 @@ public final class GuideViewModel: ObservableObject {
 
     public func loadGuide() async {
         do {
-            let guide = try await apiClient.getGuide()
+            let now = Date().timeIntervalSince1970
+            let guide = try await apiClient.getGuide(start: now - 6 * 3600, end: now + 48 * 3600)
             self.fullGuide = guide
         } catch {
             Log.general.warning("Failed to load full guide: \(error.localizedDescription)")

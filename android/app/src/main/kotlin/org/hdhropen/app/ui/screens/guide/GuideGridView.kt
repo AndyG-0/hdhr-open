@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -128,6 +129,9 @@ fun GuideGridView(
 ) {
     val fullGuide by guideViewModel.fullGuide.collectAsState()
     val favoriteChannels by guideViewModel.favoriteChannels.collectAsState()
+    val isLoading by guideViewModel.isLoading.collectAsState()
+    val density = LocalDensity.current
+    var hasAutoScrolledToNow by remember { mutableStateOf(false) }
 
     var nowSeconds by remember { mutableStateOf(System.currentTimeMillis() / 1000.0) }
 
@@ -158,21 +162,35 @@ fun GuideGridView(
     val rowHeight = 64.dp
     val rulerHeight = 44.dp
 
-    Column(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+    // One-shot per load: once real guide data has settled, scroll the shared horizontal
+    // track (ruler + every channel row) to "now", mirroring the web client's
+    // `scrollEl.scrollLeft = nowLeft - 60` (HDHomeRunGuideGrid.svelte). Re-armed whenever a
+    // new load starts so returning to the guide after the app has been open a while re-centers.
+    LaunchedEffect(isLoading) {
+        if (isLoading) {
+            hasAutoScrolledToNow = false
+        } else if (!hasAutoScrolledToNow && fullGuide.isNotEmpty()) {
+            hasAutoScrolledToNow = true
+            val targetPx = with(density) { (nowLeft - 60.dp).toPx() }.coerceAtLeast(0f).toInt()
+            horizontalScrollState.scrollTo(targetPx)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         // Ruler Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(rulerHeight)
-                .background(DarkSurface)
+                .background(MaterialTheme.colorScheme.surface)
         ) {
             // Pinned corner block above channel column
             Box(
                 modifier = Modifier
                     .width(channelColWidth)
                     .fillMaxHeight()
-                    .background(DarkSurfaceVariant)
-                    .border(0.5.dp, DarkBorder)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(0.5.dp, MaterialTheme.colorScheme.outline)
             )
 
             // Horizontally scrolling time marks
@@ -200,7 +218,7 @@ fun GuideGridView(
                     for (hour in hourMarks) {
                         Text(
                             text = hour.label,
-                            style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary),
+                            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                             modifier = Modifier
                                 .offset(x = hour.leftDp + 6.dp, y = 22.dp)
                         )
@@ -209,7 +227,7 @@ fun GuideGridView(
             }
         }
 
-        Divider(color = DarkBorder, thickness = 1.dp)
+        Divider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
 
         // Channels & Airings Grid
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -224,14 +242,14 @@ fun GuideGridView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(rowHeight)
-                        .border(0.5.dp, DarkBorder)
+                        .border(0.5.dp, MaterialTheme.colorScheme.outline)
                 ) {
                     // Pinned Channel Column Cell
                     Box(
                         modifier = Modifier
                             .width(channelColWidth)
                             .fillMaxHeight()
-                            .background(DarkSurface)
+                            .background(MaterialTheme.colorScheme.surface)
                             .clickable { onTuneChannel(channel) }
                             .padding(horizontal = 8.dp, vertical = 6.dp)
                     ) {
@@ -254,10 +272,27 @@ fun GuideGridView(
                                         modifier = Modifier.size(12.dp)
                                     )
                                 }
+                                if (channel.isHD) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Surface(
+                                        color = BluePrimary.copy(alpha = 0.85f),
+                                        shape = RoundedCornerShape(3.dp)
+                                    ) {
+                                        Text(
+                                            text = "HD",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = Color.White,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                             }
                             Text(
                                 text = channel.name,
-                                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary),
+                                style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -270,15 +305,26 @@ fun GuideGridView(
                             .weight(1f)
                             .fillMaxHeight()
                             .horizontalScroll(horizontalScrollState)
-                            .background(DarkBackground)
+                            .background(MaterialTheme.colorScheme.background)
                     ) {
                         Box(modifier = Modifier.width(totalWidth).fillMaxHeight()) {
                             // Airing Cells
+                            val currentScrollDp = with(density) { horizontalScrollState.value.toFloat().toDp() }
                             for (layout in layouts) {
                                 val airing = layout.airing
                                 val isLive = airing.isCurrentlyAiring(nowSeconds)
                                 val hasRule = guideViewModel.findRule(channel.channelNumber, airing) != null
                                 val timeRange = TimeFormatting.formatTimeRange(airing.start, airing.end)
+
+                                // Title/time are offset to follow the visible left edge of the cell as the
+                                // row scrolls (like the web client's `position: sticky` cell-title/cell-time,
+                                // HDHomeRunGuideGrid.svelte), clamped so they never slide past the cell's own
+                                // bounds. Without this, a long-running show whose start has scrolled off-screen
+                                // renders as a blank cell -- its title is anchored at the show's start, which
+                                // may be hours to the left of the current viewport. Badges are NOT offset, to
+                                // match the web client, where they scroll with the cell body.
+                                val maxStickyOffset = (layout.widthDp - 96.dp).coerceAtLeast(0.dp)
+                                val stickyOffset = (currentScrollDp - layout.leftDp).coerceIn(0.dp, maxStickyOffset)
 
                                 Box(
                                     modifier = Modifier
@@ -287,54 +333,56 @@ fun GuideGridView(
                                         .fillMaxHeight()
                                         .padding(1.dp)
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(if (isLive) DarkSurfaceVariant else DarkSurface)
-                                        .border(0.5.dp, if (isLive) BluePrimary.copy(alpha = 0.5f) else DarkBorder, RoundedCornerShape(4.dp))
+                                        .background(if (isLive) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+                                        .border(0.5.dp, if (isLive) BluePrimary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
                                         .clickable { onSelectAiring(channel, airing) }
-                                        .padding(6.dp)
                                 ) {
-                                    Column(modifier = Modifier.fillMaxSize()) {
+                                    if (isLive || hasRule) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.Top
+                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                            modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)
                                         ) {
-                                            Text(
-                                                text = airing.title,
-                                                style = MaterialTheme.typography.bodyMedium.copy(
-                                                    color = TextPrimary,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                ),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
-
-                                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                if (isLive) {
-                                                    Icon(
-                                                        Icons.Default.GraphicEq,
-                                                        contentDescription = "Live",
-                                                        tint = RedLive,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                }
-                                                if (hasRule) {
-                                                    Icon(
-                                                        Icons.Default.FiberManualRecord,
-                                                        contentDescription = "Recording Rule",
-                                                        tint = RedLive,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                }
+                                            if (isLive) {
+                                                Icon(
+                                                    Icons.Default.GraphicEq,
+                                                    contentDescription = "Live",
+                                                    tint = RedLive,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                            }
+                                            if (hasRule) {
+                                                Icon(
+                                                    Icons.Default.FiberManualRecord,
+                                                    contentDescription = "Recording Rule",
+                                                    tint = RedLive,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
                                             }
                                         }
+                                    }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .padding(6.dp)
+                                            .offset(x = stickyOffset)
+                                            .widthIn(max = (layout.widthDp - 12.dp - stickyOffset).coerceAtLeast(40.dp))
+                                    ) {
+                                        Text(
+                                            text = airing.title,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
 
                                         Spacer(modifier = Modifier.height(2.dp))
 
                                         Text(
                                             text = timeRange,
-                                            style = MaterialTheme.typography.labelSmall.copy(color = TextMuted),
+                                            style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.extendedColors.textMuted),
                                             maxLines = 1
                                         )
                                     }

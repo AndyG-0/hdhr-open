@@ -26,7 +26,7 @@ public struct TVChannelSwitcherOverlay: View {
             HStack {
                 Text("Quick Channel Switcher")
                     .font(.headline)
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(Theme.textSecondary)
 
                 Spacer()
 
@@ -47,7 +47,7 @@ public struct TVChannelSwitcherOverlay: View {
                                 HStack {
                                     Text(ch.channelNumber)
                                         .font(.title3.bold())
-                                        .foregroundColor(isCurrent ? .blue : .white)
+                                        .foregroundColor(isCurrent ? .blue : Theme.textPrimary)
                                         .lineLimit(1)
 
                                     if ch.isHD {
@@ -61,7 +61,7 @@ public struct TVChannelSwitcherOverlay: View {
 
                                 Text(ch.name)
                                     .font(.caption.bold())
-                                    .foregroundColor(.white)
+                                    .foregroundColor(Theme.textPrimary)
                                     .lineLimit(1)
 
                                 if let now = ch.now {
@@ -73,11 +73,11 @@ public struct TVChannelSwitcherOverlay: View {
                             }
                             .padding(12)
                             .frame(width: 180, height: 140)
-                            .background(isCurrent ? Color.blue.opacity(0.2) : Color(white: 0.15))
+                            .background(isCurrent ? Theme.accentSubtle : Theme.appSurfaceVariant)
                             .cornerRadius(10)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .stroke(focusedChannelNumber == ch.channelNumber ? Color.white : Color.clear, lineWidth: 3)
+                                    .stroke(focusedChannelNumber == ch.channelNumber ? Theme.textPrimary : Color.clear, lineWidth: 3)
                             )
                         }
                         .buttonStyle(.plain)
@@ -89,7 +89,7 @@ public struct TVChannelSwitcherOverlay: View {
             }
         }
         .padding(.vertical, 16)
-        .background(Color.black.opacity(0.85))
+        .background(Theme.appSurface)
         // See TVPlayerSettingsOverlay - this overlay is added as a ZStack
         // sibling on top of the still-mounted player controls, so focus
         // doesn't move onto it automatically when it appears.

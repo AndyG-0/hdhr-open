@@ -10,6 +10,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Cookie
+import okhttp3.CookieJar
+import okhttp3.HttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,6 +22,31 @@ import org.hdhropen.kit.models.*
 import org.hdhropen.kit.utilities.Log
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+
+class InMemoryCookieJar : CookieJar {
+    private val cookieStore = mutableMapOf<String, MutableList<Cookie>>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        val host = url.host
+        val currentCookies = cookieStore.getOrPut(host) { mutableListOf() }
+        cookies.forEach { newCookie ->
+            currentCookies.removeAll { it.name == newCookie.name }
+            currentCookies.add(newCookie)
+        }
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> {
+        val host = url.host
+        val currentCookies = cookieStore[host] ?: return emptyList()
+        val now = System.currentTimeMillis()
+        currentCookies.removeAll { it.expiresAt < now }
+        return currentCookies
+    }
+
+    fun clear() {
+        cookieStore.clear()
+    }
+}
 
 @Serializable
 data class HLSSessionResponse(
@@ -42,12 +70,15 @@ private data class RecordingStreamHLSBody(
     val recordingId: String? = null,
     val start: Double? = null,
     @SerialName("audio_index")
-    val audioIndex: Int? = null
+    val audioIndex: Int? = null,
+    val provider: String? = null
 )
 
 class APIClient(
     var baseURL: String,
+    val cookieJar: InMemoryCookieJar = InMemoryCookieJar(),
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .cookieJar(cookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
@@ -85,6 +116,10 @@ class APIClient(
 
         bearerToken?.let { token ->
             requestBuilder.header("Authorization", "Bearer $token")
+        }
+
+        deviceId?.let { id ->
+            requestBuilder.header("X-Device-Id", id)
         }
 
         headers.forEach { (k, v) ->
@@ -192,9 +227,10 @@ class APIClient(
         url: String,
         recordingId: String,
         start: Double? = null,
-        recordEnd: Double? = null
+        recordEnd: Double? = null,
+        provider: String? = null
     ): HDHomeRunRecordingDetail =
-        request(APIEndpoints.recordingDetail(url, recordingId, start, recordEnd))
+        request(APIEndpoints.recordingDetail(url, recordingId, start, recordEnd, provider))
 
     suspend fun listRecordingRules(): List<HDHomeRunRecordingRule> =
         request(APIEndpoints.recordingRules())
@@ -238,9 +274,10 @@ class APIClient(
         url: String,
         recordingId: String? = null,
         start: Double? = null,
-        audioIndex: Int? = null
+        audioIndex: Int? = null,
+        provider: String? = null
     ): HLSSessionResponse {
-        val body = RecordingStreamHLSBody(url, recordingId, start, audioIndex)
+        val body = RecordingStreamHLSBody(url, recordingId, start, audioIndex, provider)
         return request(APIEndpoints.hlsRecordingSession(), method = "POST", body = json.encodeToString(body))
     }
 
@@ -281,8 +318,11 @@ class APIClient(
 
     // MARK: - Device APIs
 
-    suspend fun registerDevice(): DeviceRegisterResult =
-        request(APIEndpoints.registerDevice(), method = "POST")
+    suspend fun registerDevice(): DeviceRegisterResult {
+        val result: DeviceRegisterResult = request(APIEndpoints.registerDevice(), method = "POST")
+        deviceId = result.id
+        return result
+    }
 
     suspend fun getCurrentDevice(): DeviceInfo =
         request(APIEndpoints.currentDevice())

@@ -13,12 +13,22 @@ import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.*
 import org.hdhropen.kit.utilities.Log
 
+/** How the current session is being delivered - set by PlayerViewModel at
+ * each stream-URL-construction call site, since PlayerEngine has no way to
+ * infer this from the URL alone (both Direct and HLS URLs just look like
+ * media URLs to it). */
+enum class PlaybackMode {
+    Direct,
+    ServerTranscodedHls
+}
+
 @UnstableApi
 class PlayerViewModel(
     private val apiClient: APIClient,
     val watchSessionManager: WatchSessionManager,
     val playerEngine: PlayerEngine = PlayerEngine(),
-    val captionController: CaptionController = CaptionController()
+    val captionController: CaptionController = CaptionController(),
+    private val playbackPreferences: PlaybackPreferences = PlaybackPreferences()
 ) : ViewModel() {
     private val _activeChannel = MutableStateFlow<HDHomeRunChannel?>(null)
     val activeChannel: StateFlow<HDHomeRunChannel?> = _activeChannel.asStateFlow()
@@ -35,6 +45,9 @@ class PlayerViewModel(
     private val _activeHLSSessionId = MutableStateFlow<String?>(null)
     val activeHLSSessionId: StateFlow<String?> = _activeHLSSessionId.asStateFlow()
 
+    private val _playbackMode = MutableStateFlow<PlaybackMode?>(null)
+    val playbackMode: StateFlow<PlaybackMode?> = _playbackMode.asStateFlow()
+
     private val _thumbnailCues = MutableStateFlow<List<ThumbnailCue>>(emptyList())
     val thumbnailCues: StateFlow<List<ThumbnailCue>> = _thumbnailCues.asStateFlow()
 
@@ -46,6 +59,9 @@ class PlayerViewModel(
 
     private val _isPromoted = MutableStateFlow(false)
     val isPromoted: StateFlow<Boolean> = _isPromoted.asStateFlow()
+
+    private val _isSwitchingAudioTrack = MutableStateFlow(false)
+    val isSwitchingAudioTrack: StateFlow<Boolean> = _isSwitchingAudioTrack.asStateFlow()
 
     val showAudioMenu = MutableStateFlow(false)
     val showSettingsOverlay = MutableStateFlow(false)
@@ -99,6 +115,21 @@ class PlayerViewModel(
 
             val baseURL = apiClient.baseURL
 
+            // 0. Direct play: skips the watch session (so no live pause/rewind
+            // and no tuner sharing with other viewers) and server-side
+            // transcoding entirely, in exchange for lower latency/CPU - only
+            // for clients whose own platform can decode the tuner's raw
+            // MPEG-2/MPEG-TS stream, which ExoPlayer can.
+            if (playbackPreferences.directPlayEnabled.value) {
+                val directURL = StreamURLBuilder.liveStreamURL(baseURL, channel.channelNumber, direct = true)
+                _isWatchSession.value = false
+                _activeRecording.value = null
+                _activeHLSSessionId.value = null
+                _playbackMode.value = PlaybackMode.Direct
+                playerEngine.loadMedia(url = directURL, isLive = true, isSeekable = false, headers = hlsAuthHeaders())
+                return@launch
+            }
+
             // 1. Try starting a watch session for live pause/rewind, packaged as HLS
             try {
                 val watchRec = watchSessionManager.startWatch(channel.channelNumber)
@@ -106,13 +137,15 @@ class PlayerViewModel(
                 if (watchRec != null && playUrl != null) {
                     val hlsSession = apiClient.createRecordingHLSSession(
                         url = playUrl,
-                        recordingId = watchRec.recordingId
+                        recordingId = watchRec.recordingId,
+                        provider = watchRec.provider
                     )
                     val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
                     _activeRecording.value = watchRec
                     _isWatchSession.value = true
                     _activeHLSSessionId.value = hlsSession.sessionId
-                    playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = true)
+                    _playbackMode.value = PlaybackMode.ServerTranscodedHls
+                    playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = true, headers = hlsAuthHeaders())
                     loadRecordingMetadata(watchRec)
                     return@launch
                 }
@@ -127,7 +160,8 @@ class PlayerViewModel(
                 _isWatchSession.value = false
                 _activeRecording.value = null
                 _activeHLSSessionId.value = hlsSession.sessionId
-                playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = false)
+                _playbackMode.value = PlaybackMode.ServerTranscodedHls
+                playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = false, headers = hlsAuthHeaders())
             } catch (e: Exception) {
                 Log.player.error("Direct HLS channel stream failed: ${e.localizedMessage}")
                 playerEngine.setFailed(e.localizedMessage ?: "Failed to start stream")
@@ -149,11 +183,13 @@ class PlayerViewModel(
             try {
                 val hlsSession = apiClient.createRecordingHLSSession(
                     url = playUrl,
-                    recordingId = recording.recordingId
+                    recordingId = recording.recordingId,
+                    provider = recording.provider
                 )
                 val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
                 _activeHLSSessionId.value = hlsSession.sessionId
-                playerEngine.loadMedia(url = playlistURL, isLive = recording.isInProgress, isSeekable = true)
+                _playbackMode.value = PlaybackMode.ServerTranscodedHls
+                playerEngine.loadMedia(url = playlistURL, isLive = recording.isInProgress, isSeekable = true, headers = hlsAuthHeaders())
                 loadRecordingMetadata(recording)
             } catch (e: Exception) {
                 Log.player.error("Recording HLS stream failed: ${e.localizedMessage}")
@@ -179,6 +215,69 @@ class PlayerViewModel(
         }
     }
 
+    fun selectAudioTrack(track: HDHomeRunRecordingAudioInfo) {
+        // Audio track selection is baked into the HLS packaging itself
+        // (backend maps a specific source audio stream via ffmpeg's `-map`
+        // when building the session) rather than exposed as switchable
+        // in-stream tracks on the produced playlist, so "switching"
+        // requires starting a new HLS session with the new audio index
+        // and resuming playback at the current position.
+        if (_isSwitchingAudioTrack.value || track.index == playerEngine.currentAudioTrack.value?.index) return
+        val recording = _activeRecording.value ?: return
+        val playUrl = recording.playUrl
+        if (playUrl.isNullOrEmpty()) return
+
+        viewModelScope.launch {
+            _isSwitchingAudioTrack.value = true
+            try {
+                val resumeTime = playerEngine.currentTime.value
+                val isLive = playerEngine.isLive.value
+                val isSeekable = playerEngine.isSeekable.value
+                val previousSessionId = _activeHLSSessionId.value
+                val previousAudioTracks = playerEngine.availableAudioTracks.value
+                val previousVideoSpecs = playerEngine.videoSpecs.value
+                val previousTranscodeInfo = playerEngine.transcodeInfo.value
+                val baseURL = apiClient.baseURL
+
+                val hlsSession = apiClient.createRecordingHLSSession(
+                    url = playUrl,
+                    recordingId = recording.recordingId,
+                    start = resumeTime,
+                    audioIndex = track.index,
+                    provider = recording.provider
+                )
+                val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
+                _activeHLSSessionId.value = hlsSession.sessionId
+                // loadMedia() calls reset() internally, which wipes the audio
+                // track list/video specs - restore them since they describe the
+                // underlying recording and don't change when only the mapped
+                // audio stream does.
+                playerEngine.loadMedia(url = playlistURL, isLive = isLive, isSeekable = isSeekable, headers = hlsAuthHeaders())
+                playerEngine.setAudioTracks(previousAudioTracks)
+                playerEngine.setVideoSpecs(previousVideoSpecs)
+                playerEngine.setTranscodeInfo(previousTranscodeInfo)
+                playerEngine.selectAudioTrack(track)
+
+                if (previousSessionId != null) {
+                    viewModelScope.launch {
+                        try {
+                            apiClient.stopHLSSession(previousSessionId)
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.player.error("Audio track switch failed: ${e.localizedMessage}")
+            } finally {
+                _isSwitchingAudioTrack.value = false
+            }
+        }
+    }
+
+    private fun hlsAuthHeaders(): Map<String, String> =
+        apiClient.bearerToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+
     private fun loadRecordingMetadata(recording: HDHomeRunRecording) {
         val recId = recording.recordingId ?: return
         val playUrl = recording.playUrl ?: return
@@ -191,10 +290,12 @@ class PlayerViewModel(
                 val detail = apiClient.getRecordingDetail(
                     url = playUrl,
                     recordingId = recId,
-                    recordEnd = recording.recordEnd
+                    recordEnd = recording.recordEnd,
+                    provider = recording.provider
                 )
                 playerEngine.setAudioTracks(detail.audio)
                 playerEngine.setVideoSpecs(detail.video)
+                playerEngine.setTranscodeInfo(detail.transcode)
                 detail.durationSeconds?.let { dur ->
                     if (dur > 0) playerEngine.setDuration(dur)
                 }
@@ -208,13 +309,15 @@ class PlayerViewModel(
                     baseURL = baseURL,
                     recordingId = recId,
                     playUrl = playUrl,
-                    recordEnd = recording.recordEnd
+                    recordEnd = recording.recordEnd,
+                    provider = recording.provider
                 )
                 _thumbnailSpriteURL.value = StreamURLBuilder.thumbnailSpriteURL(
                     baseURL = baseURL,
                     recordingId = recId,
                     playUrl = playUrl,
-                    recordEnd = recording.recordEnd
+                    recordEnd = recording.recordEnd,
+                    provider = recording.provider
                 )
                 val vttString = apiClient.fetchRawString(vttURL)
                 _thumbnailCues.value = VTTParser.parseThumbnailVtt(vttString)
@@ -228,7 +331,8 @@ class PlayerViewModel(
                     baseURL = baseURL,
                     recordingId = recId,
                     playUrl = playUrl,
-                    recordEnd = recording.recordEnd
+                    recordEnd = recording.recordEnd,
+                    provider = recording.provider
                 )
                 val capString = apiClient.fetchRawString(capURL)
                 val cues = VTTParser.parseCaptions(capString)
@@ -258,6 +362,7 @@ class PlayerViewModel(
         _activeRecording.value = null
         _isWatchSession.value = false
         _activeHLSSessionId.value = null
+        _playbackMode.value = null
         _isPromoted.value = false
         _thumbnailCues.value = emptyList()
         _thumbnailSpriteURL.value = null

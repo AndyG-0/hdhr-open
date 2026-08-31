@@ -49,7 +49,7 @@ describe('HDHomeRunNetworkSection', () => {
 				tuner_host: '',
 				tuner_port: 80,
 				dvr_host: '',
-				dvr_port: 59090,
+				dvr_port: 50000,
 			}),
 		);
 	});

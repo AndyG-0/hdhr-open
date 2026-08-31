@@ -24,24 +24,26 @@
 		C19C84DB1810AB4697C4151A /* TVRecordingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97A3F894B1CF19CD093E90A /* TVRecordingDetailView.swift */; };
 		D505D0C47CC297A104281CE0 /* TVRecordingRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCDED5935ABFB977F0E37DD /* TVRecordingRulesView.swift */; };
 		F90527D3D70169C8A4F37BF7 /* TVRecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91A09B318A58D5CEC0BECC4 /* TVRecordingsView.swift */; };
+		81559D3E2696C4B363A124E3 /* TVServerConnectionFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08D1DE5FA2DA8FE571C9C387 /* TVServerConnectionFields.swift */; };
+		A12329298966778EBFB4D318 /* TVServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFD19C585CB38F0DC26F6B4 /* TVServerSetupView.swift */; };
 		C58BE20600F916024D9B2A9B /* TVSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1867ACAC666E65E3D35FE460 /* TVSettingsView.swift */; };
-		31E1F25634AE42AD80794DC6 /* TVServerConnectionFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5A2D3D80FA4D5ABE55D9EB /* TVServerConnectionFields.swift */; };
-		1D3C659BF9B1423492F475F1 /* TVServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A62898DBCAAB4CE1A633F7D1 /* TVServerSetupView.swift */; };
 		E59A382AB825DE9054336009 /* TVTunerStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180A71B742EECDCF04E8BAD8 /* TVTunerStatusView.swift */; };
 		DC318C00808A70E610A59428 /* HDHROpeniOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0EA0C73A8AB44C36743D8B /* HDHROpeniOSApp.swift */; };
 		9057A4ADFBBE54AABB3C7F7A /* RootiOSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBC6CE3A29EA3544EDC3B455 /* RootiOSView.swift */; };
 		1F6AC85D7BBD723C144D6209 /* iOSProfilePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B473BA81C004698C815A6D /* iOSProfilePickerView.swift */; };
+		CF041FDD8AD260953AB14347 /* iOSGuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC01CBDACE454856F8022B7D /* iOSGuideGridView.swift */; };
 		8F4E8B0AC01774F88A987E2A /* iOSGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF6D40416A97C749A2CD2ED /* iOSGuideView.swift */; };
-		63430D0444C557A93578F22D /* iOSGuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F13F57188DB509E47B8AD575 /* iOSGuideGridView.swift */; };
 		16B9ED124AEAB0D8A545CEDF /* iOSProgramDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550FCE2AFB7BEEB7655151A9 /* iOSProgramDetailSheet.swift */; };
 		58FAA4D70CC6155886F9536D /* iOSPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F1061180084500A451A807 /* iOSPlayerView.swift */; };
 		C88E5CBBD604B09FE53B0E23 /* iOSScrubBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2150599F5C7EA54A93A727BB /* iOSScrubBarView.swift */; };
+		F2741ADF6958219F23EC0139 /* iOSPlaybackInfoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10290794CF0139AE16E7DE2 /* iOSPlaybackInfoOverlay.swift */; };
 		5EBED811807AB906AC26BAAD /* iOSRecordingDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1DF074D216521FA84F7D057 /* iOSRecordingDetailSheet.swift */; };
 		73E6B9BA58F5A74141F20E0F /* iOSRecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9883747756A0797ABB4200F9 /* iOSRecordingsView.swift */; };
+		0A93A7E950B978B4C1BC7D51 /* iOSServerConnectionFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A9A6859EE3DA77CEA3248E /* iOSServerConnectionFields.swift */; };
+		EFFA2CA7DC761D675140C14F /* iOSServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E173F09AE8588C8F45B48334 /* iOSServerSetupView.swift */; };
 		586989FFF0AD3FDF248217EC /* iOSSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC95D678F53BCC89C3EA8C6D /* iOSSettingsView.swift */; };
-		FB9F83C737CA40F8A34A7C53 /* iOSServerConnectionFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372F043FB7604796A3E4B765 /* iOSServerConnectionFields.swift */; };
-		73B7B19BDA5E435D989BA431 /* iOSServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAE482BD4B14DC2AAD5AF81 /* iOSServerSetupView.swift */; };
 		30B41E41046F0A198CD21A74 /* iOSTunerStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A6116A3BF0B3DFF1F71E2D /* iOSTunerStatusView.swift */; };
+		A093BBB87C32259CAD3B7BC1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCDECA3BEC6ABA05A8545594 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -63,25 +65,27 @@
 		C97A3F894B1CF19CD093E90A /* TVRecordingDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingDetailView.swift"; sourceTree = "<group>"; };
 		ACCDED5935ABFB977F0E37DD /* TVRecordingRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingRulesView.swift"; sourceTree = "<group>"; };
 		F91A09B318A58D5CEC0BECC4 /* TVRecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingsView.swift"; sourceTree = "<group>"; };
+		08D1DE5FA2DA8FE571C9C387 /* TVServerConnectionFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVServerConnectionFields.swift"; sourceTree = "<group>"; };
+		DFFD19C585CB38F0DC26F6B4 /* TVServerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVServerSetupView.swift"; sourceTree = "<group>"; };
 		1867ACAC666E65E3D35FE460 /* TVSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVSettingsView.swift"; sourceTree = "<group>"; };
-		FE5A2D3D80FA4D5ABE55D9EB /* TVServerConnectionFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVServerConnectionFields.swift"; sourceTree = "<group>"; };
-		A62898DBCAAB4CE1A633F7D1 /* TVServerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVServerSetupView.swift"; sourceTree = "<group>"; };
 		180A71B742EECDCF04E8BAD8 /* TVTunerStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVTunerStatusView.swift"; sourceTree = "<group>"; };
 		8E0EA0C73A8AB44C36743D8B /* HDHROpeniOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HDHROpeniOSApp.swift"; sourceTree = "<group>"; };
 		FBC6CE3A29EA3544EDC3B455 /* RootiOSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RootiOSView.swift"; sourceTree = "<group>"; };
 		2A5F6E3913B9384EBBE038AD /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
 		C5B473BA81C004698C815A6D /* iOSProfilePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSProfilePickerView.swift"; sourceTree = "<group>"; };
+		FC01CBDACE454856F8022B7D /* iOSGuideGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSGuideGridView.swift"; sourceTree = "<group>"; };
 		BBF6D40416A97C749A2CD2ED /* iOSGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSGuideView.swift"; sourceTree = "<group>"; };
-		F13F57188DB509E47B8AD575 /* iOSGuideGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSGuideGridView.swift"; sourceTree = "<group>"; };
 		550FCE2AFB7BEEB7655151A9 /* iOSProgramDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSProgramDetailSheet.swift"; sourceTree = "<group>"; };
 		95F1061180084500A451A807 /* iOSPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSPlayerView.swift"; sourceTree = "<group>"; };
 		2150599F5C7EA54A93A727BB /* iOSScrubBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSScrubBarView.swift"; sourceTree = "<group>"; };
+		D10290794CF0139AE16E7DE2 /* iOSPlaybackInfoOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSPlaybackInfoOverlay.swift"; sourceTree = "<group>"; };
 		F1DF074D216521FA84F7D057 /* iOSRecordingDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingDetailSheet.swift"; sourceTree = "<group>"; };
 		9883747756A0797ABB4200F9 /* iOSRecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingsView.swift"; sourceTree = "<group>"; };
+		96A9A6859EE3DA77CEA3248E /* iOSServerConnectionFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerConnectionFields.swift"; sourceTree = "<group>"; };
+		E173F09AE8588C8F45B48334 /* iOSServerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerSetupView.swift"; sourceTree = "<group>"; };
 		CC95D678F53BCC89C3EA8C6D /* iOSSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSSettingsView.swift"; sourceTree = "<group>"; };
-		372F043FB7604796A3E4B765 /* iOSServerConnectionFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerConnectionFields.swift"; sourceTree = "<group>"; };
-		BCAE482BD4B14DC2AAD5AF81 /* iOSServerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerSetupView.swift"; sourceTree = "<group>"; };
 		04A6116A3BF0B3DFF1F71E2D /* iOSTunerStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSTunerStatusView.swift"; sourceTree = "<group>"; };
+		FCDECA3BEC6ABA05A8545594 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
 		7F74D3AE35A506DF445EDD2B /* HDHROpenTV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDHROpenTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46E8A74DEDAE46BF5AF91478 /* HDHROpeniOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDHROpeniOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -102,6 +106,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		12F87E68C40DE1625F84C134 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A093BBB87C32259CAD3B7BC1 /* in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXGroup section */
 		5928955287B8089ED2177128 = {
@@ -200,9 +215,9 @@
 		B3F9B70DE985FB4FB83D8391 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				08D1DE5FA2DA8FE571C9C387 /* TVServerConnectionFields.swift */,
+				DFFD19C585CB38F0DC26F6B4 /* TVServerSetupView.swift */,
 				1867ACAC666E65E3D35FE460 /* TVSettingsView.swift */,
-				FE5A2D3D80FA4D5ABE55D9EB /* TVServerConnectionFields.swift */,
-				A62898DBCAAB4CE1A633F7D1 /* TVServerSetupView.swift */,
 			);
 			path = "Settings"; sourceTree = "<group>";
 		};
@@ -234,6 +249,7 @@
 			isa = PBXGroup;
 			children = (
 				2A5F6E3913B9384EBBE038AD /* Info.plist */,
+				FCDECA3BEC6ABA05A8545594 /* Assets.xcassets */,
 			);
 			path = "Resources"; sourceTree = "<group>";
 		};
@@ -259,8 +275,8 @@
 		C5FE6BA24FD9932AED53D356 /* Guide */ = {
 			isa = PBXGroup;
 			children = (
+				FC01CBDACE454856F8022B7D /* iOSGuideGridView.swift */,
 				BBF6D40416A97C749A2CD2ED /* iOSGuideView.swift */,
-				F13F57188DB509E47B8AD575 /* iOSGuideGridView.swift */,
 				550FCE2AFB7BEEB7655151A9 /* iOSProgramDetailSheet.swift */,
 			);
 			path = "Guide"; sourceTree = "<group>";
@@ -270,6 +286,7 @@
 			children = (
 				95F1061180084500A451A807 /* iOSPlayerView.swift */,
 				2150599F5C7EA54A93A727BB /* iOSScrubBarView.swift */,
+				D10290794CF0139AE16E7DE2 /* iOSPlaybackInfoOverlay.swift */,
 			);
 			path = "Player"; sourceTree = "<group>";
 		};
@@ -284,9 +301,9 @@
 		528C71768ABC34AA97829EBF /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				96A9A6859EE3DA77CEA3248E /* iOSServerConnectionFields.swift */,
+				E173F09AE8588C8F45B48334 /* iOSServerSetupView.swift */,
 				CC95D678F53BCC89C3EA8C6D /* iOSSettingsView.swift */,
-				372F043FB7604796A3E4B765 /* iOSServerConnectionFields.swift */,
-				BCAE482BD4B14DC2AAD5AF81 /* iOSServerSetupView.swift */,
 			);
 			path = "Settings"; sourceTree = "<group>";
 		};
@@ -325,6 +342,7 @@
 			buildPhases = (
 				092565D054976A1E3DA977DF /* Sources */,
 				F8E2E15E43E53C3610A485CD /* Frameworks */,
+				12F87E68C40DE1625F84C134 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -400,9 +418,9 @@
 				C19C84DB1810AB4697C4151A /* in Sources */,
 				D505D0C47CC297A104281CE0 /* in Sources */,
 				F90527D3D70169C8A4F37BF7 /* in Sources */,
+				81559D3E2696C4B363A124E3 /* in Sources */,
+				A12329298966778EBFB4D318 /* in Sources */,
 				C58BE20600F916024D9B2A9B /* in Sources */,
-				31E1F25634AE42AD80794DC6 /* in Sources */,
-				1D3C659BF9B1423492F475F1 /* in Sources */,
 				E59A382AB825DE9054336009 /* in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -414,16 +432,17 @@
 				DC318C00808A70E610A59428 /* in Sources */,
 				9057A4ADFBBE54AABB3C7F7A /* in Sources */,
 				1F6AC85D7BBD723C144D6209 /* in Sources */,
+				CF041FDD8AD260953AB14347 /* in Sources */,
 				8F4E8B0AC01774F88A987E2A /* in Sources */,
-				63430D0444C557A93578F22D /* in Sources */,
 				16B9ED124AEAB0D8A545CEDF /* in Sources */,
 				58FAA4D70CC6155886F9536D /* in Sources */,
 				C88E5CBBD604B09FE53B0E23 /* in Sources */,
+				F2741ADF6958219F23EC0139 /* in Sources */,
 				5EBED811807AB906AC26BAAD /* in Sources */,
 				73E6B9BA58F5A74141F20E0F /* in Sources */,
+				0A93A7E950B978B4C1BC7D51 /* in Sources */,
+				EFFA2CA7DC761D675140C14F /* in Sources */,
 				586989FFF0AD3FDF248217EC /* in Sources */,
-				FB9F83C737CA40F8A34A7C53 /* in Sources */,
-				73B7B19BDA5E435D989BA431 /* in Sources */,
 				30B41E41046F0A198CD21A74 /* in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -545,7 +564,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HDHROpeniOS/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "HDHR Open";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -569,7 +588,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HDHROpeniOS/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "HDHR Open";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

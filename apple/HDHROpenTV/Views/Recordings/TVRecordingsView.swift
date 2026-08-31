@@ -20,7 +20,7 @@ public struct TVRecordingsView: View {
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 20) {
                 // Header & Filter Bar
@@ -28,7 +28,7 @@ public struct TVRecordingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("DVR Library")
                             .font(.largeTitle.bold())
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         if let info = recordingsViewModel.dvrInfo {
                             Text(info.formattedFreeSpace)
@@ -52,11 +52,11 @@ public struct TVRecordingsView: View {
                                     .foregroundColor(recordingsViewModel.selectedFilter == cat ? .white : .secondary)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 8)
-                                    .background(recordingsViewModel.selectedFilter == cat ? Color.blue : Color(white: 0.15))
+                                    .background(recordingsViewModel.selectedFilter == cat ? Color.blue : Theme.appSurfaceVariant)
                                     .cornerRadius(20)
                                     .overlay(
                                         Capsule()
-                                            .stroke(isFocused ? Color.white : Color.clear, lineWidth: 3)
+                                            .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 3)
                                     )
                                     .scaleEffect(isFocused ? 1.08 : 1.0)
                                     .animation(.easeInOut(duration: 0.15), value: isFocused)
@@ -70,11 +70,11 @@ public struct TVRecordingsView: View {
                         Label("Rules (\(recordingsViewModel.recordingRules.count))", systemImage: "calendar.badge.clock")
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(Color(white: 0.15))
+                            .background(Theme.appSurfaceVariant)
                             .cornerRadius(20)
                             .overlay(
                                 Capsule()
-                                    .stroke(isRulesFocused ? Color.white : Color.clear, lineWidth: 3)
+                                    .stroke(isRulesFocused ? Theme.textPrimary : Color.clear, lineWidth: 3)
                             )
                             .scaleEffect(isRulesFocused ? 1.08 : 1.0)
                             .animation(.easeInOut(duration: 0.15), value: isRulesFocused)
@@ -87,11 +87,11 @@ public struct TVRecordingsView: View {
                     }) {
                         Image(systemName: "arrow.clockwise")
                             .frame(width: 44, height: 44)
-                            .background(Color(white: 0.15))
+                            .background(Theme.appSurfaceVariant)
                             .clipShape(Circle())
                             .overlay(
                                 Circle()
-                                    .stroke(isRefreshFocused ? Color.white : Color.clear, lineWidth: 3)
+                                    .stroke(isRefreshFocused ? Theme.textPrimary : Color.clear, lineWidth: 3)
                             )
                             .scaleEffect(isRefreshFocused ? 1.08 : 1.0)
                             .animation(.easeInOut(duration: 0.15), value: isRefreshFocused)

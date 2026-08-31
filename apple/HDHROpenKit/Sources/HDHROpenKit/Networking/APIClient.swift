@@ -47,6 +47,10 @@ public actor APIClient {
         self.deviceId = id
     }
 
+    public func currentDeviceId() -> String? {
+        deviceId
+    }
+
     // MARK: - Core HTTP Engine
 
     public func request<T: Decodable>(
@@ -79,6 +83,10 @@ public actor APIClient {
 
         if let token = bearerToken {
             urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        if let devId = deviceId {
+            urlRequest.setValue(devId, forHTTPHeaderField: "X-Device-Id")
         }
 
         for (k, v) in headers {
@@ -134,8 +142,8 @@ public actor APIClient {
         try await request(path: APIEndpoints.guideChannels())
     }
 
-    public func getGuide() async throws -> [HDHomeRunFullGuideChannel] {
-        try await request(path: APIEndpoints.guide())
+    public func getGuide(start: Double? = nil, end: Double? = nil) async throws -> [HDHomeRunFullGuideChannel] {
+        try await request(path: APIEndpoints.guide(start: start, end: end))
     }
 
     public func refreshGuide() async throws {
@@ -301,7 +309,9 @@ public actor APIClient {
     // MARK: - Device APIs
 
     public func registerDevice() async throws -> DeviceRegisterResult {
-        try await request(path: APIEndpoints.registerDevice(), method: "POST")
+        let result: DeviceRegisterResult = try await request(path: APIEndpoints.registerDevice(), method: "POST")
+        self.deviceId = result.id
+        return result
     }
 
     public func getCurrentDevice() async throws -> DeviceInfo {

@@ -18,14 +18,14 @@ public struct TVGuideView: View {
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 16) {
                 // Header & Filter Bar
                 HStack(alignment: .center) {
                     Text("Live TV Guide")
                         .font(.largeTitle.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
 
                     Spacer()
 

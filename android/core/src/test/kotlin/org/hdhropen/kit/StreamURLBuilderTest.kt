@@ -13,6 +13,13 @@ class StreamURLBuilderTest {
     }
 
     @Test
+    fun testLiveStreamURLDirect() {
+        val base = "http://192.168.1.100:8000"
+        val url = StreamURLBuilder.liveStreamURL(base, "4.1", direct = true)
+        assertEquals("http://192.168.1.100:8000/api/streaming/stream/4.1?direct=true", url)
+    }
+
+    @Test
     fun testHLSPlaylistURL() {
         val base = "http://192.168.1.100:8000"
         val url = StreamURLBuilder.hlsPlaylistURL(base, "abc123")

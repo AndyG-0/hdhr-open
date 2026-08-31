@@ -106,6 +106,14 @@
 		recordingRules.filter((r) => serverFilter === 'all' || ((r.provider ?? r.Provider) ?? 'builtin') === serverFilter),
 	);
 
+	// HDHomeRun-native recordings live in HDHomeRun's own storage, not ours -
+	// this app has no way to delete them (see backend delete_recording, which
+	// only handles builtin recordings), so the delete action must not be
+	// offered for them.
+	function canDeleteRecording(recording: HDHomeRunRecording): boolean {
+		return (recording.provider ?? 'builtin') !== 'hdhomerun';
+	}
+
 	let playingMedia = $state<{
 		title: string;
 		url: string;
@@ -480,7 +488,7 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
-								onDelete={() => deleteRecording(recording)}
+								onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 								deleting={deletingRecordingId === recording.recording_id}
 							/>
 						{/each}
@@ -498,7 +506,7 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
-								onDelete={() => deleteRecording(recording)}
+								onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 								deleting={deletingRecordingId === recording.recording_id}
 							/>
 						{/each}
@@ -516,7 +524,7 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
-								onDelete={() => deleteRecording(recording)}
+								onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 								deleting={deletingRecordingId === recording.recording_id}
 							/>
 						{/each}
@@ -536,7 +544,7 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
-							onDelete={() => deleteRecording(recording)}
+							onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 							deleting={deletingRecordingId === recording.recording_id}
 						/>
 					{/each}
@@ -557,7 +565,7 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
-							onDelete={() => deleteRecording(recording)}
+							onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 							deleting={deletingRecordingId === recording.recording_id}
 						/>
 					{/each}
@@ -578,7 +586,7 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
-							onDelete={() => deleteRecording(recording)}
+							onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 							deleting={deletingRecordingId === recording.recording_id}
 						/>
 					{/each}

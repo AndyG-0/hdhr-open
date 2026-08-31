@@ -155,6 +155,86 @@ async def test_scheduled_recording_attaches_to_existing_live_watch_capture(tmp_d
     await tuner_allocator.release_tuner(recording_id)
 
 
+@pytest.mark.asyncio
+async def test_scheduled_recording_races_live_watch_without_double_tuner(tmp_db, tmp_path, monkeypatch):
+    """engine.tick() (APScheduler) starting a scheduled recording and a
+    viewer's watch.start_watch() (HTTP-triggered) landing on the same channel
+    at the same moment must not race into two independent captures/tuner
+    grabs - one call must create the capture and the other must attach to it,
+    the same guarantee the sequential test above checks, but under genuine
+    concurrent interleaving across both call sites."""
+    settings = {"tuner_host": "hdhomerun.local", "tuner_port": 80}
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", settings)
+
+    # A channel number not touched by any other test in this file: capture
+    # state on a promoted (non-temporary) capture is never torn down by
+    # cleanup, so reusing "4.1" here would pick up a leftover capture from
+    # test_scheduled_recording_attaches_to_existing_live_watch_capture and
+    # invalidate this test's own race.
+    channel_number = "7.1"
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, channel_number, "Race Channel", True)
+
+    def _mock_process() -> MagicMock:
+        proc = MagicMock()
+        proc.returncode = None
+        proc.terminate = MagicMock()
+        proc.wait = AsyncMock(return_value=0)
+        proc.stderr = MagicMock()
+        proc.stderr.read = AsyncMock(return_value=b"")
+        return proc
+
+    monkeypatch.setattr(capture_pipeline, "_ensure_recordings_dir", lambda: tmp_path)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(side_effect=lambda *a, **kw: _mock_process()))
+    monkeypatch.setattr(hdhomerun_client, "fetch_discover", AsyncMock(return_value={"TunerCount": 2}))
+    monkeypatch.setattr(
+        hdhomerun_client, "fetch_tuner_status", AsyncMock(return_value=[{"in_use": False}, {"in_use": False}])
+    )
+
+    now = time.time()
+    db.upsert_scheduled_recording(
+        {
+            "id": "sched_race",
+            "channel_id": channel_id,
+            "title": "Breaking News",
+            "start_ts": now - 10,
+            "end_ts": now + 600,
+            "status": "scheduled",
+        }
+    )
+
+    engine = DVREngine()
+    watch_result, _ = await asyncio.gather(
+        watch.start_watch(channel_number, settings),
+        engine.tick(),
+    )
+
+    assert watch_result is not None
+    # Exactly one capture exists for the channel, however the race resolved -
+    # pre-fix, both call sites could independently see "nothing running" and
+    # each start their own capture/tuner grab.
+    captures_on_channel = [
+        c for c in capture_pipeline._active_captures.values() if c.channel_number == channel_number
+    ]
+    assert len(captures_on_channel) == 1
+
+    with db._connect() as conn:
+        row = conn.execute(
+            "SELECT status, recording_id FROM scheduled_recordings WHERE id = 'sched_race'"
+        ).fetchone()
+    assert row[0] == "in_progress"
+    recording_id = row[1]
+    assert recording_id is not None
+    assert recording_id == watch_result["recording_id"]
+
+    rec = db.get_recording(recording_id)
+    assert rec["is_temporary"] == 0
+
+    # Cleanup: release the tuner tokens this test acquired.
+    await watch.stop_watch(watch_result["session_id"])
+    await tuner_allocator.release_tuner(recording_id)
+
+
 def test_register_scheduler_jobs():
     scheduler = AsyncIOScheduler()
     dvr_engine.register(scheduler)

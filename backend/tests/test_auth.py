@@ -62,6 +62,15 @@ async def test_get_current_device_returns_the_device_and_bumps_last_seen(tmp_db)
     assert db.get_device("dev1")["last_seen_at"] != "2020-01-01T00:00:00Z"
 
 
+async def test_get_current_device_resolves_via_header(tmp_db):
+    db.create_device("dev2", "Living Room", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
+
+    device = await auth.get_current_device(_FakeRequest({}, headers={auth.DEVICE_HEADER_NAME: "dev2"}))
+
+    assert device["id"] == "dev2"
+    assert db.get_device("dev2")["last_seen_at"] != "2020-01-01T00:00:00Z"
+
+
 async def test_get_current_session_raises_401_without_a_cookie(tmp_db):
     with pytest.raises(HTTPException) as exc_info:
         await auth.get_current_session(_FakeRequest({}))

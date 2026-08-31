@@ -26,7 +26,7 @@ public struct TVRecordingRulesView: View {
                 HStack {
                     Text("Scheduled Recording Rules")
                         .font(.title.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
 
                     Spacer()
 
@@ -39,7 +39,7 @@ public struct TVRecordingRulesView: View {
                         Spacer()
                         Image(systemName: "calendar.badge.clock")
                             .font(.system(size: 56))
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.textMuted)
                         Text("No active recording rules scheduled")
                             .font(.title3)
                             .foregroundColor(.secondary)
@@ -54,7 +54,7 @@ public struct TVRecordingRulesView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(rule.title)
                                             .font(.headline)
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
 
                                         HStack(spacing: 12) {
                                             Text(rule.isSeriesRule ? "Series Rule" : "Single Episode")
@@ -81,7 +81,7 @@ public struct TVRecordingRulesView: View {
                                     }
                                 }
                                 .padding(16)
-                                .background(Color(white: 0.15))
+                                .background(Theme.appSurfaceVariant)
                                 .cornerRadius(12)
                             }
                         }
@@ -90,7 +90,7 @@ public struct TVRecordingRulesView: View {
             }
             .padding(48)
             .frame(maxWidth: 1000, maxHeight: 600)
-            .background(Color(white: 0.1))
+            .background(Theme.appSurface)
             .cornerRadius(24)
         }
         .focusScope(focusNamespace)

@@ -6,7 +6,9 @@ import org.hdhropen.kit.networking.APIClient
 import org.hdhropen.kit.networking.AuthManager
 import org.hdhropen.kit.networking.ServerDiscovery
 import org.hdhropen.kit.networking.WatchSessionManager
+import org.hdhropen.kit.playback.PlaybackPreferences
 import org.hdhropen.kit.playback.PlayerEngine
+import org.hdhropen.kit.theme.ThemePreferences
 
 @UnstableApi
 class AppEnvironment(
@@ -18,10 +20,12 @@ class AppEnvironment(
     val authManager = AuthManager(apiClient, context)
     val watchSessionManager = WatchSessionManager(apiClient)
     val playerEngine = PlayerEngine(context)
+    val playbackPreferences = PlaybackPreferences(context)
+    val themePreferences = ThemePreferences(context)
 
     val guideViewModel = GuideViewModel(apiClient)
     val recordingsViewModel = RecordingsViewModel(apiClient)
-    val playerViewModel = PlayerViewModel(apiClient, watchSessionManager, playerEngine)
+    val playerViewModel = PlayerViewModel(apiClient, watchSessionManager, playerEngine, playbackPreferences = playbackPreferences)
     val tunerViewModel = TunerViewModel(apiClient)
     val settingsViewModel = SettingsViewModel(apiClient)
     val authViewModel = AuthViewModel(authManager)

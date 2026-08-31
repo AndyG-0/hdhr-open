@@ -32,8 +32,8 @@ fun RecordingDetailBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
-        scrimColor = DarkBackground.copy(alpha = 0.6f),
+        containerColor = MaterialTheme.colorScheme.surface,
+        scrimColor = MaterialTheme.colorScheme.background.copy(alpha = 0.6f),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
         Column(
@@ -44,7 +44,7 @@ fun RecordingDetailBottomSheet(
         ) {
             Text(
                 text = recording.title,
-                style = MaterialTheme.typography.titleLarge.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             )
 
             if (!recording.episodeTitle.isNullOrEmpty() || recording.episodeDesignation != null) {
@@ -67,19 +67,19 @@ fun RecordingDetailBottomSheet(
                 if (recording.formattedDuration.isNotEmpty()) {
                     Text(
                         text = recording.formattedDuration,
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                     )
                 }
                 if (recording.formattedFileSize.isNotEmpty()) {
                     Text(
                         text = "• ${recording.formattedFileSize}",
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                     )
                 }
                 if (!recording.channelName.isNullOrEmpty()) {
                     Text(
                         text = "• ${recording.channelName}",
-                        style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                     )
                 }
             }
@@ -89,7 +89,7 @@ fun RecordingDetailBottomSheet(
                 Text(
                     text = recording.synopsis ?: "",
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
                     )
                 )
@@ -107,9 +107,9 @@ fun RecordingDetailBottomSheet(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TextPrimary)
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Play Recording", style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontSize = 15.sp))
+                Text("Play Recording", style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp))
             }
 
             if (!recording.isInProgress) {

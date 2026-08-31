@@ -21,6 +21,8 @@ public final class PlayerEngine: ObservableObject {
     @Published public private(set) var currentAudioTrack: HDHomeRunRecordingAudioInfo?
     @Published public private(set) var availableAudioTracks: [HDHomeRunRecordingAudioInfo] = []
     @Published public private(set) var videoSpecs: HDHomeRunRecordingVideoInfo?
+    @Published public private(set) var transcodeInfo: HDHomeRunTranscodeInfo?
+    @Published public private(set) var observedBitrate: Double?
 
     public private(set) var avPlayer: AVPlayer?
 
@@ -58,7 +60,9 @@ public final class PlayerEngine: ObservableObject {
                         self.state = .playing
                     }
                 case .paused:
-                    break
+                    if self.state == .buffering {
+                        self.state = .paused
+                    }
                 @unknown default:
                     break
                 }
@@ -117,13 +121,18 @@ public final class PlayerEngine: ObservableObject {
 
     public func pause() {
         avPlayer?.pause()
-        if state == .playing {
+        // Live HLS can flicker into `.buffering` (see `timeControlStatusObserver`
+        // above) - pausing while buffering must still land on `.paused`, or
+        // `state` gets stuck showing the loading spinner even though the
+        // player has genuinely paused, and `togglePlayPause` below then has
+        // no matching branch to recover from it.
+        if state == .playing || state == .buffering {
             state = .paused
         }
     }
 
     public func togglePlayPause() {
-        if state == .playing {
+        if state == .playing || state == .buffering {
             pause()
         } else if state == .paused {
             play()
@@ -161,6 +170,10 @@ public final class PlayerEngine: ObservableObject {
 
     public func setVideoSpecs(_ specs: HDHomeRunRecordingVideoInfo?) {
         self.videoSpecs = specs
+    }
+
+    public func setTranscodeInfo(_ info: HDHomeRunTranscodeInfo?) {
+        self.transcodeInfo = info
     }
 
     public func setDuration(_ dur: Double) {
@@ -205,6 +218,8 @@ public final class PlayerEngine: ObservableObject {
         availableAudioTracks = []
         currentAudioTrack = nil
         videoSpecs = nil
+        transcodeInfo = nil
+        observedBitrate = nil
     }
 
     private func setupTimeObserver() {
@@ -245,7 +260,7 @@ public final class PlayerEngine: ObservableObject {
         itemAccessLogObserver = NotificationCenter.default
             .publisher(for: AVPlayerItem.newAccessLogEntryNotification, object: item)
             .receive(on: DispatchQueue.main)
-            .sink { _ in
+            .sink { [weak self] _ in
                 guard let event = item.accessLog()?.events.last else { return }
                 Log.player.debug("""
                     Access log: uri=\(event.uri ?? "nil", privacy: .public) \
@@ -255,6 +270,9 @@ public final class PlayerEngine: ObservableObject {
                     serverAddressChanges=\(event.numberOfServerAddressChanges) \
                     transferDuration=\(event.transferDuration)
                     """)
+                if event.observedBitrate > 0 {
+                    self?.observedBitrate = event.observedBitrate
+                }
             }
 
         itemErrorLogObserver = NotificationCenter.default

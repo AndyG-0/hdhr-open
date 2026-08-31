@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -95,3 +96,66 @@ def test_stream_channel_software_preset_failure_does_not_invoke_probe(client, tm
 
     assert response.status_code == 502
     mock_probe.assert_not_awaited()
+
+
+class _FakeRawResponse:
+    def __init__(self, status_code: int, chunks: list[bytes]) -> None:
+        self.status_code = status_code
+        self._chunks = chunks
+        self.aclose = AsyncMock()
+
+    async def aiter_bytes(self, chunk_size: int):
+        for chunk in self._chunks:
+            yield chunk
+
+
+class _FakeRawClient:
+    def __init__(self, outcome: _FakeRawResponse | Exception) -> None:
+        self._outcome = outcome
+        self.aclose = AsyncMock()
+
+    def build_request(self, method: str, url: str):
+        return (method, url)
+
+    async def send(self, request, stream: bool = False):
+        if isinstance(self._outcome, Exception):
+            raise self._outcome
+        return self._outcome
+
+
+def _patch_raw_client(monkeypatch, outcome: _FakeRawResponse | Exception) -> None:
+    monkeypatch.setattr(streaming_api.httpx, "AsyncClient", lambda **kwargs: _FakeRawClient(outcome))
+
+
+def test_stream_channel_direct_bypasses_ffmpeg_and_proxies_raw_bytes(client, tmp_db, monkeypatch):
+    _configure_tuner("software")
+    _patch_raw_client(monkeypatch, _FakeRawResponse(200, [b"abc", b"def"]))
+    exec_mock = AsyncMock(side_effect=AssertionError("ffmpeg should not run for direct=true"))
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", exec_mock)
+
+    response = client.get("/api/streaming/stream/4.1?direct=true")
+
+    assert response.status_code == 200
+    assert response.content == b"abcdef"
+    assert response.headers["content-type"] == "video/mp2t"
+    exec_mock.assert_not_awaited()
+
+
+def test_stream_channel_direct_returns_502_when_tuner_rejects(client, tmp_db, monkeypatch):
+    _configure_tuner("software")
+    _patch_raw_client(monkeypatch, _FakeRawResponse(500, []))
+
+    response = client.get("/api/streaming/stream/4.1?direct=true")
+
+    assert response.status_code == 502
+    assert "Tuner rejected" in response.json()["detail"]
+
+
+def test_stream_channel_direct_returns_502_when_tuner_unreachable(client, tmp_db, monkeypatch):
+    _configure_tuner("software")
+    _patch_raw_client(monkeypatch, httpx.ConnectError("connection refused"))
+
+    response = client.get("/api/streaming/stream/4.1?direct=true")
+
+    assert response.status_code == 502
+    assert "Could not reach tuner" in response.json()["detail"]

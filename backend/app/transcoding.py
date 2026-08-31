@@ -43,6 +43,16 @@ HLS_SEGMENT_SECONDS = 2
 HLS_LIST_SIZE = 12
 HLS_FLAGS = "delete_segments+append_list+independent_segments"
 
+# Ahead-of-time packaging for a COMPLETED recording file: the whole file is
+# already on disk, so instead of a rolling live-style window we keep every
+# segment and advertise a proper VOD playlist covering the entire recording -
+# otherwise AVPlayer's seekable range is stuck to whatever small window of
+# segments happens to exist on disk, and scrubbing past it silently no-ops.
+# ffmpeg still appends segments/rewrites the playlist incrementally (without
+# `#EXT-X-ENDLIST`) as it works through the file, so playback can start well
+# before the whole thing has transcoded.
+HLS_FLAGS_VOD = "independent_segments"
+
 DEFAULT_PRESET = "software"
 DEFAULT_HWACCEL_DEVICE = "/dev/dri/renderD128"
 DEFAULT_FFMPEG_LOGLEVEL = "warning"
@@ -293,13 +303,16 @@ def build_ffmpeg_args(
     output_format: Literal["mpegts", "hls"] = "mpegts",
     hls_playlist_path: Path | None = None,
     hls_segment_pattern: str | None = None,
+    hls_vod: bool = False,
 ) -> list[str]:
     """Full ffmpeg arg list (excluding the "ffmpeg" program name itself).
 
     `output_format="hls"` is the native-client (Apple) packaging path - the
     hwaccel preset's input_args/output_args are unaffected, only the trailing
     muxer/output framing changes. `hls_playlist_path`/`hls_segment_pattern`
-    are required when `output_format="hls"`.
+    are required when `output_format="hls"`. `hls_vod=True` packages a
+    COMPLETED recording file as a full-file VOD playlist instead of a rolling
+    live-style window - see `HLS_FLAGS_VOD`.
     """
     preset = resolve_preset(settings.get("hwaccel", DEFAULT_PRESET))
     device = resolve_device(settings)
@@ -309,9 +322,12 @@ def build_ffmpeg_args(
     # as fast as possible over HTTP. Live tuners pace themselves naturally, and
     # so does a tail-follow pipe (app.dvr.builtin.tail_follow) feeding from a
     # capture file that's itself being written in realtime from the tuner.
-    if ":5004/auto/v" not in input_url and input_url != "pipe:0":
+    # A completed recording packaged as VOD HLS is transcoded ahead of time
+    # (not paced to real time) so the full seekable playlist is available as
+    # soon as possible.
+    if ":5004/auto/v" not in input_url and input_url != "pipe:0" and not hls_vod:
         input_options.insert(0, "-re")
-    if seek_seconds is not None:
+    if seek_seconds is not None and seek_seconds > 0:
         # Input-side -ss (before -i) is demuxer seeking - it jumps to the
         # nearest keyframe before decoding starts, which is what makes
         # "seeking" through a recording playable in real time instead of
@@ -328,19 +344,46 @@ def build_ffmpeg_args(
     if output_format == "hls":
         if hls_playlist_path is None or hls_segment_pattern is None:
             raise ValueError("hls_playlist_path and hls_segment_pattern are required for output_format='hls'")
-        output_framing = [
-            "-f",
-            "hls",
-            "-hls_time",
-            str(HLS_SEGMENT_SECONDS),
-            "-hls_list_size",
-            str(HLS_LIST_SIZE),
-            "-hls_flags",
-            HLS_FLAGS,
-            "-hls_segment_filename",
-            hls_segment_pattern,
-            str(hls_playlist_path),
-        ]
+        if hls_vod:
+            # Deliberately no `-hls_playlist_type vod`: that flag makes
+            # ffmpeg's HLS muxer buffer the entire playlist in memory and
+            # write it to disk only once, when the muxer closes at true EOF -
+            # for a multi-hour recording that means create_session's
+            # readiness poll (waiting on a non-empty playlist file) never
+            # succeeds within its startup timeout, so every VOD-packaged
+            # recording 502s regardless of how fast the transcode itself
+            # runs. Omitting it keeps ffmpeg's default incremental
+            # append-and-rewrite-on-every-segment behavior (matching the
+            # comment on HLS_FLAGS_VOD above) while `#EXT-X-ENDLIST` still
+            # gets appended normally once the muxer reaches real EOF -
+            # verified directly against this ffmpeg build.
+            output_framing = [
+                "-f",
+                "hls",
+                "-hls_time",
+                str(HLS_SEGMENT_SECONDS),
+                "-hls_list_size",
+                "0",
+                "-hls_flags",
+                HLS_FLAGS_VOD,
+                "-hls_segment_filename",
+                hls_segment_pattern,
+                str(hls_playlist_path),
+            ]
+        else:
+            output_framing = [
+                "-f",
+                "hls",
+                "-hls_time",
+                str(HLS_SEGMENT_SECONDS),
+                "-hls_list_size",
+                str(HLS_LIST_SIZE),
+                "-hls_flags",
+                HLS_FLAGS,
+                "-hls_segment_filename",
+                hls_segment_pattern,
+                str(hls_playlist_path),
+            ]
     else:
         output_framing = ["-f", "mpegts", "pipe:1"]
 

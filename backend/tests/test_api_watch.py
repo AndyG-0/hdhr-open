@@ -100,6 +100,31 @@ def test_start_watch_shares_capture_across_sessions(client, watch_env):
     assert tuner_allocator._channel_owners.get("4.1") == {first["session_id"], second["session_id"]}
 
 
+@pytest.mark.asyncio
+async def test_start_watch_concurrent_requests_share_one_capture(watch_env):
+    """Two near-simultaneous start_watch calls for the same channel (e.g. two
+    clients tuning in at once) must not race into spawning two independent
+    ffmpeg/tuner captures - they should converge on exactly one, the same way
+    a second sequential viewer attaches to an already-running capture."""
+    results = await asyncio.gather(
+        watch.start_watch("4.1", TUNER_SETTINGS),
+        watch.start_watch("4.1", TUNER_SETTINGS),
+    )
+
+    assert all(r is not None for r in results)
+    recording_ids = {r["recording_id"] for r in results}
+    session_ids = {r["session_id"] for r in results}
+    assert len(recording_ids) == 1
+    assert len(session_ids) == 2
+    # Exactly one capture (and thus one writer ffmpeg / one tuner grab) was
+    # started for the channel - pre-fix, the unguarded check-then-act race let
+    # both concurrent calls see "nothing running" and each start their own
+    # capture, leaving two entries here with the second silently clobbering
+    # the first in _channel_index.
+    assert len(capture_pipeline._active_captures) == 1
+    assert tuner_allocator._channel_owners.get("4.1") == session_ids
+
+
 def test_start_watch_no_free_tuner(client, watch_env, monkeypatch):
     monkeypatch.setattr(hdhomerun_client, "fetch_tuner_status", AsyncMock(return_value=TUNERS_BUSY))
 

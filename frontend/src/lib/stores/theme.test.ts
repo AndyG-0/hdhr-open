@@ -20,11 +20,11 @@ describe('theme store (browser)', () => {
 		vi.doMock('$app/environment', () => ({ browser: true }));
 	});
 
-	it('defaults to dark when nothing is stored', async () => {
+	it('defaults to system when nothing is stored', async () => {
 		const { theme } = await import('./theme');
 
-		expect(get(theme)).toBe('dark');
-		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+		expect(get(theme)).toBe('system');
+		expect(document.documentElement.getAttribute('data-theme')).toBe('light');
 	});
 
 	it('reads a previously stored theme on init', async () => {
@@ -80,6 +80,21 @@ describe('theme store (browser)', () => {
 
 		await expect(persistTheme('light')).resolves.toBeUndefined();
 	});
+
+	it('resolves "system" to the OS-preferred scheme and persists the preference itself', async () => {
+		window.matchMedia = () =>
+			({
+				matches: true,
+				addEventListener() {},
+				removeEventListener() {},
+			}) as unknown as MediaQueryList;
+
+		const { theme } = await import('./theme');
+		theme.set('system');
+
+		expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+		expect(localStorage.getItem('dashboard-theme')).toBe('system');
+	});
 });
 
 describe('theme store (server)', () => {
@@ -87,10 +102,10 @@ describe('theme store (server)', () => {
 		vi.doMock('$app/environment', () => ({ browser: false }));
 	});
 
-	it('defaults to dark and never touches localStorage', async () => {
+	it('defaults to system and never touches localStorage', async () => {
 		const { theme } = await import('./theme');
 
-		expect(get(theme)).toBe('dark');
+		expect(get(theme)).toBe('system');
 		expect(localStorage.getItem('dashboard-theme')).toBeNull();
 	});
 });

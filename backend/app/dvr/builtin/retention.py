@@ -19,6 +19,19 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MIN_FREE_SPACE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 
+# Upper bound on how much of the completed-recordings library
+# enforce_disk_space_limit_sync will delete in a single pass, expressed as a
+# fraction of what's currently on disk (rounded down, but always at least 1
+# so a genuinely full disk still makes progress). A single low-space reading
+# - e.g. a transient spike from something unrelated to the DVR - must not be
+# able to silently empty the entire library in one run; capping each pass
+# means a real, sustained space shortage still gets cleaned up (the job
+# reruns every RETENTION_INTERVAL_SECONDS), but a one-off dip only costs part
+# of the library, and the loud log line below gives a chance to notice and
+# intervene (e.g. free space manually, or grow RECORDINGS_DIR) before more is
+# deleted on a later pass.
+_MAX_PRUNE_FRACTION_PER_PASS = 0.5
+
 
 def _clean_media_cache(recording_id: str) -> None:
     """Delete any thumbnail sprites, posters, and captions cached for recording_id."""
@@ -38,13 +51,21 @@ def _clean_media_cache(recording_id: str) -> None:
                 cached_file.unlink()
 
 
-def delete_local_recording_sync(recording_id: str) -> bool:
-    """Delete a recording's video file on disk, cache artifacts, and database record."""
+def delete_local_recording_sync(recording_id: str, reason: str = "user requested") -> bool:
+    """Delete a recording's video file on disk, cache artifacts, and database record.
+
+    `reason` is logged verbatim alongside the deletion - every automatic
+    deletion path (retention, disk-space safeguard, startup recovery) passes
+    a specific one so "why did my recordings disappear" is answerable from
+    the persisted log (see app/logging_config.py) instead of having to read
+    code to guess which caller ran.
+    """
     row = db.get_recording(recording_id)
     if not row:
         return False
 
     file_path_str = row.get("file_path")
+    file_size = row.get("file_size_bytes") or 0
     if file_path_str:
         file_path = Path(file_path_str)
         if file_path.exists():
@@ -54,13 +75,20 @@ def delete_local_recording_sync(recording_id: str) -> bool:
 
     _clean_media_cache(recording_id)
     db.delete_recording(recording_id)
-    logger.info("Deleted recording record [%s] for '%s'", recording_id, row.get("title"))
+    logger.info(
+        "Deleted recording [%s] '%s' (%.1f MB, recorded %s) - reason: %s",
+        recording_id,
+        row.get("title"),
+        file_size / (1024 * 1024),
+        row.get("start_ts"),
+        reason,
+    )
     return True
 
 
-async def delete_local_recording(recording_id: str) -> bool:
+async def delete_local_recording(recording_id: str, reason: str = "user requested") -> bool:
     """Async wrapper for delete_local_recording_sync."""
-    return await asyncio.to_thread(delete_local_recording_sync, recording_id)
+    return await asyncio.to_thread(delete_local_recording_sync, recording_id, reason)
 
 
 def enforce_rule_retention_sync(rule_id: str, max_episodes: int) -> int:
@@ -81,7 +109,7 @@ def enforce_rule_retention_sync(rule_id: str, max_episodes: int) -> int:
 
     deleted_count = 0
     for r in matching[:excess]:
-        if delete_local_recording_sync(r["id"]):
+        if delete_local_recording_sync(r["id"], reason=f"per-rule retention limit ({max_episodes} episodes) for rule '{rule_title}'"):
             deleted_count += 1
 
     logger.info("Enforced retention for rule %s ('%s'): deleted %d old episodes", rule_id, rule_title, deleted_count)
@@ -89,7 +117,14 @@ def enforce_rule_retention_sync(rule_id: str, max_episodes: int) -> int:
 
 
 def enforce_disk_space_limit_sync(min_free_bytes: int = DEFAULT_MIN_FREE_SPACE_BYTES) -> int:
-    """Ensure RECORDINGS_DIR has at least min_free_bytes available."""
+    """Ensure RECORDINGS_DIR has at least min_free_bytes available.
+
+    Deletes oldest completed recordings first. Capped at
+    _MAX_PRUNE_FRACTION_PER_PASS of the current library per pass so a single
+    low-space reading can't silently empty the entire recordings library in
+    one run - if the cap is hit and the drive is still low, this logs loudly
+    and stops, waiting for the next scheduled pass rather than continuing.
+    """
     if not RECORDINGS_DIR.exists():
         return 0
 
@@ -111,11 +146,40 @@ def enforce_disk_space_limit_sync(min_free_bytes: int = DEFAULT_MIN_FREE_SPACE_B
     )
 
     all_recordings = db.list_completed_recordings()
+    if not all_recordings:
+        logger.warning(
+            "Disk space is low on %s but there are no completed recordings left to prune", RECORDINGS_DIR
+        )
+        return 0
+
+    max_deletions = max(1, int(len(all_recordings) * _MAX_PRUNE_FRACTION_PER_PASS))
 
     pruned = 0
+    freed_bytes_total = 0
     for r in all_recordings:
-        delete_local_recording_sync(r["id"])
-        pruned += 1
+        if pruned >= max_deletions:
+            logger.error(
+                "Disk space safeguard hit its per-pass prune cap (%d of %d completed recordings) while "
+                "still low on free space (%d GB free, threshold %d GB) on %s. Stopping this pass rather "
+                "than deleting the rest of the library - it will resume on the next scheduled retention "
+                "pass if space is still low. Consider freeing space manually or moving RECORDINGS_DIR to "
+                "a larger volume.",
+                max_deletions,
+                len(all_recordings),
+                free_bytes // (1024**3),
+                min_free_bytes // (1024**3),
+                RECORDINGS_DIR,
+            )
+            break
+
+        size_before = r.get("file_size_bytes") or 0
+        if delete_local_recording_sync(
+            r["id"],
+            reason=f"disk-space safeguard (free space below {min_free_bytes // (1024**3)} GB threshold)",
+        ):
+            pruned += 1
+            freed_bytes_total += size_before
+
         try:
             free_bytes = shutil.disk_usage(RECORDINGS_DIR).free
             if free_bytes >= min_free_bytes:
@@ -123,7 +187,13 @@ def enforce_disk_space_limit_sync(min_free_bytes: int = DEFAULT_MIN_FREE_SPACE_B
         except Exception:
             break
 
-    logger.info("Disk space safeguard pruned %d recordings", pruned)
+    logger.info(
+        "Disk space safeguard pruned %d recording(s) (%.1f MB freed) on %s; %d GB free now",
+        pruned,
+        freed_bytes_total / (1024**2),
+        RECORDINGS_DIR,
+        free_bytes // (1024**3),
+    )
     return pruned
 
 

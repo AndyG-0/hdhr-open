@@ -61,6 +61,16 @@ describe('api', () => {
 		expect(result).toEqual(channels);
 	});
 
+	it('getHDHomeRunGuide appends start/end as query params when provided', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => [] }));
+
+		await api.getHDHomeRunGuide(1000, 2000);
+
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide?start=1000&end=2000', {
+			credentials: 'include',
+		});
+	});
+
 	it('getHDHomeRunChannels fetches the guide/channels endpoint', async () => {
 		const body = { channels: [], guide_available: true };
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => body }));

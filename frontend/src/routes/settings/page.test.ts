@@ -157,14 +157,14 @@ describe('settings +page.svelte — admin sections', () => {
 				id: 'hdhomerun',
 				type: 'hdhomerun',
 				name: 'HDHomeRun',
-				settings: { tuner_host: 'hdhomerun.local', tuner_port: 80, dvr_host: '', dvr_port: 59090 },
+				settings: { tuner_host: 'hdhomerun.local', tuner_port: 80, dvr_host: '', dvr_port: 50000 },
 			},
 		]);
 		updateNetworkIntegration.mockResolvedValue({
 			id: 'hdhomerun',
 			type: 'hdhomerun',
 			name: 'HDHomeRun',
-			settings: { tuner_host: 'hdhomerun.local', tuner_port: 80, dvr_host: '', dvr_port: 59090 },
+			settings: { tuner_host: 'hdhomerun.local', tuner_port: 80, dvr_host: '', dvr_port: 50000 },
 		});
 		render(Page);
 

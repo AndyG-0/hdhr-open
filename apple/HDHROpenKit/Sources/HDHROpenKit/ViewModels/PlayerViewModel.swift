@@ -1,6 +1,17 @@
 import Foundation
 import Combine
 
+/// How the current session is being delivered - set by PlayerViewModel at
+/// each stream-URL-construction call site, since PlayerEngine has no way to
+/// infer this from the URL alone. Apple platforms have no direct-play path
+/// today (AVFoundation can't decode raw MPEG-2/MPEG-TS), so `.direct` is
+/// unused here for now, but the type keeps the UI identical in shape to
+/// Android's, which does use it.
+public enum PlaybackMode: Sendable {
+    case direct
+    case serverTranscodedHls
+}
+
 @MainActor
 public final class PlayerViewModel: ObservableObject {
     public let playerEngine: PlayerEngine
@@ -12,10 +23,12 @@ public final class PlayerViewModel: ObservableObject {
     @Published public private(set) var activeRecording: HDHomeRunRecording?
     @Published public private(set) var isWatchSession: Bool = false
     @Published public private(set) var activeHLSSessionId: String?
+    @Published public private(set) var playbackMode: PlaybackMode?
     @Published public private(set) var thumbnailCues: [ThumbnailCue] = []
     @Published public private(set) var thumbnailSpriteURL: URL?
     @Published public private(set) var isPromoting: Bool = false
     @Published public private(set) var isPromoted: Bool = false
+    @Published public private(set) var isSwitchingAudioTrack: Bool = false
     @Published public var showAudioMenu: Bool = false
     @Published public var showSettingsOverlay: Bool = false
     @Published public var showChannelSwitcher: Bool = false
@@ -68,6 +81,23 @@ public final class PlayerViewModel: ObservableObject {
         return "Live TV"
     }
 
+    /// Human-readable "how is this being played" line for the playback info
+    /// panel, shared so iOS and tvOS render identical text.
+    public var playbackModeLabel: String {
+        switch playbackMode {
+        case .direct:
+            return "Direct (client-side)"
+        case .serverTranscodedHls:
+            if let presetLabel = playerEngine.transcodeInfo?.presetLabel {
+                let hw = playerEngine.transcodeInfo?.hardware == true ? " (HW)" : ""
+                return "Server transcoded via \(presetLabel)\(hw)"
+            }
+            return "Server transcoded (HLS)"
+        case nil:
+            return "Unknown"
+        }
+    }
+
     public var mediaSubtitle: String? {
         if let rec = activeRecording {
             if let ep = rec.episodeTitle, let des = rec.episodeDesignation {
@@ -105,6 +135,7 @@ public final class PlayerViewModel: ObservableObject {
                     self.activeRecording = watchRec
                     self.isWatchSession = true
                     self.activeHLSSessionId = hlsSession.sessionId
+                    self.playbackMode = .serverTranscodedHls
                     playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: true, headers: await hlsAuthHeaders())
                     loadRecordingMetadata(recording: watchRec)
                     return
@@ -125,6 +156,7 @@ public final class PlayerViewModel: ObservableObject {
             self.isWatchSession = false
             self.activeRecording = nil
             self.activeHLSSessionId = hlsSession.sessionId
+            self.playbackMode = .serverTranscodedHls
             playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: false, headers: await hlsAuthHeaders())
         } catch {
             Log.player.error("Direct HLS channel stream failed: \(error.localizedDescription)")
@@ -141,7 +173,10 @@ public final class PlayerViewModel: ObservableObject {
         playerEngine.setLoading()
 
         let baseURL = await apiClient.baseURL
-        guard let playUrl = recording.playUrl else { return }
+        guard let playUrl = recording.playUrl, !playUrl.isEmpty else {
+            playerEngine.setFailed("No playable URL for this recording.")
+            return
+        }
 
         do {
             let hlsSession = try await apiClient.createRecordingHLSSession(
@@ -154,6 +189,7 @@ public final class PlayerViewModel: ObservableObject {
             }
             Log.player.info("Recording HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
             self.activeHLSSessionId = hlsSession.sessionId
+            self.playbackMode = .serverTranscodedHls
             playerEngine.loadMedia(url: playlistURL, isLive: recording.isInProgress, isSeekable: true, headers: await hlsAuthHeaders())
             loadRecordingMetadata(recording: recording)
         } catch {
@@ -177,6 +213,62 @@ public final class PlayerViewModel: ObservableObject {
         }
     }
 
+    /// Audio track selection is baked into the HLS packaging itself
+    /// (backend maps a specific source audio stream via ffmpeg's `-map`
+    /// when building the session) rather than exposed as switchable
+    /// `AVMediaSelectionOption`s on the produced stream, so "switching"
+    /// requires starting a new HLS session with the new audio index and
+    /// resuming playback at the current position.
+    public func selectAudioTrack(_ track: HDHomeRunRecordingAudioInfo) async {
+        guard !isSwitchingAudioTrack, track.index != playerEngine.currentAudioTrack?.index else { return }
+        guard let recording = activeRecording, let playUrl = recording.playUrl, !playUrl.isEmpty else { return }
+
+        isSwitchingAudioTrack = true
+        defer { isSwitchingAudioTrack = false }
+
+        let resumeTime = playerEngine.currentTime
+        let isLive = playerEngine.isLive
+        let isSeekable = playerEngine.isSeekable
+        let previousSessionId = activeHLSSessionId
+        let previousAudioTracks = playerEngine.availableAudioTracks
+        let previousVideoSpecs = playerEngine.videoSpecs
+        let previousTranscodeInfo = playerEngine.transcodeInfo
+        let baseURL = await apiClient.baseURL
+
+        do {
+            let hlsSession = try await apiClient.createRecordingHLSSession(
+                url: playUrl,
+                recordingId: recording.recordingId,
+                start: resumeTime,
+                audioIndex: track.index
+            )
+            guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
+                Log.player.error("Audio track switch failed: could not build stream URL.")
+                return
+            }
+            Log.player.info("Audio track switch: sessionId=\(hlsSession.sessionId, privacy: .public) audioIndex=\(track.index)")
+            activeHLSSessionId = hlsSession.sessionId
+            // loadMedia() calls reset() internally, which wipes the audio
+            // track list/video specs - restore them since they describe the
+            // underlying recording and don't change when only the mapped
+            // audio stream does.
+            playerEngine.loadMedia(url: playlistURL, isLive: isLive, isSeekable: isSeekable, headers: await hlsAuthHeaders())
+            playerEngine.setAudioTracks(previousAudioTracks)
+            playerEngine.setVideoSpecs(previousVideoSpecs)
+            playerEngine.setTranscodeInfo(previousTranscodeInfo)
+            playerEngine.selectAudioTrack(track)
+
+            if let previousSessionId {
+                let apiClient = self.apiClient
+                runWithBackgroundGrace(name: "StopHLSSession") {
+                    try? await apiClient.stopHLSSession(sessionId: previousSessionId)
+                }
+            }
+        } catch {
+            Log.player.error("Audio track switch failed: \(error.localizedDescription)")
+        }
+    }
+
     private func hlsAuthHeaders() async -> [String: String] {
         guard let token = await apiClient.currentBearerToken() else { return [:] }
         return ["Authorization": "Bearer \(token)"]
@@ -192,6 +284,7 @@ public final class PlayerViewModel: ObservableObject {
             if let detail = try? await apiClient.getRecordingDetail(url: playUrl, recordingId: recId, recordEnd: recording.recordEnd) {
                 playerEngine.setAudioTracks(detail.audio)
                 playerEngine.setVideoSpecs(detail.video)
+                playerEngine.setTranscodeInfo(detail.transcode)
                 if let dur = detail.durationSeconds, dur > 0 {
                     playerEngine.setDuration(dur)
                 }
@@ -222,7 +315,7 @@ public final class PlayerViewModel: ObservableObject {
         watchSessionManager.stopWatch()
         if let sessionId = activeHLSSessionId {
             let apiClient = self.apiClient
-            Task {
+            runWithBackgroundGrace(name: "StopHLSSession") {
                 try? await apiClient.stopHLSSession(sessionId: sessionId)
             }
         }
@@ -231,6 +324,7 @@ public final class PlayerViewModel: ObservableObject {
         activeRecording = nil
         isWatchSession = false
         activeHLSSessionId = nil
+        playbackMode = nil
         isPromoted = false
         thumbnailCues = []
         thumbnailSpriteURL = nil

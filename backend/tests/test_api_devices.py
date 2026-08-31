@@ -118,3 +118,27 @@ def test_forget_device_refuses_to_delete_the_current_device(client, tmp_db):
 
     assert response.status_code == 400
     assert db.get_device(device_id) is not None
+
+
+def test_me_works_with_x_device_id_header(tmp_db):
+    app = FastAPI()
+    app.include_router(devices_api.router)
+    client = TestClient(app)
+
+    db.create_device("hdr-dev-1", "Tablet", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+    response = client.get("/api/devices/me", headers={"X-Device-Id": "hdr-dev-1"})
+    assert response.status_code == 200
+    assert response.json()["id"] == "hdr-dev-1"
+    assert response.json()["name"] == "Tablet"
+
+
+def test_register_is_idempotent_with_x_device_id_header(tmp_db):
+    app = FastAPI()
+    app.include_router(devices_api.router)
+    client = TestClient(app)
+
+    db.create_device("hdr-dev-1", "Tablet", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+    response = client.post("/api/devices/register", headers={"X-Device-Id": "hdr-dev-1"})
+    assert response.status_code == 200
+    assert response.json()["is_new"] is False
+    assert response.json()["id"] == "hdr-dev-1"

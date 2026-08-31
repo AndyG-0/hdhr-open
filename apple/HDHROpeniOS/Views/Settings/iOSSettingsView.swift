@@ -5,11 +5,22 @@ public struct iOSSettingsView: View {
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @EnvironmentObject private var serverDiscovery: ServerDiscovery
     @EnvironmentObject private var authManager: AuthManager
+    @EnvironmentObject private var themeManager: ThemeManager
 
     public init() {}
 
     public var body: some View {
         Form {
+            // Appearance Section
+            Section(header: Text("Appearance")) {
+                Picker("Theme", selection: $themeManager.mode) {
+                    ForEach(ThemeMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             // Profile Section
             Section(header: Text("Profile")) {
                 if let user = authManager.currentUser {

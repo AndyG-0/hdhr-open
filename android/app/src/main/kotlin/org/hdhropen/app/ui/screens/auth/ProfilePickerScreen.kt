@@ -10,35 +10,49 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import org.hdhropen.app.ui.screens.settings.ServerSetupDialog
 import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.UserProfile
 import org.hdhropen.kit.networking.AuthManager
+import org.hdhropen.kit.networking.ServerDiscovery
 import org.hdhropen.kit.viewmodels.AuthViewModel
 
 @Composable
 fun ProfilePickerScreen(
     authManager: AuthManager,
-    authViewModel: AuthViewModel
+    authViewModel: AuthViewModel,
+    serverDiscovery: ServerDiscovery,
+    onUpdateServerURL: (String) -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val profiles by authManager.profiles.collectAsState()
     val isLoading by authManager.isLoading.collectAsState()
     val authError by authManager.authError.collectAsState()
     val showPinEntry by authViewModel.showPinEntry.collectAsState()
+    var showServerSetupDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         authManager.fetchProfiles()
@@ -47,13 +61,49 @@ fun ProfilePickerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground)
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
+            .background(MaterialTheme.colorScheme.background)
     ) {
+        // Top Action Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = {
+                    coroutineScope.launch {
+                        authManager.fetchProfiles()
+                    }
+                },
+                enabled = !isLoading
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = if (!isLoading) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.extendedColors.textMuted
+                )
+            }
+            IconButton(
+                onClick = { showServerSetupDialog = true }
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Server Settings",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth().wrapContentHeight()
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
+                .align(Alignment.Center)
+                .padding(24.dp)
         ) {
             // App Logo & Title
             Box(
@@ -79,13 +129,13 @@ fun ProfilePickerScreen(
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             )
 
             Text(
                 text = "Who's watching?",
-                style = MaterialTheme.typography.bodyLarge.copy(color = TextSecondary)
+                style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
             )
 
             Spacer(modifier = Modifier.height(36.dp))
@@ -93,19 +143,43 @@ fun ProfilePickerScreen(
             if (isLoading && profiles.isEmpty()) {
                 CircularProgressIndicator(color = BluePrimary)
             } else if (authError != null && profiles.isEmpty()) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
                     Text(
                         text = authError ?: "Failed to connect to server.",
-                        style = MaterialTheme.typography.bodyMedium.copy(color = RedLive)
+                        style = MaterialTheme.typography.bodyMedium.copy(color = RedLive),
+                        textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { authManager.fetchProfiles() },
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = TextPrimary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Retry", color = TextPrimary)
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    authManager.fetchProfiles()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Retry", tint = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Retry", color = MaterialTheme.colorScheme.onSurface)
+                        }
+
+                        Button(
+                            onClick = { showServerSetupDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = BluePrimary),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Dns, contentDescription = "Configure Server", tint = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Server Settings", color = MaterialTheme.colorScheme.onSurface)
+                        }
                     }
                 }
             } else {
@@ -127,6 +201,16 @@ fun ProfilePickerScreen(
         if (showPinEntry) {
             PINEntryDialog(authViewModel = authViewModel)
         }
+
+        if (showServerSetupDialog) {
+            ServerSetupDialog(
+                serverDiscovery = serverDiscovery,
+                onDismiss = { showServerSetupDialog = false },
+                onSaveURL = { newURL ->
+                    onUpdateServerURL(newURL)
+                }
+            )
+        }
     }
 }
 
@@ -137,12 +221,12 @@ private fun ProfileCard(
 ) {
     Card(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .clickable { onSelect() }
-            .border(1.dp, DarkBorder, RoundedCornerShape(16.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -152,14 +236,14 @@ private fun ProfileCard(
                 modifier = Modifier
                     .size(64.dp)
                     .clip(CircleShape)
-                    .background(DarkSurfaceVariant)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .border(1.5.dp, BluePrimary.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.Person,
                     contentDescription = profile.name,
-                    tint = TextPrimary,
+                    tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(36.dp)
                 )
 
@@ -169,7 +253,7 @@ private fun ProfileCard(
                             .align(Alignment.BottomEnd)
                             .size(20.dp)
                             .clip(CircleShape)
-                            .background(DarkBackground)
+                            .background(MaterialTheme.colorScheme.background)
                             .padding(2.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -189,7 +273,7 @@ private fun ProfileCard(
                 text = profile.name,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = 15.sp,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 ),
                 maxLines = 1
             )

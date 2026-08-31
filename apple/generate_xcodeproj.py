@@ -20,7 +20,10 @@ def gid(name: str) -> str:
 # Scan files
 def scan_files(directory: Path):
     files = []
-    for root, _, filenames in os.walk(directory):
+    for root, dirs, filenames in os.walk(directory):
+        # Don't descend into asset catalogs - they're referenced as a single
+        # folder reference, not scanned file-by-file.
+        dirs[:] = [d for d in dirs if not d.endswith('.xcassets')]
         for f in filenames:
             if f.endswith('.swift') or f.endswith('.plist'):
                 p = Path(root) / f
@@ -28,8 +31,21 @@ def scan_files(directory: Path):
                 files.append(rel)
     return sorted(files)
 
+def scan_asset_catalogs(directory: Path):
+    catalogs = []
+    for root, dirs, _ in os.walk(directory):
+        for d in list(dirs):
+            if d.endswith('.xcassets'):
+                p = Path(root) / d
+                rel = p.relative_to(BASE_DIR)
+                catalogs.append(rel)
+                dirs.remove(d)  # don't recurse into it
+    return sorted(catalogs)
+
 tv_files = scan_files(BASE_DIR / "HDHROpenTV")
 ios_files = scan_files(BASE_DIR / "HDHROpeniOS")
+tv_catalogs = scan_asset_catalogs(BASE_DIR / "HDHROpenTV")
+ios_catalogs = scan_asset_catalogs(BASE_DIR / "HDHROpeniOS")
 
 # PBX objects
 file_refs = []
@@ -62,6 +78,22 @@ for f in ios_files:
         ios_sources.append(b_id)
     elif f.suffix == '.plist':
         file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "{name}"; sourceTree = "<group>"; }};')
+
+for f in tv_catalogs:
+    f_id = gid(f"file_{f}")
+    b_id = gid(f"build_{f}")
+    name = f.name
+    file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "{name}"; sourceTree = "<group>"; }};')
+    build_files.append(f'\t\t{b_id} /* {name} in Resources */ = {{isa = PBXBuildFile; fileRef = {f_id} /* {name} */; }};')
+    tv_resources.append(b_id)
+
+for f in ios_catalogs:
+    f_id = gid(f"file_{f}")
+    b_id = gid(f"build_{f}")
+    name = f.name
+    file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "{name}"; sourceTree = "<group>"; }};')
+    build_files.append(f'\t\t{b_id} /* {name} in Resources */ = {{isa = PBXBuildFile; fileRef = {f_id} /* {name} */; }};')
+    ios_resources.append(b_id)
 
 # Groups hierarchy
 def build_group_tree(files, base_name):
@@ -106,8 +138,8 @@ def build_group_tree(files, base_name):
     render_node(tree, "", base_name)
     return groups_out
 
-tv_groups = build_group_tree(tv_files, "HDHROpenTV")
-ios_groups = build_group_tree(ios_files, "HDHROpeniOS")
+tv_groups = build_group_tree(tv_files + tv_catalogs, "HDHROpenTV")
+ios_groups = build_group_tree(ios_files + ios_catalogs, "HDHROpeniOS")
 
 # Product file references
 tv_product_id = gid("product_tv")
@@ -125,9 +157,31 @@ tv_sources_phase_id = gid("tv_sources_phase")
 ios_sources_phase_id = gid("ios_sources_phase")
 tv_frameworks_phase_id = gid("tv_frameworks_phase")
 ios_frameworks_phase_id = gid("ios_frameworks_phase")
+tv_resources_phase_id = gid("tv_resources_phase")
+ios_resources_phase_id = gid("ios_resources_phase")
 
 tv_sources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Sources */" for b_id in tv_sources])
 ios_sources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Sources */" for b_id in ios_sources])
+tv_resources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Resources */" for b_id in tv_resources])
+ios_resources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Resources */" for b_id in ios_resources])
+tv_resources_phase_block = f"""\t\t{tv_resources_phase_id} /* Resources */ = {{
+\t\t\tisa = PBXResourcesBuildPhase;
+\t\t\tbuildActionMask = 2147483647;
+\t\t\tfiles = (
+\t\t\t\t{tv_resources_entries},
+\t\t\t);
+\t\t\trunOnlyForDeploymentPostprocessing = 0;
+\t\t}};""" if tv_resources else ""
+ios_resources_phase_block = f"""\t\t{ios_resources_phase_id} /* Resources */ = {{
+\t\t\tisa = PBXResourcesBuildPhase;
+\t\t\tbuildActionMask = 2147483647;
+\t\t\tfiles = (
+\t\t\t\t{ios_resources_entries},
+\t\t\t);
+\t\t\trunOnlyForDeploymentPostprocessing = 0;
+\t\t}};""" if ios_resources else ""
+tv_target_resources_phase_ref = f"\n\t\t\t\t{tv_resources_phase_id} /* Resources */," if tv_resources else ""
+ios_target_resources_phase_ref = f"\n\t\t\t\t{ios_resources_phase_id} /* Resources */," if ios_resources else ""
 
 # Targets
 tv_target_id = gid("target_tv")
@@ -182,6 +236,10 @@ pbxproj_content = f"""// !$*UTF8*$!
 		}};
 /* End PBXFrameworksBuildPhase section */
 
+/* Begin PBXResourcesBuildPhase section */
+{chr(10).join(b for b in [tv_resources_phase_block, ios_resources_phase_block] if b)}
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXGroup section */
 		{main_group_id} = {{
 			isa = PBXGroup;
@@ -211,7 +269,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 			buildConfigurationList = {tv_config_list_id} /* Build configuration list for PBXNativeTarget "HDHROpenTV" */;
 			buildPhases = (
 				{tv_sources_phase_id} /* Sources */,
-				{tv_frameworks_phase_id} /* Frameworks */,
+				{tv_frameworks_phase_id} /* Frameworks */,{tv_target_resources_phase_ref}
 			);
 			buildRules = (
 			);
@@ -230,7 +288,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 			buildConfigurationList = {ios_config_list_id} /* Build configuration list for PBXNativeTarget "HDHROpeniOS" */;
 			buildPhases = (
 				{ios_sources_phase_id} /* Sources */,
-				{ios_frameworks_phase_id} /* Frameworks */,
+				{ios_frameworks_phase_id} /* Frameworks */,{ios_target_resources_phase_ref}
 			);
 			buildRules = (
 			);
@@ -418,7 +476,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HDHROpeniOS/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "HDHR Open";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -442,7 +500,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = HDHROpeniOS/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "HDHR Open";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

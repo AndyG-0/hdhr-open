@@ -31,5 +31,7 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>HDHR Open connects to your HDHomeRun tuner and DVR recording server on the local network.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>

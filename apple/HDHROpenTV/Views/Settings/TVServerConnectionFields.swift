@@ -17,7 +17,7 @@ public struct TVServerConnectionFields: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Backend Server URL")
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
 
                     if isEditingServer {
                         TextField("http://192.168.1.10:8000", text: $serverURLInput)
@@ -31,41 +31,44 @@ public struct TVServerConnectionFields: View {
 
                 Spacer()
 
-                if isEditingServer {
-                    Button(role: .cancel, action: {
-                        isEditingServer = false
-                    }) {
-                        Text("Cancel")
-                    }
-
-                    Button(action: {
-                        if let url = URL(string: serverURLInput) {
-                            Task { await environment.setServerURL(url) }
+                HStack {
+                    if isEditingServer {
+                        Button(role: .cancel, action: {
+                            isEditingServer = false
+                        }) {
+                            Text("Cancel")
                         }
-                        isEditingServer = false
-                    }) {
-                        Text("Save")
-                    }
-                } else {
-                    Button(action: {
-                        serverURLInput = serverDiscovery.serverURLString
-                        isEditingServer = true
-                    }) {
-                        Label("Edit", systemImage: "pencil")
-                    }
 
-                    Button(action: {
-                        if let url = serverDiscovery.currentServerURL {
-                            Task { _ = await settingsViewModel.testServerConnection(url: url) }
+                        Button(action: {
+                            if let url = URL(string: serverURLInput) {
+                                Task { await environment.setServerURL(url) }
+                            }
+                            isEditingServer = false
+                        }) {
+                            Text("Save")
                         }
-                    }) {
-                        if settingsViewModel.isTestingConnection {
-                            ProgressView()
-                        } else {
-                            Label("Test Connection", systemImage: "bolt.horizontal.fill")
+                    } else {
+                        Button(action: {
+                            serverURLInput = serverDiscovery.serverURLString
+                            isEditingServer = true
+                        }) {
+                            Label("Edit", systemImage: "pencil")
+                        }
+
+                        Button(action: {
+                            if let url = serverDiscovery.currentServerURL {
+                                Task { _ = await settingsViewModel.testServerConnection(url: url) }
+                            }
+                        }) {
+                            if settingsViewModel.isTestingConnection {
+                                ProgressView()
+                            } else {
+                                Label("Test Connection", systemImage: "bolt.horizontal.fill")
+                            }
                         }
                     }
                 }
+                .focusSection()
             }
 
             if let status = settingsViewModel.connectionStatus {
@@ -93,6 +96,7 @@ public struct TVServerConnectionFields: View {
                         }
                     }
                 }
+                .focusSection()
                 .padding(.top, 8)
             }
         }

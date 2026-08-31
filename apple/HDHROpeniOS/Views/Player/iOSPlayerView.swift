@@ -8,6 +8,7 @@ public struct iOSPlayerView: View {
 
     @State private var showControls: Bool = true
     @State private var controlsTimer: Task<Void, Never>?
+    @State private var showPlaybackInfo: Bool = false
 
     public init() {}
 
@@ -82,7 +83,7 @@ public struct iOSPlayerView: View {
                             playerViewModel.closePlayer()
                             dismiss()
                         }) {
-                            Image(systemName: "chevron.down.circle.fill")
+                            Image(systemName: "chevron.backward.circle.fill")
                                 .font(.title)
                                 .foregroundColor(.white)
                         }
@@ -103,6 +104,16 @@ public struct iOSPlayerView: View {
                         .padding(.leading, 8)
 
                         Spacer()
+
+                        // Playback Info Button
+                        Button(action: {
+                            showPlaybackInfo = true
+                        }) {
+                            Image(systemName: "info.circle")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                        }
+                        .padding(.trailing, 8)
 
                         // Captions Button
                         Button(action: {
@@ -184,8 +195,15 @@ public struct iOSPlayerView: View {
                             if !playerViewModel.playerEngine.availableAudioTracks.isEmpty {
                                 Menu {
                                     ForEach(playerViewModel.playerEngine.availableAudioTracks) { track in
-                                        Button(track.displayLabel) {
-                                            playerViewModel.playerEngine.selectAudioTrack(track)
+                                        let isSelected = playerViewModel.playerEngine.currentAudioTrack?.index == track.index
+                                        Button {
+                                            Task { await playerViewModel.selectAudioTrack(track) }
+                                        } label: {
+                                            if isSelected {
+                                                Label(track.displayLabel, systemImage: "checkmark")
+                                            } else {
+                                                Text(track.displayLabel)
+                                            }
                                         }
                                     }
                                 } label: {
@@ -208,9 +226,24 @@ public struct iOSPlayerView: View {
                     .ignoresSafeArea()
                 )
             }
+
+            if showPlaybackInfo {
+                iOSPlaybackInfoOverlay(playerViewModel: playerViewModel, onDismiss: { showPlaybackInfo = false })
+            }
         }
-        .onAppear {
-            resetTimer()
+        .onChange(of: playerViewModel.playerEngine.state) { _, newState in
+            // The auto-hide countdown must only run once there's actually
+            // something playing to hide controls over. Starting it on
+            // `onAppear` (as before) meant it was already ticking during
+            // session negotiation + startup, which can take longer than the
+            // 5s countdown - controls were auto-hidden before playback ever
+            // began, leaving nothing but a black/loading screen with no way
+            // to reopen them. Mirrors the same fix on TVPlayerView.
+            if newState == .playing {
+                resetTimer()
+            } else {
+                controlsTimer?.cancel()
+            }
         }
         .onTapGesture {
             withAnimation {

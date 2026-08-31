@@ -22,6 +22,7 @@ from app.config import settings
 from app.storage.db import get_auth_token_by_hash, get_device, get_session, get_user, touch_auth_token, touch_device
 
 DEVICE_COOKIE_NAME = "hdhropen_device"
+DEVICE_HEADER_NAME = "x-device-id"
 SESSION_COOKIE_NAME = "hdhropen_session"
 DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 5  # 5 years — a device is named once and rarely re-registered
 SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 90  # 90 days — long enough a kiosk screen doesn't re-prompt often
@@ -150,12 +151,12 @@ def clear_session_cookie(response: Response) -> None:
 
 
 async def get_current_device(request: Request) -> dict[str, Any]:
-    """Resolves the device cookie to a device row.
+    """Resolves the device cookie or X-Device-Id header to a device row.
 
     Never auto-provisions — only `POST /api/devices/register` creates a
     device row, so a stray GET can't silently mint one.
     """
-    device_id = request.cookies.get(DEVICE_COOKIE_NAME)
+    device_id = request.cookies.get(DEVICE_COOKIE_NAME) or request.headers.get(DEVICE_HEADER_NAME)
     device = await asyncio.to_thread(get_device, device_id) if device_id else None
     if device is None:
         raise HTTPException(status_code=401, detail="No registered device")

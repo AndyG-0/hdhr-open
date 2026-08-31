@@ -9,8 +9,8 @@ import respx
 from app.integrations import hdhomerun_client
 from app.storage.cache import cache
 
-TUNER_SETTINGS = {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 59090}
-DVR_SETTINGS = {**TUNER_SETTINGS, "dvr_host": "dvr.local", "dvr_port": 59090}
+TUNER_SETTINGS = {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 50000}
+DVR_SETTINGS = {**TUNER_SETTINGS, "dvr_host": "dvr.local", "dvr_port": 50000}
 
 DISCOVER_RESPONSE = {
     "FriendlyName": "HDHomeRun FLEX 4K",
@@ -236,7 +236,7 @@ async def test_test_tuner_connection_raises_on_error():
 
 @respx.mock
 async def test_test_dvr_connection_returns_friendly_name():
-    respx.get("http://dvr.local:59090/discover.json").mock(
+    respx.get("http://dvr.local:50000/discover.json").mock(
         return_value=httpx.Response(200, json={"FriendlyName": "HDHomeRun RECORD"})
     )
 
@@ -247,7 +247,7 @@ async def test_test_dvr_connection_returns_friendly_name():
 
 @respx.mock
 async def test_test_dvr_connection_raises_on_error():
-    respx.get("http://dvr.local:59090/discover.json").mock(return_value=httpx.Response(500))
+    respx.get("http://dvr.local:50000/discover.json").mock(return_value=httpx.Response(500))
 
     with pytest.raises(hdhomerun_client.HDHomeRunError):
         await hdhomerun_client.test_dvr_connection(DVR_SETTINGS)
@@ -255,7 +255,7 @@ async def test_test_dvr_connection_raises_on_error():
 
 @respx.mock
 async def test_fetch_dvr_recordings_degrades_to_empty_list_on_error():
-    respx.get("http://dvr.local:59090/discover.json").mock(return_value=httpx.Response(500))
+    respx.get("http://dvr.local:50000/discover.json").mock(return_value=httpx.Response(500))
 
     recordings = await hdhomerun_client.fetch_dvr_recordings(DVR_SETTINGS)
 
@@ -264,12 +264,12 @@ async def test_fetch_dvr_recordings_degrades_to_empty_list_on_error():
 
 @respx.mock
 async def test_fetch_dvr_recordings_maps_fields():
-    respx.get("http://dvr.local:59090/discover.json").mock(
+    respx.get("http://dvr.local:50000/discover.json").mock(
         return_value=httpx.Response(
-            200, json={"FriendlyName": "HDHomeRun RECORD", "StorageURL": "http://dvr.local:59090/recorded_files.json"}
+            200, json={"FriendlyName": "HDHomeRun RECORD", "StorageURL": "http://dvr.local:50000/recorded_files.json"}
         )
     )
-    respx.get("http://dvr.local:59090/recorded_files.json").mock(
+    respx.get("http://dvr.local:50000/recorded_files.json").mock(
         return_value=httpx.Response(200, json=[{"Title": "Local News", "ChannelAffiliate": "NBC"}])
     )
 
@@ -281,8 +281,58 @@ async def test_fetch_dvr_recordings_maps_fields():
 
 @respx.mock
 async def test_fetch_dvr_recording_rules_degrades_to_empty_list_on_error():
-    respx.get("http://dvr.local:59090/recording_rules.json").mock(return_value=httpx.Response(500))
+    respx.get("http://dvr.local:50000/recording_rules.json").mock(return_value=httpx.Response(500))
 
     rules = await hdhomerun_client.fetch_dvr_recording_rules(DVR_SETTINGS)
 
     assert rules == []
+
+
+def test_resolve_recording_url_with_dvr_settings():
+    assert (
+        hdhomerun_client.resolve_recording_url(DVR_SETTINGS, "/recorded/123")
+        == "http://dvr.local:50000/recorded/123"
+    )
+
+
+def test_resolve_recording_url_falls_back_to_tuner_host_when_dvr_host_empty():
+    assert (
+        hdhomerun_client.resolve_recording_url(TUNER_SETTINGS, "/recorded/123")
+        == "http://hdhr.local:50000/recorded/123"
+    )
+
+
+def test_resolve_recording_url_preserves_absolute_http_url():
+    assert (
+        hdhomerun_client.resolve_recording_url(TUNER_SETTINGS, "http://192.168.1.50:50000/recorded/123")
+        == "http://192.168.1.50:50000/recorded/123"
+    )
+
+
+def test_resolve_recording_url_resolves_tuner_stream():
+    assert (
+        hdhomerun_client.resolve_recording_url(TUNER_SETTINGS, "/auto/v4.1")
+        == "http://hdhr.local:5004/auto/v4.1"
+    )
+
+
+@respx.mock
+async def test_fetch_dvr_recordings_handles_relative_storage_and_episodes_urls():
+    respx.get("http://dvr.local:50000/discover.json").mock(
+        return_value=httpx.Response(
+            200, json={"FriendlyName": "HDHomeRun RECORD", "StorageURL": "/recorded_files.json"}
+        )
+    )
+    respx.get("http://dvr.local:50000/recorded_files.json").mock(
+        return_value=httpx.Response(200, json=[{"EpisodesURL": "/episodes.json?SeriesID=101"}])
+    )
+    respx.get("http://dvr.local:50000/episodes.json?SeriesID=101").mock(
+        return_value=httpx.Response(200, json=[{"Title": "Series Episode 1", "PlayURL": "/recorded/101_1"}])
+    )
+
+    recordings = await hdhomerun_client.fetch_dvr_recordings(DVR_SETTINGS)
+
+    assert len(recordings) == 1
+    assert recordings[0]["title"] == "Series Episode 1"
+    assert recordings[0]["play_url"] == "/recorded/101_1"
+

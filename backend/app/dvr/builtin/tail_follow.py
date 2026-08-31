@@ -14,9 +14,15 @@ same behavior (keep reading past EOF, tolerate the file being replaced)
 without depending on GNU coreutils being installed.
 
 MPEG-TS's fixed 188-byte packet framing means starting to read from any
-offset in the file is exactly as safe as a live tuner channel-change or a
-`recording-stream` seek elsewhere in this codebase - no keyframe alignment is
-needed at this layer; the downstream decoder resyncs on the packet sync byte.
+*packet-aligned* offset in the file is exactly as safe as a live tuner
+channel-change or a `recording-stream` seek elsewhere in this codebase - no
+keyframe alignment is needed at this layer, only packet alignment; the
+downstream decoder resyncs on the packet sync byte within whatever GOP it
+lands in. Callers that compute a byte offset from a time estimate (see
+`_estimate_byte_offset` in app/api/dvr.py) MUST round it down to a multiple
+of 188 themselves - passing an arbitrary unaligned byte offset here will
+desync every subsequent "packet" this function reads and corrupt the
+downstream ffmpeg's parse.
 """
 
 from __future__ import annotations

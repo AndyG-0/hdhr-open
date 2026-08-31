@@ -81,71 +81,70 @@ async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str
     session_id = uuid.uuid4().hex
     now = time.time()
 
-    existing = await capture_pipeline.get_active_capture_by_channel(channel_number)
-    if existing is not None:
+    async def _create_capture() -> ActiveCapture | None:
         if not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
             return None
-        await capture_pipeline.add_viewer(existing.recording_id, session_id)
-        async with _lock:
-            _sessions[session_id] = _WatchSession(session_id, existing.recording_id, channel_number, now)
-        return {"recording_id": existing.recording_id, "session_id": session_id}
 
-    if not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
-        return None
+        channel = await asyncio.to_thread(db.get_channel_by_number, channel_number)
+        channel_name = channel["name"] if channel else channel_number
 
-    channel = await asyncio.to_thread(db.get_channel_by_number, channel_number)
-    channel_name = channel["name"] if channel else channel_number
+        # Look up current airing on this channel to seed rich metadata
+        title = channel_name
+        episode_title = None
+        season_number = None
+        episode_number = None
+        synopsis = None
+        image_url = None
+        original_air_date = None
+        category = None
 
-    # Look up current airing on this channel to seed rich metadata
-    title = channel_name
-    episode_title = None
-    season_number = None
-    episode_number = None
-    synopsis = None
-    image_url = None
-    original_air_date = None
-    category = None
+        if channel:
+            programs = await asyncio.to_thread(db.list_guide_programs, [channel["id"]], now - 300, now + 3600)
+            for p in programs:
+                if p["start_ts"] <= now < p["end_ts"]:
+                    title = p.get("title") or channel_name
+                    episode_title = p.get("episode_title")
+                    season_number = p.get("season_number")
+                    episode_number = p.get("episode_number")
+                    synopsis = p.get("synopsis")
+                    image_url = p.get("image_url")
+                    original_air_date = p.get("original_air_date")
+                    category = p.get("category")
+                    break
 
-    if channel:
-        programs = await asyncio.to_thread(db.list_guide_programs, [channel["id"]], now - 300, now + 3600)
-        for p in programs:
-            if p["start_ts"] <= now < p["end_ts"]:
-                title = p.get("title") or channel_name
-                episode_title = p.get("episode_title")
-                season_number = p.get("season_number")
-                episode_number = p.get("episode_number")
-                synopsis = p.get("synopsis")
-                image_url = p.get("image_url")
-                original_air_date = p.get("original_air_date")
-                category = p.get("category")
-                break
+        recording_id = uuid.uuid4().hex
+        capture = await capture_pipeline.start_capture(
+            recording_id=recording_id,
+            channel_number=channel_number,
+            channel_name=channel_name,
+            title=title,
+            episode_title=episode_title,
+            season_number=season_number,
+            episode_number=episode_number,
+            synopsis=synopsis,
+            original_air_date=original_air_date,
+            category=category,
+            image_url=image_url,
+            start_ts=now,
+            end_ts=now + WATCH_MAX_DURATION_SECONDS,
+            settings=settings,
+            is_temporary=True,
+        )
+        if capture is None:
+            await tuner_allocator.release_tuner(session_id)
+        return capture
 
-    recording_id = uuid.uuid4().hex
-    capture = await capture_pipeline.start_capture(
-        recording_id=recording_id,
-        channel_number=channel_number,
-        channel_name=channel_name,
-        title=title,
-        episode_title=episode_title,
-        season_number=season_number,
-        episode_number=episode_number,
-        synopsis=synopsis,
-        original_air_date=original_air_date,
-        category=category,
-        image_url=image_url,
-        start_ts=now,
-        end_ts=now + WATCH_MAX_DURATION_SECONDS,
-        settings=settings,
-        is_temporary=True,
-    )
+    capture, created = await capture_pipeline.get_or_start_capture(channel_number, _create_capture)
     if capture is None:
-        await tuner_allocator.release_tuner(session_id)
         return None
 
-    await capture_pipeline.add_viewer(recording_id, session_id)
+    if not created and not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
+        return None
+
+    await capture_pipeline.add_viewer(capture.recording_id, session_id)
     async with _lock:
-        _sessions[session_id] = _WatchSession(session_id, recording_id, channel_number, now)
-    return {"recording_id": recording_id, "session_id": session_id}
+        _sessions[session_id] = _WatchSession(session_id, capture.recording_id, channel_number, now)
+    return {"recording_id": capture.recording_id, "session_id": session_id}
 
 
 async def heartbeat_watch(session_id: str) -> bool:
@@ -262,7 +261,7 @@ async def finalize_capture_release(recording_id: str, channel_number: str) -> No
     DVREngine.tick() (safety-cap end_ts reached)."""
     await capture_pipeline.stop_capture(recording_id)
     await tuner_allocator.release_channel(channel_number)
-    await delete_local_recording(recording_id)
+    await delete_local_recording(recording_id, reason="discarded ephemeral watch-buffer capture (never promoted to a saved recording)")
     async with _lock:
         for sid in [sid for sid, s in _sessions.items() if s.recording_id == recording_id]:
             _sessions.pop(sid, None)

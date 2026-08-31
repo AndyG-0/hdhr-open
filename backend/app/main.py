@@ -59,10 +59,12 @@ async def lifespan(app: FastAPI):
     xmltv_guide.register(scheduler)
     schedules_direct_guide.register(scheduler)
     dvr_engine.register(scheduler)
+    await hls_streaming.sweep_session_dir_on_startup()
     hls_streaming.register(scheduler)
     scheduler.start()
     yield
     scheduler.shutdown()
+    await hls_streaming.teardown_all_sessions()
 
 
 app = FastAPI(title="hdhr-open API", lifespan=lifespan)

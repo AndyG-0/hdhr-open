@@ -7,14 +7,18 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.hdhropen.kit.models.HDHomeRunRecordingAudioInfo
 import org.hdhropen.kit.models.HDHomeRunRecordingVideoInfo
+import org.hdhropen.kit.models.HDHomeRunTranscodeInfo
 import org.hdhropen.kit.utilities.Log
 
 sealed class PlaybackState {
@@ -55,6 +59,12 @@ class PlayerEngine(
     private val _videoSpecs = MutableStateFlow<HDHomeRunRecordingVideoInfo?>(null)
     val videoSpecs: StateFlow<HDHomeRunRecordingVideoInfo?> = _videoSpecs.asStateFlow()
 
+    private val _transcodeInfo = MutableStateFlow<HDHomeRunTranscodeInfo?>(null)
+    val transcodeInfo: StateFlow<HDHomeRunTranscodeInfo?> = _transcodeInfo.asStateFlow()
+
+    private val _observedBitrateBps = MutableStateFlow<Long?>(null)
+    val observedBitrateBps: StateFlow<Long?> = _observedBitrateBps.asStateFlow()
+
     var exoPlayer: ExoPlayer? = null
         private set
 
@@ -65,7 +75,19 @@ class PlayerEngine(
             exoPlayer = ExoPlayer.Builder(ctx).build().apply {
                 playWhenReady = true
                 addListener(createPlayerListener())
+                addAnalyticsListener(createBandwidthListener())
             }
+        }
+    }
+
+    private fun createBandwidthListener() = object : AnalyticsListener {
+        override fun onBandwidthEstimate(
+            eventTime: AnalyticsListener.EventTime,
+            totalLoadTimeMs: Int,
+            totalBytesLoaded: Long,
+            bitrateEstimate: Long
+        ) {
+            _observedBitrateBps.value = bitrateEstimate
         }
     }
 
@@ -109,7 +131,13 @@ class PlayerEngine(
         }
     }
 
-    fun loadMedia(url: String, isLive: Boolean = false, isSeekable: Boolean = true, initialStart: Double? = null) {
+    fun loadMedia(
+        url: String,
+        isLive: Boolean = false,
+        isSeekable: Boolean = true,
+        initialStart: Double? = null,
+        headers: Map<String, String> = emptyMap()
+    ) {
         reset()
         _isLive.value = isLive
         _isSeekable.value = isSeekable
@@ -122,12 +150,21 @@ class PlayerEngine(
             .setUri(uri)
             .build()
 
+        // ExoPlayer issues playlist/segment requests through its own HTTP
+        // stack, which never goes through APIClient - headers must be
+        // attached here to authenticate them, mirroring PlayerEngine.swift's
+        // AVURLAssetHTTPHeaderFieldsKey workaround for AVPlayer.
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory().apply {
+            if (headers.isNotEmpty()) setDefaultRequestProperties(headers)
+        }
+        val dataSourceFactory = DefaultDataSource.Factory(context ?: return, httpDataSourceFactory)
+
         if (url.contains(".m3u8")) {
-            val dataSourceFactory = DefaultDataSource.Factory(player.applicationLooper.let { context ?: return })
             val mediaSource = HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
             player.setMediaSource(mediaSource)
         } else {
-            player.setMediaItem(mediaItem)
+            val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+            player.setMediaSource(mediaSource)
         }
 
         if (initialStart != null && initialStart > 0) {
@@ -194,6 +231,10 @@ class PlayerEngine(
         _videoSpecs.value = specs
     }
 
+    fun setTranscodeInfo(info: HDHomeRunTranscodeInfo?) {
+        _transcodeInfo.value = info
+    }
+
     fun setDuration(dur: Double) {
         _duration.value = dur
     }
@@ -215,6 +256,8 @@ class PlayerEngine(
         _availableAudioTracks.value = emptyList()
         _currentAudioTrack.value = null
         _videoSpecs.value = null
+        _transcodeInfo.value = null
+        _observedBitrateBps.value = null
     }
 
     private fun startTimeTracking() {

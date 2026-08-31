@@ -16,14 +16,21 @@ public struct TVProfilePickerView: View {
             VStack(spacing: 8) {
                 Text("Who's Watching?")
                     .font(.system(size: 48, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
 
                 Text("Select your profile to load preferences and guide settings")
                     .font(.title3)
                     .foregroundColor(.secondary)
 
-                Button(action: { showServerSetup = true }) {
-                    Label("Server Settings", systemImage: "gearshape")
+                HStack(spacing: 24) {
+                    Button(action: { Task { await authManager.fetchProfiles() } }) {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(authManager.isLoading)
+
+                    Button(action: { showServerSetup = true }) {
+                        Label("Server Settings", systemImage: "gearshape")
+                    }
                 }
                 .padding(.top, 8)
             }
@@ -72,7 +79,7 @@ struct ProfileAvatarButton: View {
             VStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color(white: 0.2))
+                        .fill(Theme.appSurfaceVariant)
                         .frame(width: 140, height: 140)
 
                     if let avatar = profile.avatar, let url = URL(string: avatar) {
@@ -81,14 +88,14 @@ struct ProfileAvatarButton: View {
                         } placeholder: {
                             Text(String(profile.name.prefix(1)).uppercased())
                                 .font(.system(size: 52, weight: .bold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Theme.textPrimary)
                         }
                         .frame(width: 140, height: 140)
                         .clipShape(Circle())
                     } else {
                         Text(String(profile.name.prefix(1)).uppercased())
                             .font(.system(size: 52, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
                     }
 
                     if profile.hasPin {
@@ -109,12 +116,12 @@ struct ProfileAvatarButton: View {
                 }
                 .overlay(
                     Circle()
-                        .stroke(isFocused ? Color.white : Color.clear, lineWidth: 5)
+                        .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 5)
                 )
 
                 Text(profile.name)
                     .font(.headline)
-                    .foregroundColor(isFocused ? .white : .secondary)
+                    .foregroundColor(isFocused ? Theme.textPrimary : .secondary)
             }
             .scaleEffect(isFocused ? 1.1 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: isFocused)

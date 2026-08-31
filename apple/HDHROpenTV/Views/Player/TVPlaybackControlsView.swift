@@ -131,7 +131,7 @@ public struct TVPlaybackControlsView: View {
             Log.player.debug("TVPlaybackControlsView appeared, claiming focus -> playPause")
             focusedControl = .playPause
         }
-        .onChange(of: focusedControl) { newValue in
+        .onChange(of: focusedControl) { _, newValue in
             Log.player.debug("focusedControl changed -> \(String(describing: newValue), privacy: .public)")
         }
     }

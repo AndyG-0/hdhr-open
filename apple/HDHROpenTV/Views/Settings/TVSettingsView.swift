@@ -5,25 +5,65 @@ public struct TVSettingsView: View {
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @EnvironmentObject private var serverDiscovery: ServerDiscovery
     @EnvironmentObject private var authManager: AuthManager
+    @EnvironmentObject private var themeManager: ThemeManager
 
     @FocusState private var focusedPresetId: String?
+    @FocusState private var focusedThemeMode: ThemeMode?
 
     public init() {}
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 28) {
                 // Header
                 Text("Settings")
                     .font(.largeTitle.bold())
-                    .foregroundColor(.white)
+                    .foregroundColor(Theme.textPrimary)
                     .padding(.horizontal, 48)
                     .padding(.top, 24)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 36) {
+                        // Appearance Section
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Appearance")
+                                .font(.title3.bold())
+                                .foregroundColor(.secondary)
+
+                            HStack(spacing: 16) {
+                                Spacer()
+
+                                ForEach(ThemeMode.allCases, id: \.self) { mode in
+                                    let isActive = themeManager.mode == mode
+                                    let isFocused = focusedThemeMode == mode
+
+                                    Button(action: { themeManager.mode = mode }) {
+                                        Text(mode.label)
+                                            .font(.headline)
+                                            .foregroundColor(isActive ? .white : Theme.textPrimary)
+                                            .padding(.horizontal, 24)
+                                            .padding(.vertical, 12)
+                                            .background(isActive ? Color.blue : Theme.appSurfaceVariant)
+                                            .cornerRadius(12)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
+                                            )
+                                            .scaleEffect(isFocused ? 1.05 : 1.0)
+                                            .animation(.easeInOut(duration: 0.15), value: isFocused)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .focused($focusedThemeMode, equals: mode)
+                                }
+                            }
+                            .padding(24)
+                            .background(Theme.appSurface)
+                            .cornerRadius(16)
+                        }
+                        .focusSection()
+
                         // Profile Section
                         VStack(alignment: .leading, spacing: 16) {
                             Text("Current Profile")
@@ -35,10 +75,10 @@ public struct TVSettingsView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(user.name)
                                             .font(.title2.bold())
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Theme.textPrimary)
                                         Text("Role: \(user.role.rawValue.capitalized)")
                                             .font(.subheadline)
-                                            .foregroundColor(.gray)
+                                            .foregroundColor(Theme.textSecondary)
                                     }
 
                                     Spacer()
@@ -51,9 +91,10 @@ public struct TVSettingsView: View {
                                 }
                             }
                             .padding(24)
-                            .background(Color(white: 0.12))
+                            .background(Theme.appSurface)
                             .cornerRadius(16)
                         }
+                        .focusSection()
 
                         // Server Connection Section
                         VStack(alignment: .leading, spacing: 16) {
@@ -63,9 +104,10 @@ public struct TVSettingsView: View {
 
                             TVServerConnectionFields()
                                 .padding(24)
-                                .background(Color(white: 0.12))
+                                .background(Theme.appSurface)
                                 .cornerRadius(16)
                         }
+                        .focusSection()
 
                         // Hardware Acceleration Info
                         if !settingsViewModel.transcodePresets.isEmpty {
@@ -106,11 +148,11 @@ public struct TVSettingsView: View {
                                                 }
                                             }
                                             .padding(16)
-                                            .background(isActive ? Color.blue.opacity(0.15) : Color(white: 0.12))
+                                            .background(isActive ? Theme.accentSubtle : Theme.appSurface)
                                             .cornerRadius(12)
                                             .overlay(
                                                 RoundedRectangle(cornerRadius: 12)
-                                                    .stroke(isFocused ? Color.white : Color.clear, lineWidth: 4)
+                                                    .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
                                             )
                                             .scaleEffect(isFocused ? 1.05 : 1.0)
                                             .animation(.easeInOut(duration: 0.15), value: isFocused)
@@ -121,6 +163,7 @@ public struct TVSettingsView: View {
                                     }
                                 }
                             }
+                            .focusSection()
                         }
                     }
                     .padding(.horizontal, 48)

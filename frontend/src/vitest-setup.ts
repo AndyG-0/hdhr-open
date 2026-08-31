@@ -23,6 +23,25 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 	};
 }
 
+// jsdom doesn't implement matchMedia; the theme store uses it to resolve
+// "system" mode. Default to "light preferred" (matches: false) — tests that
+// care about the resolved OS scheme can override window.matchMedia directly.
+if (typeof window.matchMedia !== 'function') {
+	window.matchMedia = (query: string) =>
+		({
+			matches: false,
+			media: query,
+			onchange: null,
+			addEventListener() {},
+			removeEventListener() {},
+			addListener() {},
+			removeListener() {},
+			dispatchEvent() {
+				return false;
+			},
+		}) as MediaQueryList;
+}
+
 // jsdom doesn't implement the Web Animations API, which Svelte's transition
 // directives (e.g. `transition:fade`) use internally via `element.animate()`.
 // Without this, any test that swaps a `{#key}`-ed, transitioning element

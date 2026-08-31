@@ -31,7 +31,7 @@ public struct TVRecordingDetailView: View {
                         AsyncImage(url: url) { image in
                             image.resizable().aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            Color.gray.opacity(0.2)
+                            Theme.appSurfaceVariant
                         }
                         .frame(width: 360, height: 200)
                         .cornerRadius(12)
@@ -40,12 +40,12 @@ public struct TVRecordingDetailView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(recording.title)
                             .font(.system(size: 38, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         if let ep = recording.episodeTitle, !ep.isEmpty {
                             Text(ep)
                                 .font(.title2)
-                                .foregroundColor(.gray)
+                                .foregroundColor(Theme.textSecondary)
                         }
 
                         HStack(spacing: 16) {
@@ -69,6 +69,9 @@ public struct TVRecordingDetailView: View {
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
+                            Text(recording.isHDHomeRunNative ? "HDHomeRun DVR" : "Built-in")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -76,7 +79,7 @@ public struct TVRecordingDetailView: View {
                 if let syn = recording.synopsis, !syn.isEmpty {
                     Text(syn)
                         .font(.body)
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(Theme.textPrimary)
                         .lineLimit(4)
                 }
 
@@ -90,7 +93,7 @@ public struct TVRecordingDetailView: View {
                     }
                     .prefersDefaultFocus(true, in: focusNamespace)
 
-                    if !recording.isInProgress {
+                    if !recording.isInProgress && !recording.isHDHomeRunNative {
                         Button(role: .destructive, action: onDelete) {
                             Label("Delete Recording", systemImage: "trash")
                                 .padding(.horizontal, 20)
@@ -107,7 +110,7 @@ public struct TVRecordingDetailView: View {
             }
             .padding(48)
             .frame(maxWidth: 1100, maxHeight: 560)
-            .background(Color(white: 0.12))
+            .background(Theme.appSurface)
             .cornerRadius(24)
         }
         .focusScope(focusNamespace)

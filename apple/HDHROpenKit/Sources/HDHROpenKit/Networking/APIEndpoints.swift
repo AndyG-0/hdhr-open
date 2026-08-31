@@ -2,7 +2,12 @@ import Foundation
 
 public enum APIEndpoints {
     public static func guideChannels() -> String { "/api/guide/channels" }
-    public static func guide() -> String { "/api/guide" }
+    public static func guide(start: Double? = nil, end: Double? = nil) -> String {
+        var query: [String] = []
+        if let s = start { query.append("start=\(s)") }
+        if let e = end { query.append("end=\(e)") }
+        return query.isEmpty ? "/api/guide" : "/api/guide?\(query.joined(separator: "&"))"
+    }
     public static func refreshGuide() -> String { "/api/guide/refresh" }
 
     public static func dvrInfo() -> String { "/api/dvr/info" }

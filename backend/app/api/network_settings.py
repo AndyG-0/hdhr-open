@@ -34,7 +34,7 @@ KNOWN_INTEGRATION_TYPES: dict[str, dict[str, Any]] = {
             "tuner_host": "",
             "tuner_port": 80,
             "dvr_host": "",
-            "dvr_port": 59090,
+            "dvr_port": 50000,
         },
     },
     "schedules_direct": {

@@ -22,6 +22,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.integrations import hdhomerun_client
 from app.integrations.hdhomerun_client import HDHomeRunError
 from app.storage import db
+from app.storage.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -143,4 +144,5 @@ async def refresh_hdhomerun_guide() -> None:
 
     await asyncio.to_thread(_sync_channels_and_guide, lineup, full_guide, job_start_ts)
     await asyncio.to_thread(db.save_guide_provider_state, SOURCE_PROVIDER, datetime.now(UTC).isoformat())
+    cache.delete_prefix("guide:")
     logger.info("Refreshed HDHomeRun cloud guide (%d channels)", len(full_guide))

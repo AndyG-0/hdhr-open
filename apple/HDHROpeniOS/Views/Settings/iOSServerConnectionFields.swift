@@ -17,11 +17,13 @@ public struct iOSServerConnectionFields: View {
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
                 .onAppear { serverURLInput = serverDiscovery.serverURLString }
-                .onSubmit {
-                    if let url = URL(string: serverURLInput) {
-                        Task { await environment.setServerURL(url) }
-                    }
-                }
+                .onSubmit { connect() }
+                .task(id: serverURLInput) { await attemptAutoConnect(for: serverURLInput) }
+
+            Button(action: connect) {
+                Text("Connect")
+            }
+            .disabled(parsedURL(from: serverURLInput) == nil)
 
             Button(action: {
                 if let url = serverDiscovery.currentServerURL {
@@ -56,5 +58,37 @@ public struct iOSServerConnectionFields: View {
                 }
             }
         }
+    }
+
+    private func parsedURL(from input: String) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return URL(string: trimmed)
+    }
+
+    private func connect() {
+        guard let url = parsedURL(from: serverURLInput) else { return }
+        Task { await environment.setServerURL(url) }
+    }
+
+    // Debounced auto-connect: `.task(id:)` cancels and restarts this whenever
+    // serverURLInput changes, so a pause in typing is what actually triggers
+    // it - no manual Task/Timer bookkeeping needed.
+    //
+    // Unlike the manual button, this can fire on a still-incomplete address
+    // (a pause mid-typing), so it must confirm reachability before
+    // committing via serverDiscovery.testConnection - otherwise a failed
+    // premature attempt would mark the bad value as "current"
+    // (serverDiscovery.serverURLString), and since this function only
+    // re-runs when serverURLInput itself changes, it would never retry on
+    // its own even once the address is completed. The Connect button stays
+    // enabled regardless of this state (see its `.disabled` above) so a
+    // stuck/unreachable connection can always be retried by hand too.
+    private func attemptAutoConnect(for input: String) async {
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        guard !Task.isCancelled, input == serverURLInput else { return }
+        guard let url = parsedURL(from: input) else { return }
+        guard input != serverDiscovery.serverURLString else { return }
+        guard await settingsViewModel.testServerConnection(url: url) else { return }
+        await environment.setServerURL(url)
     }
 }

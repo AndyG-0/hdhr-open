@@ -22,6 +22,12 @@ services:
       # Point this at a bind-mounted NAS/large-disk path in production —
       # named-volume storage isn't sized for hours of recordings.
       - RECORDINGS_DIR=/app/data/recordings
+      # Same reasoning again: without this, rotated backend log files
+      # (backend/app/logging_config.py) default to /app/logs, outside the
+      # volume below — every container recreation would lose the history of
+      # what the DVR retention/disk-space safeguard did, which is exactly
+      # what's needed after the fact to diagnose why recordings disappeared.
+      - LOG_DIR=/app/data/logs
       # Must match wherever the *browser* actually loads the frontend from —
       # this compose file serves it on port 3000, not the backend's own
       # 5173 default (that's the local Vite dev server's port). Overriding

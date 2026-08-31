@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import auth, config, crypto
+from app import auth, config, crypto, hls_streaming
 from app.storage import db
 from app.storage.cache import cache
 
@@ -29,6 +29,20 @@ def _reset_ambient_settings(monkeypatch):
     happen to be configured on the machine running the suite."""
     for key in config.APP_SETTINGS_KEYS:
         monkeypatch.setattr(config.settings, key, config.Settings.model_fields[key].default, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_hls_session_dir(tmp_path, monkeypatch):
+    """app.hls_streaming imports HLS_SESSION_DIR as a bound name (`from
+    app.config import HLS_SESSION_DIR`), so isolating it requires patching
+    hls_streaming.HLS_SESSION_DIR directly - patching config.HLS_SESSION_DIR
+    would not be visible here. Autouse because a test that forgets to mock
+    hls_streaming.allocate_session_dir() (this already happened once, see
+    test_api_dvr_builtin.py's HLS tests) would otherwise create real
+    directories under the real backend/hls_sessions/ on every run."""
+    session_dir = tmp_path / "hls_sessions"
+    session_dir.mkdir()
+    monkeypatch.setattr(hls_streaming, "HLS_SESSION_DIR", session_dir)
 
 
 @pytest.fixture

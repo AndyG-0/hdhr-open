@@ -21,14 +21,14 @@ public struct TVPINEntryView: View {
                 if let profile = authViewModel.selectedProfile {
                     Text("Enter PIN for \(profile.name)")
                         .font(.title.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                 }
 
                 // PIN Dots
                 HStack(spacing: 16) {
                     ForEach(0..<max(authViewModel.pinInput.count, 4), id: \.self) { idx in
                         Circle()
-                            .fill(idx < authViewModel.pinInput.count ? Color.white : Color.white.opacity(0.2))
+                            .fill(idx < authViewModel.pinInput.count ? Theme.textPrimary : Theme.appBorder)
                             .frame(width: 20, height: 20)
                     }
                 }
@@ -57,7 +57,7 @@ public struct TVPINEntryView: View {
                 .padding(.top, 12)
             }
             .padding(48)
-            .background(Color(white: 0.12))
+            .background(Theme.appSurface)
             .cornerRadius(24)
         }
     }

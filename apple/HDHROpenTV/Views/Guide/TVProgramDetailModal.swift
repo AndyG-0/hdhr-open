@@ -61,22 +61,32 @@ public struct TVProgramDetailModal: View {
                                 Image(systemName: "star.fill")
                                     .foregroundColor(.yellow)
                             }
+
+                            if channel.isHD {
+                                Text("HD")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue)
+                                    .foregroundColor(.white)
+                                    .cornerRadius(4)
+                            }
                         }
 
                         Text(airing.title)
                             .font(.system(size: 38, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         if let ep = airing.episodeTitle, !ep.isEmpty {
                             Text(ep)
                                 .font(.title2)
-                                .foregroundColor(.gray)
+                                .foregroundColor(Theme.textSecondary)
                         }
 
                         HStack(spacing: 16) {
                             Text(TimeFormatting.formatTimeRange(start: airing.start, end: airing.end))
                                 .font(.headline)
-                                .foregroundColor(.white.opacity(0.8))
+                                .foregroundColor(Theme.textSecondary)
 
                             if let airDate = airing.originalAirdate, !airDate.isEmpty {
                                 Text("Original Air Date: \(airDate)")
@@ -92,7 +102,7 @@ public struct TVProgramDetailModal: View {
                         AsyncImage(url: url) { image in
                             image.resizable().aspectRatio(contentMode: .fill)
                         } placeholder: {
-                            Color.gray.opacity(0.2)
+                            Theme.appSurfaceVariant
                         }
                         .frame(width: 220, height: 130)
                         .cornerRadius(12)
@@ -103,7 +113,7 @@ public struct TVProgramDetailModal: View {
                 if let syn = airing.synopsis, !syn.isEmpty {
                     Text(syn)
                         .font(.body)
-                        .foregroundColor(.white.opacity(0.9))
+                        .foregroundColor(Theme.textPrimary)
                         .lineLimit(4)
                 }
 
@@ -161,11 +171,11 @@ public struct TVProgramDetailModal: View {
             }
             .padding(48)
             .frame(maxWidth: 1200, maxHeight: 600)
-            .background(Color(white: 0.12))
+            .background(Theme.appSurface)
             .cornerRadius(24)
             .overlay(
                 RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                    .stroke(Theme.appBorder, lineWidth: 1)
             )
         }
         .focusScope(focusNamespace)

@@ -32,13 +32,22 @@ public struct iOSProgramDetailSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack {
+                        HStack(spacing: 6) {
                             Text(channel.channelNumber)
                                 .font(.subheadline.bold())
                                 .foregroundColor(.blue)
                             Text(channel.name)
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
+                            if channel.isHD {
+                                Text("HD")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.blue.opacity(0.8))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(3)
+                            }
                         }
 
                         Text(airing.title)

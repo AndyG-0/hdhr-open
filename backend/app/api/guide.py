@@ -26,8 +26,18 @@ from app.guide import service, xmltv
 from app.guide.service import QUERY_WINDOW_SECONDS
 from app.integrations import hdhomerun_client, schedules_direct
 from app.storage import db
+from app.storage.cache import cache
 
 router = APIRouter(prefix="/api/guide", tags=["guide"], dependencies=[Depends(get_current_user)])
+
+# Guide programs only change on an hourly-or-slower background refresh (see
+# app.guide.service.REFRESH_INTERVAL_SECONDS), so a short response cache
+# avoids re-running the full fetch + cross-provider merge on every request
+# without risking noticeably stale data. Cache keys are bucketed to this
+# granularity so near-identical requests (same client re-polling) collapse
+# onto the same entry.
+_GUIDE_CACHE_TTL_SECONDS = 300
+_GUIDE_CACHE_BUCKET_SECONDS = 300
 
 
 class ChannelSettingsUpdateRequest(BaseModel):
@@ -88,14 +98,22 @@ async def _seed_channels_from_tuner_lineup() -> list[dict[str, Any]]:
 
 
 @router.get("")
-async def get_guide():
+async def get_guide(start: float | None = None, end: float | None = None):
     now = time.time()
+    window_start = start if start is not None else now - 6 * 3600
+    window_end = end if end is not None else now + QUERY_WINDOW_SECONDS
+
+    bucketed_start = window_start - (window_start % _GUIDE_CACHE_BUCKET_SECONDS)
+    bucketed_end = window_end - (window_end % _GUIDE_CACHE_BUCKET_SECONDS)
+    cache_key = f"guide:{bucketed_start}:{bucketed_end}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     channels = await _seed_channels_from_tuner_lineup()
 
     channels_by_id = {channel["id"]: channel for channel in channels}
-    rows = await asyncio.to_thread(
-        db.list_guide_programs, list(channels_by_id), now - 6 * 3600, now + QUERY_WINDOW_SECONDS
-    )
+    rows = await asyncio.to_thread(db.list_guide_programs, list(channels_by_id), window_start, window_end)
     priority = resolve_guide_provider_priority()
     resolved = db.resolve_guide_programs(channels, rows, priority)
 
@@ -109,6 +127,7 @@ async def get_guide():
                 "airings": [_row_to_airing(row, channel["channel_number"]) for row in channel_rows],
             }
         )
+    cache.set(cache_key, result, _GUIDE_CACHE_TTL_SECONDS)
     return result
 
 

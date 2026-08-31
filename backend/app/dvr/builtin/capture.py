@@ -12,6 +12,8 @@ import json
 import logging
 import re
 import time
+from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -106,6 +108,12 @@ class CapturePipeline:
         self._active_captures: dict[str, ActiveCapture] = {}
         self._channel_index: dict[str, str] = {}  # channel_number -> recording_id
         self._lock = asyncio.Lock()
+        # Per-channel locks serializing get_or_start_capture callers (watch.py's
+        # viewer-tune-in path and engine.py's scheduled-recording path) so a
+        # channel with nothing running yet can only ever be claimed by one of
+        # them - otherwise both can observe "no active capture" across their
+        # own await points and each spawn an independent ffmpeg/tuner grab.
+        self._channel_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     def _ensure_recordings_dir(self) -> Path:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -389,6 +397,26 @@ class CapturePipeline:
             if recording_id is None:
                 return None
             return self._active_captures.get(recording_id)
+
+    async def get_or_start_capture(
+        self,
+        channel_number: str,
+        start_fn: Callable[[], Awaitable["ActiveCapture | None"]],
+    ) -> tuple["ActiveCapture | None", bool]:
+        """Atomically get the capture already running on channel_number, or
+        run start_fn() to create one if none exists yet. Serializes every
+        caller for a given channel behind one lock so at most one of them
+        ever calls start_fn() - closing the race where a viewer tuning in and
+        a scheduled recording starting at the same moment each independently
+        see "nothing running" and spawn a second tuner/ffmpeg for the same
+        channel. Returns (capture, created) - created is True only if
+        start_fn() actually ran and produced a capture."""
+        async with self._channel_locks[channel_number]:
+            existing = await self.get_active_capture_by_channel(channel_number)
+            if existing is not None:
+                return existing, False
+            capture = await start_fn()
+            return capture, capture is not None
 
     def is_capture_active(self, recording_id: str) -> bool:
         """Lock-free check for the tail-follow pump's hot loop: is this

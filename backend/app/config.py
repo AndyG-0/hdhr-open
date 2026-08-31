@@ -38,6 +38,13 @@ RECORDINGS_DIR = Path(os.environ.get("RECORDINGS_DIR", str(BACKEND_ROOT / "recor
 # container without a writable BACKEND_ROOT can point it at a tmpfs/volume.
 HLS_SESSION_DIR = Path(os.environ.get("HLS_SESSION_DIR", str(BACKEND_ROOT / "hls_sessions")))
 HLS_SESSION_DIR.mkdir(parents=True, exist_ok=True)
+# Rotating log files (see app/logging_config.py). Overridable via env for the
+# same reason as DB_PATH - a redeploy that loses this directory loses the
+# history of what the retention/disk-space safeguard did, which is exactly
+# what you need after the fact to tell "it pruned recordings for space" from
+# "something else deleted them".
+LOG_DIR = Path(os.environ.get("LOG_DIR", str(BACKEND_ROOT / "logs")))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class Settings(BaseSettings):

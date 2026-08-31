@@ -22,7 +22,7 @@ public struct TVPlayerView: View {
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             // Video Player Layer
             if let avPlayer = playerViewModel.playerEngine.avPlayer {
@@ -63,7 +63,7 @@ public struct TVPlayerView: View {
                     }
                 }
                 .padding(40)
-                .background(Color.black.opacity(0.85))
+                .background(Theme.appSurface)
                 .cornerRadius(16)
             } else if playerViewModel.playerEngine.state == .loading || playerViewModel.playerEngine.state == .buffering {
                 ProgressView()
@@ -177,7 +177,7 @@ public struct TVPlayerView: View {
             // Audio & Stream Settings Overlay
             if playerViewModel.showAudioMenu {
                 TVPlayerSettingsOverlay(
-                    playerEngine: playerViewModel.playerEngine,
+                    playerViewModel: playerViewModel,
                     onDismiss: { playerViewModel.showAudioMenu = false }
                 )
                 .transition(.opacity)
@@ -210,7 +210,7 @@ public struct TVPlayerView: View {
                     }
             }
         }
-        .onChange(of: playerViewModel.playerEngine.state) { newState in
+        .onChange(of: playerViewModel.playerEngine.state) { _, newState in
             // The auto-hide countdown must only run once there's actually
             // something playing to hide controls over. Starting it on
             // `onAppear` (as before) meant it was already ticking during

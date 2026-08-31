@@ -27,7 +27,7 @@ public struct TVProgramCardView: View {
                 HStack(alignment: .top) {
                     Text(airing.title)
                         .font(.headline)
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                         .lineLimit(1)
 
                     Spacer()
@@ -41,7 +41,7 @@ public struct TVProgramCardView: View {
                 if let ep = airing.episodeTitle, !ep.isEmpty {
                     Text(ep)
                         .font(.subheadline)
-                        .foregroundColor(.gray)
+                        .foregroundColor(Theme.textSecondary)
                         .lineLimit(1)
                 }
 
@@ -71,7 +71,7 @@ public struct TVProgramCardView: View {
             .cornerRadius(12)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isFocused ? Color.white : Color.white.opacity(0.1), lineWidth: isFocused ? 4 : 1)
+                    .stroke(isFocused ? Theme.textPrimary : Theme.appBorder, lineWidth: isFocused ? 4 : 1)
             )
             .scaleEffect(isFocused ? 1.05 : 1.0)
             .animation(.easeInOut(duration: 0.15), value: isFocused)
@@ -89,11 +89,11 @@ public struct TVProgramCardView: View {
 
     private var cardBackground: some View {
         ZStack {
-            Color(white: 0.15)
+            Theme.appSurface
             if airing.isCurrentlyAiring() {
                 GeometryReader { geo in
                     Rectangle()
-                        .fill(Color.blue.opacity(0.25))
+                        .fill(Theme.accentSubtle)
                         .frame(width: geo.size.width * airing.progress)
                 }
             }

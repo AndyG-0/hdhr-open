@@ -8,7 +8,7 @@ public struct TVTunerStatusView: View {
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 24) {
                 // Header
@@ -16,7 +16,7 @@ public struct TVTunerStatusView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Tuner Hardware & Signal")
                             .font(.largeTitle.bold())
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         if let info = tunerViewModel.tunerInfo {
                             Text("\(info.friendlyName) • Firmware \(info.firmwareVersion ?? "Unknown")")
@@ -72,12 +72,12 @@ public struct TVTunerStatusView: View {
             HStack {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(tuner.inUse ? Color.green : Color.gray)
+                        .fill(tuner.inUse ? Color.green : Theme.textMuted)
                         .frame(width: 12, height: 12)
 
                     Text("Tuner \(tuner.index)")
                         .font(.title2.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                 }
 
                 Spacer()
@@ -111,7 +111,7 @@ public struct TVTunerStatusView: View {
             }
 
             if tuner.inUse {
-                Divider().background(Color.white.opacity(0.1))
+                Divider().background(Theme.appBorder)
 
                 HStack(spacing: 32) {
                     metricGauge(
@@ -135,7 +135,7 @@ public struct TVTunerStatusView: View {
             }
         }
         .padding(24)
-        .background(Color(white: 0.12))
+        .background(Theme.appSurface)
         .cornerRadius(16)
     }
 
@@ -150,7 +150,7 @@ public struct TVTunerStatusView: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
-                            .fill(Color.white.opacity(0.15))
+                            .fill(Theme.appSurfaceVariant)
                             .frame(height: 8)
 
                         Capsule()

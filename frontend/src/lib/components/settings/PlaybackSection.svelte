@@ -348,7 +348,7 @@
 	}
 
 	.diagnostics-list .status {
-		color: var(--color-danger, #e05a5a);
+		color: var(--color-error, #e05a5a);
 		margin-right: 0.4rem;
 	}
 

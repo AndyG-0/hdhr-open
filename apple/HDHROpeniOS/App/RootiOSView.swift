@@ -5,6 +5,8 @@ public struct RootiOSView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
 
     @State private var selectedTab: Int = 0
 
@@ -48,13 +50,21 @@ public struct RootiOSView: View {
                     }
                     .tag(3)
                 }
+                .onChange(of: selectedTab) { _, newTab in
+                    if newTab == 0 {
+                        Task { await guideViewModel.loadData() }
+                    } else if newTab == 1 {
+                        Task { await recordingsViewModel.loadData() }
+                    }
+                }
+
+                if playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil {
+                    iOSPlayerView()
+                        .transition(.opacity)
+                        .zIndex(100)
+                }
             }
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil },
-            set: { if !$0 { playerViewModel.closePlayer() } }
-        )) {
-            iOSPlayerView()
-        }
+        .animation(.easeInOut(duration: 0.25), value: playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil)
     }
 }

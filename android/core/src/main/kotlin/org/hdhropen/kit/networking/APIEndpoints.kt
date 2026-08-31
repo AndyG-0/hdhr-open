@@ -11,20 +11,33 @@ object APIEndpoints {
     fun recordings(): String = "/api/dvr/recordings"
     fun deleteRecording(id: String): String = "/api/dvr/recordings/$id"
 
-    fun recordingDetail(url: String, recordingId: String, start: Double? = null, recordEnd: Double? = null): String {
+    fun recordingDetail(
+        url: String,
+        recordingId: String,
+        start: Double? = null,
+        recordEnd: Double? = null,
+        provider: String? = null
+    ): String {
         val query = mutableListOf<String>()
         query.add("url=${URLEncoder.encode(url, "UTF-8")}")
         query.add("recording_id=$recordingId")
         if (start != null) query.add("start=$start")
         if (recordEnd != null) query.add("record_end=$recordEnd")
+        if (provider != null) query.add("provider=$provider")
         return "/api/dvr/recording-detail?${query.joinToString("&")}"
     }
 
-    fun recordingCaptions(url: String, recordingId: String, recordEnd: Double? = null): String {
+    fun recordingCaptions(
+        url: String,
+        recordingId: String,
+        recordEnd: Double? = null,
+        provider: String? = null
+    ): String {
         val query = mutableListOf<String>()
         query.add("url=${URLEncoder.encode(url, "UTF-8")}")
         query.add("recording_id=$recordingId")
         if (recordEnd != null) query.add("record_end=$recordEnd")
+        if (provider != null) query.add("provider=$provider")
         return "/api/dvr/recording-captions.vtt?${query.joinToString("&")}"
     }
 

@@ -35,7 +35,7 @@ public struct TVChannelRowView: View {
                     HStack {
                         Text(channel.channelNumber)
                             .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
+                            .foregroundColor(Theme.textPrimary)
 
                         if isFavorite {
                             Image(systemName: "star.fill")
@@ -56,17 +56,17 @@ public struct TVChannelRowView: View {
 
                     Text(channel.name)
                         .font(.caption)
-                        .foregroundColor(.gray)
+                        .foregroundColor(Theme.textSecondary)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .frame(width: 180, height: 140)
-                .background(Color(white: 0.12))
+                .background(Theme.appSurface)
                 .cornerRadius(12)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(isChannelHeaderFocused ? Color.white : Color.clear, lineWidth: 4)
+                        .stroke(isChannelHeaderFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
                 )
                 .scaleEffect(isChannelHeaderFocused ? 1.05 : 1.0)
             }

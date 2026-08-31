@@ -2,18 +2,20 @@ import SwiftUI
 import HDHROpenKit
 
 public struct TVPlayerSettingsOverlay: View {
-    @ObservedObject var playerEngine: PlayerEngine
+    @ObservedObject var playerViewModel: PlayerViewModel
     let onDismiss: () -> Void
 
     @FocusState private var focusedElement: SettingsFocus?
+
+    private var playerEngine: PlayerEngine { playerViewModel.playerEngine }
 
     private enum SettingsFocus: Hashable {
         case close
         case track(Int)
     }
 
-    public init(playerEngine: PlayerEngine, onDismiss: @escaping () -> Void) {
-        self.playerEngine = playerEngine
+    public init(playerViewModel: PlayerViewModel, onDismiss: @escaping () -> Void) {
+        self.playerViewModel = playerViewModel
         self.onDismiss = onDismiss
     }
 
@@ -25,13 +27,13 @@ public struct TVPlayerSettingsOverlay: View {
                 HStack {
                     Text("Audio & Stream Options")
                         .font(.title2.bold())
-                        .foregroundColor(.white)
+                        .foregroundColor(Theme.textPrimary)
                     Spacer()
                     Button("Close", action: onDismiss)
                         .focused($focusedElement, equals: .close)
                 }
 
-                Divider().background(Color.gray)
+                Divider().background(Theme.appBorder)
 
                 // Audio Tracks
                 VStack(alignment: .leading, spacing: 12) {
@@ -42,12 +44,12 @@ public struct TVPlayerSettingsOverlay: View {
                     if playerEngine.availableAudioTracks.isEmpty {
                         Text("Default Audio Track")
                             .font(.subheadline)
-                            .foregroundColor(.gray)
+                            .foregroundColor(Theme.textSecondary)
                     } else {
                         ForEach(playerEngine.availableAudioTracks) { track in
                             let isSelected = playerEngine.currentAudioTrack?.index == track.index
                             Button(action: {
-                                playerEngine.selectAudioTrack(track)
+                                Task { await playerViewModel.selectAudioTrack(track) }
                             }) {
                                 HStack {
                                     Text(track.displayLabel)
@@ -60,11 +62,28 @@ public struct TVPlayerSettingsOverlay: View {
                                 }
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
-                                .background(isSelected ? Color.blue.opacity(0.2) : Color.white.opacity(0.05))
+                                .background(isSelected ? Theme.accentSubtle : Theme.appSurfaceVariant)
                                 .cornerRadius(8)
                             }
                             .focused($focusedElement, equals: .track(track.index))
                         }
+                    }
+                }
+
+                // Playback Mode
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Playback")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+
+                    Label(playerViewModel.playbackModeLabel, systemImage: playerViewModel.playbackMode == .direct ? "bolt.fill" : "server.rack")
+                        .font(.subheadline)
+                        .foregroundColor(Theme.textSecondary)
+
+                    if let bitrate = playerEngine.observedBitrate {
+                        Label(String(format: "%.1f Mbps", bitrate / 1_000_000), systemImage: "speedometer")
+                            .font(.subheadline)
+                            .foregroundColor(Theme.textSecondary)
                     }
                 }
 
@@ -87,13 +106,13 @@ public struct TVPlayerSettingsOverlay: View {
                             }
                         }
                         .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(Theme.textSecondary)
                     }
                 }
             }
             .padding(40)
             .frame(maxWidth: 700)
-            .background(Color(white: 0.12))
+            .background(Theme.appSurface)
             .cornerRadius(20)
         }
         // Mirrors TVPlaybackControlsView's onAppear focus claim - this overlay

@@ -1,9 +1,18 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { api } from '$lib/api';
 
 const STORAGE_KEY = 'dashboard-theme';
-const DEFAULT_THEME = 'dark';
+const DEFAULT_THEME = 'system';
+
+const media = browser ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+// "system" is a preference like any other theme id, but it has no CSS file
+// of its own — resolve() maps it to whichever concrete theme should actually
+// be painted, based on the OS-level scheme.
+function resolve(pref: string): string {
+	return pref === 'system' ? (media?.matches ? 'dark' : 'light') : pref;
+}
 
 function initialTheme(): string {
 	if (!browser) return DEFAULT_THEME;
@@ -20,7 +29,14 @@ export const theme = writable<string>(initialTheme());
 theme.subscribe((value) => {
 	if (!browser) return;
 	localStorage.setItem(STORAGE_KEY, value);
-	document.documentElement.setAttribute('data-theme', value);
+	document.documentElement.setAttribute('data-theme', resolve(value));
+});
+
+// Live-update the DOM if the OS-level scheme changes while "system" is selected.
+media?.addEventListener('change', () => {
+	if (get(theme) === 'system') {
+		document.documentElement.setAttribute('data-theme', resolve('system'));
+	}
 });
 
 export function loadThemeFromServer() {

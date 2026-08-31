@@ -4,6 +4,10 @@ hands a channel's raw stream off to a native player app ("open in external
 player") via a tiny `.m3u` playlist — no browser can decode raw MPEG-2
 itself, and a bare link to the MPEG-TS URL just downloads an opaque blob.
 
+Native clients whose own platform *can* decode raw MPEG-2/MPEG-TS (unlike a
+browser) can pass `?direct=true` on the stream endpoint to skip ffmpeg
+entirely and get the tuner's bytes proxied through unmodified.
+
 Teardown today is disconnect-driven (`request.is_disconnected()` polled in
 the streaming generator) — the stream-session/heartbeat contract native
 clients need is a later addition; see the plan.
@@ -16,8 +20,10 @@ import contextlib
 import logging
 import shlex
 import shutil
+import time
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
@@ -44,6 +50,14 @@ router = APIRouter(prefix="/api/streaming", tags=["streaming"], dependencies=[De
 _FFMPEG_TERMINATE_TIMEOUT_SECONDS = 5
 _DISCONNECT_POLL_INTERVAL_SECONDS = 1
 _FAILURE_PROBE_TIMEOUT_SECONDS = 15
+# Backstop for a connection that never delivers a clean close/reset (e.g. a
+# mobile client suspended without tearing down its socket): if the response
+# generator hasn't made forward progress in this long, assume the peer is
+# gone and release the tuner ourselves rather than waiting on it forever.
+# Matches WATCH_HEARTBEAT_TIMEOUT_SECONDS/DVREngine.tick's cadence so this
+# path degrades the same way the watch-session path does.
+_STALL_TIMEOUT_SECONDS = 60
+_STALL_CHECK_INTERVAL_SECONDS = 10
 
 
 @router.get("/transcode-presets")
@@ -85,6 +99,103 @@ async def _describe_mid_stream_exit(
     )
 
 
+async def _stall_watchdog(
+    process: asyncio.subprocess.Process,
+    last_activity: list[float],
+    channel_number: str,
+) -> None:
+    """Kill `process` if `body()`'s loop stops making progress for too long.
+
+    `request.is_disconnected()` depends on the ASGI server actually noticing
+    the socket is gone, which requires a clean close/reset - a connection
+    that's silently gone (app suspended without tearing down its socket, a
+    send that blocks forever on a dead peer) can otherwise hold the tuner
+    indefinitely. This runs as an independent task specifically because a
+    stalled `yield` inside `body()` would block that generator itself from
+    ever reaching its own disconnect check again.
+    """
+    while True:
+        await asyncio.sleep(_STALL_CHECK_INTERVAL_SECONDS)
+        if process.returncode is not None:
+            return
+        if time.monotonic() - last_activity[0] > _STALL_TIMEOUT_SECONDS:
+            logger.warning(
+                "Channel %s: stream stalled (no activity for %ss); releasing tuner",
+                channel_number,
+                _STALL_TIMEOUT_SECONDS,
+            )
+            await terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
+            return
+
+
+_DIRECT_CONNECT_TIMEOUT_SECONDS = 10
+_DIRECT_STALL_TIMEOUT_SECONDS = 60
+_DIRECT_STALL_CHECK_INTERVAL_SECONDS = 10
+
+
+async def _proxy_raw_stream(raw_url: str, channel_number: str, request: Request) -> StreamingResponse:
+    """Direct-play passthrough for `?direct=true`: forwards the tuner's raw
+    MPEG-2/MPEG-TS bytes unmodified for clients whose own platform can
+    decode them - no ffmpeg subprocess is involved, so tuner release on
+    disconnect/stall is handled directly against the httpx connection
+    instead of via `terminate_process`.
+    """
+    client = httpx.AsyncClient(timeout=httpx.Timeout(_DIRECT_CONNECT_TIMEOUT_SECONDS, read=None))
+    try:
+        resp = await client.send(client.build_request("GET", raw_url), stream=True)
+    except httpx.HTTPError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Could not reach tuner: {exc}") from exc
+
+    if resp.status_code >= 400:
+        await resp.aclose()
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Tuner rejected stream request (HTTP {resp.status_code})")
+
+    logger.info("Channel %s: direct passthrough (no transcode)", channel_number)
+
+    last_activity = [time.monotonic()]
+
+    async def watchdog() -> None:
+        while True:
+            await asyncio.sleep(_DIRECT_STALL_CHECK_INTERVAL_SECONDS)
+            if time.monotonic() - last_activity[0] > _DIRECT_STALL_TIMEOUT_SECONDS:
+                logger.warning(
+                    "Channel %s: direct stream stalled (no activity for %ss); releasing tuner",
+                    channel_number,
+                    _DIRECT_STALL_TIMEOUT_SECONDS,
+                )
+                await resp.aclose()
+                await client.aclose()
+                return
+
+    watchdog_task = asyncio.create_task(watchdog())
+
+    async def body():
+        chunks = resp.aiter_bytes(STREAM_CHUNK_BYTES)
+        try:
+            while True:
+                last_activity[0] = time.monotonic()
+                if await request.is_disconnected():
+                    break
+                try:
+                    chunk = await asyncio.wait_for(chunks.__anext__(), timeout=_DISCONNECT_POLL_INTERVAL_SECONDS)
+                except TimeoutError:
+                    continue
+                except StopAsyncIteration:
+                    break
+                except Exception:
+                    # The watchdog above closed `resp` out from under us.
+                    break
+                yield chunk
+        finally:
+            watchdog_task.cancel()
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(body(), media_type="video/mp2t")
+
+
 async def _probe_after_failure(settings: dict[str, Any]) -> dict[str, Any] | None:
     """Re-run the failed settings against a synthetic clip, or None if that couldn't be done.
 
@@ -102,7 +213,7 @@ async def _probe_after_failure(settings: dict[str, Any]) -> dict[str, Any] | Non
 
 
 @router.get("/stream/{channel_number}")
-async def stream_channel(channel_number: str, request: Request):
+async def stream_channel(channel_number: str, request: Request, direct: bool = False):
     settings = await get_hdhomerun_settings()
     if not hdhomerun_client.is_tuner_configured(settings):
         raise HTTPException(status_code=404, detail="Tuner not configured")
@@ -112,6 +223,10 @@ async def stream_channel(channel_number: str, request: Request):
     # user already saved. Reconstructing it this way (rather than trusting a
     # client-passed URL) avoids turning this into an open proxy.
     raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
+
+    if direct:
+        return await _proxy_raw_stream(raw_url, channel_number, request)
+
     try:
         ffmpeg_args = transcoding.build_ffmpeg_args(settings, raw_url)
     except transcoding.InvalidCustomFfmpegArgsError as exc:
@@ -190,10 +305,18 @@ async def stream_channel(channel_number: str, request: Request):
         )
         raise HTTPException(status_code=502, detail=detail)
 
+    last_activity = [time.monotonic()]
+    watchdog_task = asyncio.create_task(_stall_watchdog(process, last_activity, channel_number))
+
     async def body():
         try:
             yield first_chunk
             while True:
+                # Mark progress once per loop iteration (not tied to a
+                # successful read/yield) so a `yield` that never returns
+                # control here - because the send it's waiting on is stuck -
+                # is exactly what makes this go stale for the watchdog above.
+                last_activity[0] = time.monotonic()
                 # Actively re-check for disconnect on a bounded read timeout
                 # instead of relying solely on Starlette to cancel this
                 # generator when the client goes away — that cancellation
@@ -214,6 +337,7 @@ async def stream_channel(channel_number: str, request: Request):
                     break
                 yield chunk
         finally:
+            watchdog_task.cancel()
             # Run on an independent task rather than awaiting inline: if
             # this generator is being torn down because its own task was
             # cancelled (the client-disconnect case), awaiting anything

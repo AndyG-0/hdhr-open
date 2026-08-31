@@ -279,3 +279,61 @@ def test_build_ffmpeg_args_hls_mode_swaps_output_framing():
 def test_build_ffmpeg_args_hls_mode_requires_playlist_and_segment_paths():
     with pytest.raises(ValueError):
         transcoding.build_ffmpeg_args({}, "url", output_format="hls")
+
+
+def test_build_ffmpeg_args_hls_vod_mode_sets_full_list_size_without_playlist_type():
+    # `-hls_playlist_type vod` must NOT be present: that flag makes ffmpeg's
+    # HLS muxer buffer the whole playlist and only write it to disk once, at
+    # true EOF - for any recording longer than a few seconds that starves
+    # create_session's readiness poll (waiting on a non-empty playlist) past
+    # its startup timeout, so playback of every completed recording 502s
+    # regardless of transcode speed (regression guard).
+    playlist = Path("/tmp/hls-session/stream.m3u8")
+    args = transcoding.build_ffmpeg_args(
+        {},
+        "http://192.168.50.197:50000/recorded/play?id=123",
+        output_format="hls",
+        hls_playlist_path=playlist,
+        hls_segment_pattern="/tmp/hls-session/segment%05d.ts",
+        hls_vod=True,
+    )
+
+    assert "-hls_playlist_type" not in args
+    assert "-hls_list_size" in args
+    assert args[args.index("-hls_list_size") + 1] == "0"
+    assert "-hls_flags" in args
+    flags = args[args.index("-hls_flags") + 1]
+    assert "delete_segments" not in flags
+    assert "append_list" not in flags
+
+
+def test_build_ffmpeg_args_hls_vod_mode_omits_re():
+    # A completed recording file would normally get -re (see
+    # test_build_ffmpeg_args_adds_re_for_recorded_streams), but VOD HLS
+    # packaging transcodes ahead of time rather than pacing to real time.
+    args = transcoding.build_ffmpeg_args(
+        {},
+        "http://192.168.50.197:50000/recorded/play?id=123",
+        output_format="hls",
+        hls_playlist_path=Path("/tmp/hls-session/stream.m3u8"),
+        hls_segment_pattern="/tmp/hls-session/segment%05d.ts",
+        hls_vod=True,
+    )
+
+    assert "-re" not in args
+
+
+def test_build_ffmpeg_args_hls_non_vod_mode_keeps_live_style_flags():
+    # Regression guard: adding hls_vod support must not change the existing
+    # live/in-progress HLS packaging path's flags.
+    args = transcoding.build_ffmpeg_args(
+        {},
+        "url",
+        output_format="hls",
+        hls_playlist_path=Path("/tmp/hls-session/stream.m3u8"),
+        hls_segment_pattern="/tmp/hls-session/segment%05d.ts",
+    )
+
+    assert "-hls_playlist_type" not in args
+    assert args[args.index("-hls_list_size") + 1] == str(transcoding.HLS_LIST_SIZE)
+    assert args[args.index("-hls_flags") + 1] == transcoding.HLS_FLAGS

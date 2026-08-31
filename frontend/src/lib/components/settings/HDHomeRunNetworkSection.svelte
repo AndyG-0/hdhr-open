@@ -14,7 +14,7 @@
 	let hdhomerunTunerHostInput = $state('');
 	let hdhomerunTunerPortInput = $state(80);
 	let hdhomerunDvrHostInput = $state('');
-	let hdhomerunDvrPortInput = $state(59090);
+	let hdhomerunDvrPortInput = $state(50000);
 	const hdhomerunState = new SaveState();
 	let hdhomerunTestingTuner = $state(false);
 	let hdhomerunTunerTestResult = $state<NetworkTestConnectionResult | null>(null);
@@ -27,7 +27,7 @@
 			hdhomerunTunerHostInput = (initialSettings!.tuner_host as string) ?? '';
 			hdhomerunTunerPortInput = (initialSettings!.tuner_port as number) ?? 80;
 			hdhomerunDvrHostInput = (initialSettings!.dvr_host as string) ?? '';
-			hdhomerunDvrPortInput = (initialSettings!.dvr_port as number) ?? 59090;
+			hdhomerunDvrPortInput = (initialSettings!.dvr_port as number) ?? 50000;
 		},
 	);
 

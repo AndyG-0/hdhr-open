@@ -62,7 +62,7 @@ public final class WatchSessionManager: ObservableObject {
 
         if let sessionId = activeSessionId, !isPromoted {
             let client = apiClient
-            Task {
+            runWithBackgroundGrace(name: "StopWatchSession") {
                 try? await client.stopWatch(sessionId: sessionId)
                 Log.player.info("Stopped watch session \(sessionId)")
             }

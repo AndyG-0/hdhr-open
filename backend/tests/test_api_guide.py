@@ -626,4 +626,88 @@ def test_get_guide_auto_seeds_channels_from_tuner_if_empty(client, tmp_db, monke
     assert ch["name"] == "WNYW"
 
 
+def test_get_guide_start_end_params_filter_window(client, tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+    db.upsert_guide_programs(
+        [
+            _program_row(channel_id, "hdhomerun_cloud", now, "In Window Show"),
+            _program_row(channel_id, "hdhomerun_cloud", now + 10 * 24 * 3600, "Far Future Show"),
+        ]
+    )
+
+    response = client.get("/api/guide", params={"start": now - 3600, "end": now + 3600})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    titles = [a["title"] for a in body[0]["airings"]]
+    assert titles == ["In Window Show"]
+
+
+def test_get_guide_omitted_params_use_default_window(client, tmp_db):
+    """Regression guard: no start/end still reproduces the historical
+    default window (now - 6h .. now + QUERY_WINDOW_SECONDS)."""
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+    db.upsert_guide_programs(
+        [
+            _program_row(channel_id, "hdhomerun_cloud", now, "Today Show"),
+            _program_row(channel_id, "hdhomerun_cloud", now + 13 * 24 * 3600, "Two Weeks Out Show"),
+        ]
+    )
+
+    response = client.get("/api/guide")
+
+    assert response.status_code == 200
+    body = response.json()
+    titles = [a["title"] for a in body[0]["airings"]]
+    assert "Today Show" in titles
+    assert "Two Weeks Out Show" in titles
+
+
+def test_get_guide_caches_repeated_requests(client, tmp_db, monkeypatch):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+    db.upsert_guide_programs([_program_row(channel_id, "hdhomerun_cloud", now, "Cached Show")])
+
+    real_list_guide_programs = db.list_guide_programs
+    call_count = 0
+
+    def _counting_list_guide_programs(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return real_list_guide_programs(*args, **kwargs)
+
+    monkeypatch.setattr(guide_api.db, "list_guide_programs", _counting_list_guide_programs)
+
+    first = client.get("/api/guide", params={"start": now - 3600, "end": now + 3600})
+    second = client.get("/api/guide", params={"start": now - 3600, "end": now + 3600})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert call_count == 1
+
+
+def test_get_guide_refresh_invalidates_cache(client, tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+    db.upsert_guide_programs([_program_row(channel_id, "hdhomerun_cloud", now, "Original Show")])
+
+    first = client.get("/api/guide", params={"start": now - 3600, "end": now + 3600})
+    assert [a["title"] for a in first.json()[0]["airings"]] == ["Original Show"]
+
+    db.delete_future_guide_programs(channel_id, "hdhomerun_cloud", now - 4 * 3600)
+    db.upsert_guide_programs([_program_row(channel_id, "hdhomerun_cloud", now, "Updated Show")])
+    guide_api.cache.delete_prefix("guide:")
+
+    second = client.get("/api/guide", params={"start": now - 3600, "end": now + 3600})
+    assert [a["title"] for a in second.json()[0]["airings"]] == ["Updated Show"]
+
+
 

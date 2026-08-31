@@ -36,7 +36,7 @@ fun PINEntryDialog(
     Dialog(onDismissRequest = { authViewModel.dismissPinEntry() }) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = DarkSurface,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth().padding(16.dp)
         ) {
             Column(
@@ -51,10 +51,10 @@ fun PINEntryDialog(
                 ) {
                     Text(
                         text = "Enter PIN",
-                        style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary)
+                        style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface)
                     )
                     IconButton(onClick = { authViewModel.dismissPinEntry() }) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary)
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -62,7 +62,7 @@ fun PINEntryDialog(
 
                 Text(
                     text = "Profile: ${selectedProfile?.name ?: ""}",
-                    style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
+                    style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                 )
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -78,8 +78,8 @@ fun PINEntryDialog(
                             modifier = Modifier
                                 .size(16.dp)
                                 .clip(CircleShape)
-                                .background(if (isFilled) BluePrimary else DarkSurfaceVariant)
-                                .border(1.dp, if (isFilled) BluePrimary else DarkBorder, CircleShape)
+                                .background(if (isFilled) BluePrimary else MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.dp, if (isFilled) BluePrimary else MaterialTheme.colorScheme.outline, CircleShape)
                         )
                     }
                 }
@@ -118,25 +118,25 @@ fun PINEntryDialog(
                                         modifier = Modifier
                                             .size(60.dp)
                                             .clip(CircleShape)
-                                            .background(DarkSurfaceVariant)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
                                             .clickable { authViewModel.deletePinDigit() },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.Backspace, contentDescription = "Delete", tint = TextPrimary)
+                                        Icon(Icons.Default.Backspace, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurface)
                                     }
                                 } else {
                                     Box(
                                         modifier = Modifier
                                             .size(60.dp)
                                             .clip(CircleShape)
-                                            .background(DarkSurfaceVariant)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
                                             .clickable { authViewModel.appendPinDigit(key) },
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = key,
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                color = TextPrimary,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                                 fontSize = 22.sp,
                                                 fontWeight = FontWeight.Bold
                                             )

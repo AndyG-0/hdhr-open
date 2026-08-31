@@ -32,6 +32,7 @@ public struct iOSGuideView: View {
         )
         .searchable(text: $searchText, prompt: "Search channels or shows")
         .navigationTitle("Live Guide")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Toggle(isOn: $guideViewModel.filterOnlyFavorites) {
@@ -54,10 +55,11 @@ public struct iOSGuideView: View {
         )) { wrapper in
             iOSProgramDetailSheet(channel: wrapper.channel, airing: wrapper.airing)
         }
+        .refreshable {
+            await guideViewModel.loadData()
+        }
         .task {
-            if guideViewModel.channels.isEmpty {
-                await guideViewModel.loadData()
-            }
+            await guideViewModel.loadData()
         }
     }
 }

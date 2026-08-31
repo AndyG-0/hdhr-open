@@ -74,7 +74,7 @@ def test_get_singleton_type_returns_stored_row(admin_client, tmp_db):
         "hdhomerun",
         "hdhomerun",
         "HDHomeRun",
-        {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 59090, "epg_url": ""},
+        {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 50000, "epg_url": ""},
     )
 
     response = admin_client.get("/api/network-settings/hdhomerun")
@@ -169,7 +169,7 @@ def test_hdhomerun_tuner_test_connection_ok(admin_client, tmp_db, monkeypatch):
         "hdhomerun",
         "hdhomerun",
         "HDHomeRun",
-        {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 59090, "epg_url": ""},
+        {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 50000, "epg_url": ""},
     )
 
     async def fake(settings):
@@ -200,7 +200,7 @@ def test_hdhomerun_tuner_test_connection_uses_payload_override_onto_saved_settin
         "hdhomerun",
         "hdhomerun",
         "HDHomeRun",
-        {"tuner_host": "old.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 59090, "epg_url": ""},
+        {"tuner_host": "old.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 50000, "epg_url": ""},
     )
     captured: dict[str, object] = {}
 

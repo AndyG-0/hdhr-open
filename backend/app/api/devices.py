@@ -7,7 +7,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
-from app.auth import DEVICE_COOKIE_NAME, get_current_device, get_current_user, new_token, set_device_cookie
+from app.auth import (
+    DEVICE_COOKIE_NAME,
+    DEVICE_HEADER_NAME,
+    get_current_device,
+    get_current_user,
+    new_token,
+    set_device_cookie,
+)
 from app.storage.db import create_device, delete_device, get_device, list_devices, update_device
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -26,7 +33,7 @@ async def register_device(request: Request, response: Response):
     # Idempotent: a browser that already has a valid device cookie gets its
     # existing device back unchanged, rather than minting a new one on every
     # reload.
-    existing_id = request.cookies.get(DEVICE_COOKIE_NAME)
+    existing_id = request.cookies.get(DEVICE_COOKIE_NAME) or request.headers.get(DEVICE_HEADER_NAME)
     existing = await asyncio.to_thread(get_device, existing_id) if existing_id else None
     if existing is not None:
         set_device_cookie(response, existing["id"])

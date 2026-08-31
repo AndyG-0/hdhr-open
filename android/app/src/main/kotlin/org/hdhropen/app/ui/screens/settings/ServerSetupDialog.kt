@@ -49,7 +49,7 @@ fun ServerSetupDialog(
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
-            color = DarkSurface,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth().fillMaxHeight(0.8f).padding(16.dp)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -61,10 +61,10 @@ fun ServerSetupDialog(
                 ) {
                     Text(
                         text = "Server Setup",
-                        style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary)
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -77,17 +77,17 @@ fun ServerSetupDialog(
                         inputURL = it
                         testResult = null
                     },
-                    label = { Text("Server URL", color = TextSecondary) },
+                    label = { Text("Server URL", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = DarkSurfaceVariant,
-                        unfocusedContainerColor = DarkSurfaceVariant,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         focusedBorderColor = BluePrimary,
-                        unfocusedBorderColor = DarkBorder,
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
 
@@ -107,13 +107,13 @@ fun ServerSetupDialog(
                             }
                         },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         if (isTesting) {
                             CircularProgressIndicator(color = BluePrimary, modifier = Modifier.size(16.dp))
                         } else {
-                            Text("Test", color = TextPrimary)
+                            Text("Test", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -126,7 +126,7 @@ fun ServerSetupDialog(
                         colors = ButtonDefaults.buttonColors(containerColor = BluePrimary),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Save & Connect", color = TextPrimary)
+                        Text("Save & Connect", color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
@@ -140,7 +140,7 @@ fun ServerSetupDialog(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
-                Divider(color = DarkBorder)
+                Divider(color = MaterialTheme.colorScheme.outline)
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Discovered Servers
@@ -151,10 +151,10 @@ fun ServerSetupDialog(
                 ) {
                     Text(
                         text = "Discovered Servers (LAN)",
-                        style = MaterialTheme.typography.titleMedium.copy(color = TextSecondary, fontSize = 14.sp)
+                        style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
                     )
                     IconButton(onClick = { serverDiscovery.startDiscovery() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Scan", tint = TextSecondary)
+                        Icon(Icons.Default.Refresh, contentDescription = "Scan", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -167,16 +167,16 @@ fun ServerSetupDialog(
                         modifier = Modifier.padding(vertical = 12.dp)
                     ) {
                         CircularProgressIndicator(color = BluePrimary, modifier = Modifier.size(18.dp))
-                        Text("Searching via mDNS...", style = MaterialTheme.typography.labelSmall.copy(color = TextMuted))
+                        Text("Searching via mDNS...", style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.extendedColors.textMuted))
                     }
                 } else if (discoveredServers.isEmpty()) {
-                    Text("No HDHR Open servers found on LAN.", style = MaterialTheme.typography.labelSmall.copy(color = TextMuted))
+                    Text("No HDHR Open servers found on LAN.", style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.extendedColors.textMuted))
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(discoveredServers, key = { it.id }) { server ->
                             Card(
                                 shape = RoundedCornerShape(10.dp),
-                                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
@@ -192,8 +192,8 @@ fun ServerSetupDialog(
                                     Icon(Icons.Default.Dns, contentDescription = "Server", tint = BluePrimary)
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
-                                        Text(server.name, style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontSize = 14.sp))
-                                        Text(server.url, style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary))
+                                        Text(server.name, style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp))
+                                        Text(server.url, style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
                                     }
                                 }
                             }

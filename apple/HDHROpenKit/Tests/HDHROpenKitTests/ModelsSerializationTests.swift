@@ -49,5 +49,31 @@ final class ModelsSerializationTests: XCTestCase {
         XCTAssertEqual(rec.episodeDesignation, "S1:E1")
         XCTAssertEqual(rec.formattedDuration, "1h 0m")
         XCTAssertTrue(rec.formattedFileSize.contains("GB"))
+        XCTAssertFalse(rec.isHDHomeRunNative)
+    }
+
+    func testDecodeHDHomeRunNativeRecording() throws {
+        let json = """
+        {
+            "recording_id": "EP012345670001",
+            "title": "Local News",
+            "episode_title": null,
+            "channel_number": "4.1",
+            "channel_name": "NBC",
+            "start": 1700000000,
+            "record_end": 1700001800,
+            "play_url": "http://192.168.1.50:50000/recorded/12345678",
+            "duration_seconds": 1800.0,
+            "provider": "hdhomerun",
+            "is_dvr_file": true
+        }
+        """.data(using: .utf8)!
+
+        let rec = try JSONDecoder().decode(HDHomeRunRecording.self, from: json)
+        XCTAssertEqual(rec.recordingId, "EP012345670001")
+        XCTAssertEqual(rec.title, "Local News")
+        XCTAssertEqual(rec.playUrl, "http://192.168.1.50:50000/recorded/12345678")
+        XCTAssertTrue(rec.isHDHomeRunNative)
+        XCTAssertEqual(rec.formattedDuration, "30m")
     }
 }

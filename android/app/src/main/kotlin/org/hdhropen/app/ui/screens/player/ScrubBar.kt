@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.hdhropen.app.ui.theme.*
@@ -55,13 +56,13 @@ fun ScrubBar(
                 modifier = Modifier
                     .padding(bottom = 8.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(DarkSurfaceVariant)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = TimeFormatting.formatSecondsToClock(previewTime),
-                    style = MaterialTheme.typography.labelSmall.copy(color = TextPrimary, fontSize = 11.sp)
+                    style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
                 )
             }
         }
@@ -133,7 +134,7 @@ fun ScrubBar(
         ) {
             Text(
                 text = TimeFormatting.formatSecondsToClock(previewTime),
-                style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
+                style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
             )
 
             if (isLive) {
@@ -156,7 +157,7 @@ fun ScrubBar(
             } else if (duration > 0) {
                 Text(
                     text = TimeFormatting.formatSecondsToClock(duration),
-                    style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary)
+                    style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                 )
             }
         }

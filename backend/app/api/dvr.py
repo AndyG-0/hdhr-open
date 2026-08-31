@@ -96,8 +96,21 @@ async def _get_hdhomerun_settings_safe() -> dict[str, Any]:
         return {}
 
 
-def _resolve_target_media_url(settings: dict[str, Any], url: str, recording_id: str | None = None) -> str:
-    """Resolve a recording URL to either a local file path on disk or a remote HTTP URL."""
+def _resolve_target_media_url(
+    settings: dict[str, Any],
+    url: str,
+    recording_id: str | None = None,
+    provider: str | None = None,
+) -> str:
+    """Resolve a recording URL to either a local file path on disk or a remote HTTP URL.
+
+    `provider` ("builtin" or "hdhomerun"), when the client supplies it, is
+    trusted over the heuristics below - it comes from the same
+    list_recordings() response that tagged the recording as builtin or
+    official in the first place, so it authoritatively answers "does this
+    recording belong to our own DVR" without having to infer it from whether
+    an official DVR happens to also be configured.
+    """
     if url:
         p = Path(url)
         if p.exists() and p.is_file():
@@ -105,10 +118,46 @@ def _resolve_target_media_url(settings: dict[str, Any], url: str, recording_id: 
 
     if recording_id:
         rec = db.get_recording(recording_id)
-        if rec and rec.get("file_path"):
-            p = Path(rec["file_path"])
-            if p.exists():
-                return str(p)
+        if rec:
+            file_path = rec.get("file_path")
+            if file_path:
+                p = Path(file_path)
+                if p.exists() or capture_pipeline.is_capture_active(recording_id):
+                    # An active capture's file may not exist yet - the writer
+                    # ffmpeg is registered before it locks the tuner and flushes
+                    # its first bytes (see CapturePipeline.start_capture). That's
+                    # expected for live TV and just-started recordings; callers
+                    # already handle readiness via _wait_for_live_capture_data.
+                    return str(p)
+            # This recording_id names a builtin-DVR recording (found in our
+            # own database), not a remote-engine one - whether its file_path
+            # is unset or points at a file no longer on disk, falling through
+            # to hdhomerun_client.resolve_recording_url below would treat
+            # that local path/ID as a tuner/DVR-relative URL fragment and
+            # concatenate it onto http://{dvr_host}:{dvr_port}/, producing a
+            # nonsensical URL that ffmpeg then fails to open with an opaque
+            # 404. Raise a clear, specific error instead.
+            raise HTTPException(
+                status_code=404,
+                detail=f"Recording file no longer exists on disk: {file_path or '(no file recorded)'}",
+            )
+
+        # No local builtin-DVR row for this ID. If the client told us this is
+        # a builtin recording, that's authoritative - never fall through to
+        # the official DVR, no matter whether one happens to be configured;
+        # doing so previously routed builtin recordings the client couldn't
+        # find locally (e.g. a stale/cached id) to the HDHomeRun DVR server
+        # and produced an opaque 404 from *that* server instead of a clear
+        # local one. Without a provider hint (older clients), fall back to
+        # the old heuristic: list_recordings() only ever hands a client an
+        # official-HDHomeRun-DVR recording_id when
+        # hdhomerun_client.is_dvr_configured() is true, so if it's false here
+        # this recording_id can't legitimately be one either.
+        if provider == "builtin" or (provider is None and not hdhomerun_client.is_dvr_configured(settings)):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Recording not found: {recording_id}",
+            )
 
     return hdhomerun_client.resolve_recording_url(settings, url)
 
@@ -446,10 +495,19 @@ async def delete_recording_rule(rule_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+_TS_PACKET_SIZE = 188
+
+
 def _estimate_byte_offset(capture: Any, target_start_seconds: float) -> int | None:
     """Coarse elapsed-time-to-bytes-written approximation for seeking into a
     still-growing capture file. GOP-scale accuracy, not exact - the same
-    tolerance a live channel change already has."""
+    tolerance a live channel change already has. The result is aligned down
+    to a whole MPEG-TS packet boundary: an unaligned byte offset lands
+    mid-packet and desyncs every subsequent "packet" the downstream ffmpeg
+    reads from the tail-follow pipe (PES packet size mismatch / corrupt
+    packet errors), unlike a plain live tail-follow, which always starts at
+    a whole multiple of the packet size because the writer only ever
+    appends whole packets."""
     try:
         file_size = capture.file_path.stat().st_size
     except OSError:
@@ -458,7 +516,8 @@ def _estimate_byte_offset(capture: Any, target_start_seconds: float) -> int | No
     if elapsed <= 0 or file_size <= 0:
         return None
     bytes_per_second = file_size / elapsed
-    return max(0, int(target_start_seconds * bytes_per_second))
+    raw_offset = max(0, int(target_start_seconds * bytes_per_second))
+    return (raw_offset // _TS_PACKET_SIZE) * _TS_PACKET_SIZE
 
 
 async def _wait_for_live_capture_data(capture: ActiveCapture, recording_id: str) -> bool:
@@ -489,6 +548,7 @@ async def stream_recording(
     start: float | None = None,
     audio_index: int | None = None,
     recording_id: str | None = None,
+    provider: str | None = None,
 ):
     settings = await get_hdhomerun_settings()
     # If recording_id names a capture that's still actively being written
@@ -497,7 +557,7 @@ async def stream_recording(
     # this is what lets a viewer tune into a channel that's already recording
     # instead of waiting for the recording to finish.
     active_capture = await capture_pipeline.get_active_capture(recording_id) if recording_id else None
-    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id, provider)
 
     mode = settings.get("playback_mode", "server_transcode")
     if mode == "server_transcode":
@@ -650,6 +710,7 @@ class RecordingStreamHLSRequest(BaseModel):
     recording_id: str | None = None
     start: float | None = None
     audio_index: int | None = None
+    provider: str | None = None
 
 
 @router.post("/recording-stream-hls")
@@ -665,7 +726,9 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
     active_capture = (
         await capture_pipeline.get_active_capture(body.recording_id) if body.recording_id else None
     )
-    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, body.url, body.recording_id)
+    target_url = await asyncio.to_thread(
+        _resolve_target_media_url, settings, body.url, body.recording_id, body.provider
+    )
 
     if active_capture is not None and not await _wait_for_live_capture_data(active_capture, body.recording_id):
         logger.error(
@@ -697,6 +760,7 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
+            hls_vod=active_capture is None,
         )
     except transcoding.InvalidCustomFfmpegArgsError as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -735,7 +799,7 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
             label=f"recording {body.recording_id or target_url}",
             stdin_pipe=active_capture is not None,
             on_process_spawned=_start_pump,
-            min_segments=hls_streaming.HLS_READY_MIN_SEGMENTS,
+            min_segments=1 if active_capture is None else hls_streaming.HLS_READY_MIN_SEGMENTS,
         )
     except hls_streaming.HLSStartupError as exc:
         if pump_stop_event is not None:
@@ -759,23 +823,40 @@ def _resolve_transcode_info(settings: dict[str, Any]) -> dict[str, Any]:
     """Surfaces what /recording-stream will actually do for playback info's
     benefit - whether the server transcodes at all, and if so, via which
     preset (computed fresh per-request since it reflects current settings,
-    not something worth caching)."""
+    not something worth caching).
+
+    Preset/hardware are resolved regardless of `transcoding_enabled`: native
+    clients play recordings via /recording-stream-hls, which always
+    transcodes (AVFoundation/ExoPlayer's HLS path can't consume raw
+    MPEG-2/MPEG-TS) irrespective of this `playback_mode` setting, so they
+    need accurate preset info even when it's "external"."""
     transcoding_enabled = settings.get("playback_mode", "server_transcode") == "server_transcode"
-    if not transcoding_enabled:
-        return {"transcoding": False, "preset": None, "preset_label": None, "hardware": False}
     hwaccel = settings.get("hwaccel", transcoding.DEFAULT_PRESET)
     preset = transcoding.resolve_preset(hwaccel)
-    return {"transcoding": True, "preset": hwaccel, "preset_label": preset.label, "hardware": preset.hardware}
+    return {
+        "transcoding": transcoding_enabled,
+        "preset": hwaccel,
+        "preset_label": preset.label,
+        "hardware": preset.hardware,
+    }
 
 
 @router.get("/recording-detail")
-async def recording_detail(url: str, recording_id: str, start: float | None = None, record_end: float | None = None):
+async def recording_detail(
+    url: str,
+    recording_id: str,
+    start: float | None = None,
+    record_end: float | None = None,
+    provider: str | None = None,
+):
     settings = await get_hdhomerun_settings()
     transcode_info = _resolve_transcode_info(settings)
 
     if record_end is None or record_end > time.time():
         if recording_id not in _probe_cache_in_progress:
-            target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
+            target_url = await asyncio.to_thread(
+                _resolve_target_media_url, settings, url, recording_id, provider
+            )
             result = await media_probe.probe_in_progress(target_url)
             if result is not None:
                 _probe_cache_in_progress_set(recording_id, result)
@@ -801,7 +882,7 @@ async def recording_detail(url: str, recording_id: str, start: float | None = No
         }
 
     if recording_id not in _probe_cache:
-        target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
+        target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id, provider)
         result = await media_probe.probe(target_url)
         _probe_cache_set(
             recording_id,
@@ -818,7 +899,9 @@ async def recording_detail(url: str, recording_id: str, start: float | None = No
 
 
 @router.get("/recording-captions.vtt")
-async def recording_captions(url: str, recording_id: str, record_end: float | None = None):
+async def recording_captions(
+    url: str, recording_id: str, record_end: float | None = None, provider: str | None = None
+):
     if record_end is None or record_end > time.time():
         active_capture = await capture_pipeline.get_active_capture(recording_id)
         if active_capture is None:
@@ -836,7 +919,7 @@ async def recording_captions(url: str, recording_id: str, record_end: float | No
         return FileResponse(live_path, media_type="text/vtt")
 
     settings = await get_hdhomerun_settings()
-    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id, provider)
 
     vtt_path = await media_cache.generate_captions_vtt(target_url, recording_id)
     if vtt_path is None:
@@ -859,14 +942,16 @@ async def _resolved_duration(target_url: str, recording_id: str) -> float | None
     return None
 
 
-async def _resolved_thumbnail_sprite(recording_id: str, url: str, record_end: float | None) -> tuple[Path, Path]:
+async def _resolved_thumbnail_sprite(
+    recording_id: str, url: str, record_end: float | None, provider: str | None = None
+) -> tuple[Path, Path]:
     settings = await get_hdhomerun_settings()
     if not _thumbnails_enabled(settings):
         raise HTTPException(status_code=404, detail="Thumbnail previews are disabled")
     if record_end is None or record_end > time.time():
         raise HTTPException(status_code=404, detail="Thumbnails are only available for completed recordings")
 
-    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id)
+    target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id, provider)
     duration = await _resolved_duration(target_url, recording_id)
     if duration is None:
         raise HTTPException(status_code=404, detail="Could not determine recording duration")
@@ -878,12 +963,16 @@ async def _resolved_thumbnail_sprite(recording_id: str, url: str, record_end: fl
 
 
 @router.get("/recording-thumbnails/{recording_id}.jpg")
-async def recording_thumbnail_sprite(recording_id: str, url: str, record_end: float | None = None):
-    sprite = await _resolved_thumbnail_sprite(recording_id, url, record_end)
+async def recording_thumbnail_sprite(
+    recording_id: str, url: str, record_end: float | None = None, provider: str | None = None
+):
+    sprite = await _resolved_thumbnail_sprite(recording_id, url, record_end, provider)
     return FileResponse(sprite[0], media_type="image/jpeg")
 
 
 @router.get("/recording-thumbnails/{recording_id}.vtt")
-async def recording_thumbnail_vtt(recording_id: str, url: str, record_end: float | None = None):
-    sprite = await _resolved_thumbnail_sprite(recording_id, url, record_end)
+async def recording_thumbnail_vtt(
+    recording_id: str, url: str, record_end: float | None = None, provider: str | None = None
+):
+    sprite = await _resolved_thumbnail_sprite(recording_id, url, record_end, provider)
     return FileResponse(sprite[1], media_type="text/vtt")

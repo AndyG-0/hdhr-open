@@ -8,7 +8,7 @@
 
 	// Fallback matches the backend's default set; refreshed from /api/theme
 	// on mount so new themes show up without a frontend redeploy.
-	let themeIds = $state(['light', 'dark', 'sepia', 'contrast', 'forest', 'ocean']);
+	let themeIds = $state(['system', 'light', 'dark', 'sepia', 'contrast', 'forest', 'ocean']);
 	let themeNames = $state<Record<string, string>>({});
 
 	// Theme applies live to the DOM the instant the store is set (see
@@ -26,7 +26,9 @@
 	onMount(async () => {
 		try {
 			const { themes } = await api.themes();
-			themeIds = themes.map((t) => t.id);
+			// "system" is client-only (matches the OS scheme) and never comes
+			// from the server's theme list — always keep it as an option.
+			themeIds = ['system', ...themes.map((t) => t.id)];
 			themeNames = Object.fromEntries(themes.map((t) => [t.id, t.name]));
 		} catch {
 			// keep the fallback list

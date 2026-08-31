@@ -4,4 +4,11 @@ IDEAS.md
 docker-compose.override.yml
 .DS_Store
 backend/recordings/*.ts
+backend/logs/
 apple/HDHROpenKit/.build/
+android/.gradle/
+android/app/build/
+android/core/build/
+android/build/
+android/.idea/
+android/.kotlin/

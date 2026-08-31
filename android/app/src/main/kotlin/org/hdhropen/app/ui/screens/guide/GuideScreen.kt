@@ -59,7 +59,7 @@ fun GuideScreen(
                 title = {
                     Text(
                         text = "Live Guide",
-                        style = MaterialTheme.typography.titleLarge.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
                 },
                 actions = {
@@ -70,19 +70,19 @@ fun GuideScreen(
                         Icon(
                             if (filterOnlyFavorites) Icons.Default.Star else Icons.Default.StarOutline,
                             contentDescription = "Filter Favorites",
-                            tint = if (filterOnlyFavorites) YellowAccent else TextMuted
+                            tint = if (filterOnlyFavorites) YellowAccent else MaterialTheme.extendedColors.textMuted
                         )
                     }
 
                     // Refresh Button
                     IconButton(onClick = { guideViewModel.loadData() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Guide", tint = TextPrimary)
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Guide", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        containerColor = DarkBackground
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -93,19 +93,19 @@ fun GuideScreen(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Search channels or shows", color = TextMuted) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = TextSecondary) },
+                placeholder = { Text("Search channels or shows", color = MaterialTheme.extendedColors.textMuted) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = DarkSurface,
-                    unfocusedContainerColor = DarkSurface,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                     focusedBorderColor = BluePrimary,
-                    unfocusedBorderColor = DarkBorder,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                 ),
                 singleLine = true
             )

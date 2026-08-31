@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Antenna
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SettingsInputAntenna
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,18 +45,18 @@ fun TunerStatusScreen(
                 title = {
                     Text(
                         text = "Tuners",
-                        style = MaterialTheme.typography.titleLarge.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                        style = MaterialTheme.typography.titleLarge.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
                 },
                 actions = {
                     IconButton(onClick = { tunerViewModel.loadData() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TextPrimary)
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkSurface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
         },
-        containerColor = DarkBackground
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -70,16 +70,16 @@ fun TunerStatusScreen(
             tunerInfo?.let { info ->
                 Card(
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    modifier = Modifier.fillMaxWidth().border(1.dp, DarkBorder, RoundedCornerShape(12.dp))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Antenna, contentDescription = "Device", tint = BluePrimary)
+                            Icon(Icons.Default.SettingsInputAntenna, contentDescription = "Device", tint = BluePrimary)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = info.friendlyName.ifEmpty { "HDHomeRun Tuner" },
-                                style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                                style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                             )
                         }
 
@@ -90,10 +90,10 @@ fun TunerStatusScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             info.modelNumber?.let {
-                                Text(text = "Model: $it", style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary))
+                                Text(text = "Model: $it", style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
                             }
                             info.firmwareVersion?.let {
-                                Text(text = "Firmware: $it", style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary))
+                                Text(text = "Firmware: $it", style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
                             }
                             info.tunerCount?.let {
                                 Text(text = "$it Tuners", style = MaterialTheme.typography.labelSmall.copy(color = YellowAccent))
@@ -111,7 +111,7 @@ fun TunerStatusScreen(
                 }
             } else if (tuners.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No HDHomeRun tuners found.", color = TextMuted)
+                    Text("No HDHomeRun tuners found.", color = MaterialTheme.extendedColors.textMuted)
                 }
             } else {
                 LazyColumn(
@@ -131,10 +131,10 @@ fun TunerStatusScreen(
 private fun TunerCard(tuner: HDHomeRunTuner) {
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, DarkBorder, RoundedCornerShape(12.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Header Row
@@ -146,7 +146,7 @@ private fun TunerCard(tuner: HDHomeRunTuner) {
                 Text(
                     text = "Tuner ${tuner.index}",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        color = TextPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -155,14 +155,14 @@ private fun TunerCard(tuner: HDHomeRunTuner) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (tuner.inUse) GreenActive.copy(alpha = 0.2f) else DarkSurfaceVariant)
-                        .border(1.dp, if (tuner.inUse) GreenActive else DarkBorder, RoundedCornerShape(6.dp))
+                        .background(if (tuner.inUse) GreenActive.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant)
+                        .border(1.dp, if (tuner.inUse) GreenActive else MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = if (tuner.inUse) "IN USE" else "IDLE",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            color = if (tuner.inUse) GreenActive else TextMuted,
+                            color = if (tuner.inUse) GreenActive else MaterialTheme.extendedColors.textMuted,
                             fontWeight = FontWeight.Bold
                         )
                     )
@@ -203,7 +203,7 @@ private fun TunerCard(tuner: HDHomeRunTuner) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(text = "Data Rate", style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary))
+                    Text(text = "Data Rate", style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
                     Text(
                         text = tuner.formattedRateMbps,
                         style = MaterialTheme.typography.labelSmall.copy(color = BluePrimary, fontWeight = FontWeight.Bold)
@@ -221,10 +221,10 @@ private fun MetricProgressBar(label: String, percent: Int) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(text = label, style = MaterialTheme.typography.labelSmall.copy(color = TextSecondary))
+            Text(text = label, style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
             Text(
                 text = "$percent%",
-                style = MaterialTheme.typography.labelSmall.copy(color = TextPrimary, fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
@@ -235,7 +235,7 @@ private fun MetricProgressBar(label: String, percent: Int) {
                 percent >= 50 -> YellowAccent
                 else -> RedLive
             },
-            trackColor = DarkSurfaceVariant,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
         )
     }

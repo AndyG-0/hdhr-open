@@ -53,6 +53,9 @@ public struct iOSRecordingDetailSheet: View {
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                             }
+                            Text(recording.isHDHomeRunNative ? "HDHomeRun DVR" : "Built-in")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
                         }
                     }
 
@@ -74,15 +77,17 @@ public struct iOSRecordingDetailSheet: View {
                         }
                         .buttonStyle(.borderedProminent)
 
-                        Button(role: .destructive, action: {
-                            dismiss()
-                            Task { try? await recordingsViewModel.deleteRecording(recording) }
-                        }) {
-                            Label("Delete Recording", systemImage: "trash")
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
+                        if !recording.isHDHomeRunNative {
+                            Button(role: .destructive, action: {
+                                dismiss()
+                                Task { try? await recordingsViewModel.deleteRecording(recording) }
+                            }) {
+                                Label("Delete Recording", systemImage: "trash")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
                     }
                 }
                 .padding(20)

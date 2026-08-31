@@ -12,7 +12,7 @@ public struct RootTVView: View {
 
     public var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            Theme.appBackground.ignoresSafeArea()
 
             if !authManager.isAuthenticated {
                 TVProfilePickerView()

@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.launch
 import org.hdhropen.app.ui.screens.auth.ProfilePickerScreen
 import org.hdhropen.app.ui.screens.guide.GuideScreen
 import org.hdhropen.app.ui.screens.player.PlayerScreen
@@ -18,6 +19,7 @@ import org.hdhropen.kit.viewmodels.AppEnvironment
 @UnstableApi
 @Composable
 fun RootMobileScreen(appEnvironment: AppEnvironment) {
+    val coroutineScope = rememberCoroutineScope()
     val authManager = appEnvironment.authManager
     val currentUser by authManager.currentUser.collectAsState()
     val playerViewModel = appEnvironment.playerViewModel
@@ -28,18 +30,25 @@ fun RootMobileScreen(appEnvironment: AppEnvironment) {
 
     val isPlayerActive = activeChannel != null || activeRecording != null
 
-    Box(modifier = Modifier.fillMaxSize().background(DarkBackground)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (currentUser == null) {
             ProfilePickerScreen(
                 authManager = authManager,
-                authViewModel = appEnvironment.authViewModel
+                authViewModel = appEnvironment.authViewModel,
+                serverDiscovery = appEnvironment.serverDiscovery,
+                onUpdateServerURL = { url ->
+                    appEnvironment.updateServerURL(url)
+                    coroutineScope.launch {
+                        authManager.fetchProfiles()
+                    }
+                }
             )
         } else {
             Scaffold(
                 bottomBar = {
                     NavigationBar(
-                        containerColor = DarkSurface,
-                        contentColor = TextPrimary
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface
                     ) {
                         AppTab.values().forEach { tab ->
                             NavigationBarItem(
@@ -49,26 +58,26 @@ fun RootMobileScreen(appEnvironment: AppEnvironment) {
                                     Icon(
                                         tab.icon,
                                         contentDescription = tab.title,
-                                        tint = if (selectedTab == tab) BluePrimary else TextMuted
+                                        tint = if (selectedTab == tab) BluePrimary else MaterialTheme.extendedColors.textMuted
                                     )
                                 },
                                 label = {
                                     Text(
                                         tab.title,
                                         style = MaterialTheme.typography.labelSmall.copy(
-                                            color = if (selectedTab == tab) BluePrimary else TextMuted
+                                            color = if (selectedTab == tab) BluePrimary else MaterialTheme.extendedColors.textMuted
                                         )
                                     )
                                 },
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = BluePrimary,
-                                    indicatorColor = DarkSurfaceVariant
+                                    indicatorColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
                             )
                         }
                     }
                 },
-                containerColor = DarkBackground
+                containerColor = MaterialTheme.colorScheme.background
             ) { innerPadding ->
                 Box(
                     modifier = Modifier
@@ -91,6 +100,8 @@ fun RootMobileScreen(appEnvironment: AppEnvironment) {
                             settingsViewModel = appEnvironment.settingsViewModel,
                             authManager = authManager,
                             serverDiscovery = appEnvironment.serverDiscovery,
+                            playbackPreferences = appEnvironment.playbackPreferences,
+                            themePreferences = appEnvironment.themePreferences,
                             onUpdateServerURL = { url -> appEnvironment.updateServerURL(url) }
                         )
                     }

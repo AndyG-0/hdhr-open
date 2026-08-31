@@ -14,7 +14,7 @@ from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.api._hdhomerun_settings import get_hdhomerun_settings
-from app.dvr.builtin.capture import capture_pipeline
+from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
 from app.dvr.builtin.retention import delete_local_recording, enforce_rule_retention_sync, run_full_retention_pass
 from app.dvr.builtin.rule_expander import expand_rules
 from app.dvr.builtin.tuner_allocator import tuner_allocator
@@ -27,6 +27,22 @@ logger = logging.getLogger(__name__)
 TICK_INTERVAL_SECONDS = 10
 RULE_EXPANSION_INTERVAL_SECONDS = 900  # 15 minutes
 RETENTION_INTERVAL_SECONDS = 3600  # 1 hour
+
+# recover_on_startup() runs on every FastAPI lifespan startup, which includes
+# uvicorn --reload respawning the worker process (not just a genuine crash
+# restart) - a live-watch capture that's only seconds old and still actively
+# writing must not be mistaken for a dangling leftover just because a new
+# worker process happens to be doing the check.
+ORPHAN_CAPTURE_GRACE_SECONDS = 15
+
+
+def _capture_file_is_still_growing(file_path: str | None) -> bool:
+    if not file_path:
+        return False
+    p = Path(file_path)
+    if not p.exists():
+        return False
+    return (time.time() - p.stat().st_mtime) < ORPHAN_CAPTURE_GRACE_SECONDS
 
 
 class DVREngine:
@@ -43,11 +59,14 @@ class DVREngine:
         for r in dangling_recs:
             rec_id = r["id"]
             if r.get("is_temporary"):
+                if _capture_file_is_still_growing(r.get("file_path")):
+                    logger.info("Startup recovery: leaving live-watch capture [%s] alone - still actively writing", rec_id)
+                    continue
                 # A live-watch auto-capture that was never promoted before the
                 # process died - discard it like any other unpromoted watch
                 # session rather than finalizing it as a permanent recording.
                 logger.info("Startup recovery: discarding orphaned live-watch capture [%s]", rec_id)
-                await delete_local_recording(rec_id)
+                await delete_local_recording(rec_id, reason="startup recovery: orphaned live-watch capture from a prior process crash")
                 continue
             file_path = r.get("file_path")
             file_size = 0
@@ -125,10 +144,52 @@ class DVREngine:
 
                 # A live-watch session may already be capturing this channel -
                 # attach the schedule to it instead of double-booking a tuner.
-                existing_capture = await capture_pipeline.get_active_capture_by_channel(ch_num)
-                if existing_capture is not None:
+                # Routed through get_or_start_capture (shared with
+                # watch.start_watch) so a viewer tuning in at the same moment
+                # this scheduled recording starts can't race it into spawning
+                # a second tuner/ffmpeg for the same channel.
+                recording_id = uuid.uuid4().hex
+
+                async def _create_capture() -> ActiveCapture | None:
+                    allocated = await tuner_allocator.acquire_tuner(recording_id, ch_num, settings)
+                    if not allocated:
+                        logger.warning(
+                            "Tuner busy; postponing scheduled recording '%s' on ch %s",
+                            sched["title"],
+                            ch_num,
+                        )
+                        return None
+
+                    capture = await capture_pipeline.start_capture(
+                        recording_id=recording_id,
+                        channel_number=ch_num,
+                        channel_name=ch_name,
+                        title=sched["title"],
+                        start_ts=start_ts,
+                        end_ts=end_ts,
+                        settings=settings,
+                        scheduled_id=sched["id"],
+                        rule_id=sched.get("rule_id"),
+                        episode_title=sched.get("episode_title"),
+                        season_number=sched.get("season_number"),
+                        episode_number=sched.get("episode_number"),
+                        synopsis=sched.get("synopsis"),
+                        original_air_date=sched.get("original_air_date"),
+                        category=sched.get("category"),
+                        image_url=sched.get("image_url"),
+                    )
+                    if not capture:
+                        await tuner_allocator.release_tuner(recording_id)
+                        logger.error("Failed to start capture process for recording %s", recording_id)
+                    return capture
+
+                capture, created = await capture_pipeline.get_or_start_capture(ch_num, _create_capture)
+                if capture is None:
+                    continue
+
+                if not created:
                     attached = await promote_existing_capture_for_schedule(
-                        existing_capture,
+                        capture,
                         scheduled_id=sched["id"],
                         rule_id=sched.get("rule_id"),
                         title=sched["title"],
@@ -148,43 +209,6 @@ class DVREngine:
                             sched["title"],
                             ch_num,
                         )
-                    continue
-
-                recording_id = uuid.uuid4().hex
-
-                # Try to acquire tuner
-                allocated = await tuner_allocator.acquire_tuner(recording_id, ch_num, settings)
-                if not allocated:
-                    logger.warning(
-                        "Tuner busy; postponing scheduled recording '%s' on ch %s",
-                        sched["title"],
-                        ch_num,
-                    )
-                    continue
-
-                # Start capture
-                capture = await capture_pipeline.start_capture(
-                    recording_id=recording_id,
-                    channel_number=ch_num,
-                    channel_name=ch_name,
-                    title=sched["title"],
-                    start_ts=start_ts,
-                    end_ts=end_ts,
-                    settings=settings,
-                    scheduled_id=sched["id"],
-                    rule_id=sched.get("rule_id"),
-                    episode_title=sched.get("episode_title"),
-                    season_number=sched.get("season_number"),
-                    episode_number=sched.get("episode_number"),
-                    synopsis=sched.get("synopsis"),
-                    original_air_date=sched.get("original_air_date"),
-                    category=sched.get("category"),
-                    image_url=sched.get("image_url"),
-                )
-
-                if not capture:
-                    await tuner_allocator.release_tuner(recording_id)
-                    logger.error("Failed to start capture process for recording %s", recording_id)
 
 
 dvr_engine = DVREngine()

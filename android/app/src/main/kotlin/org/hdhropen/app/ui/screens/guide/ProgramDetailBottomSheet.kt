@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,8 +47,8 @@ fun ProgramDetailBottomSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = DarkSurface,
-        scrimColor = DarkBackground.copy(alpha = 0.6f),
+        containerColor = MaterialTheme.colorScheme.surface,
+        scrimColor = MaterialTheme.colorScheme.background.copy(alpha = 0.6f),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
         Column(
@@ -73,15 +74,32 @@ fun ProgramDetailBottomSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = channel.name,
-                        style = MaterialTheme.typography.bodyMedium.copy(color = TextSecondary)
+                        style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                     )
+                    if (channel.isHD) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            color = BluePrimary.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(3.dp)
+                        ) {
+                            Text(
+                                text = "HD",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                 }
 
                 IconButton(onClick = { guideViewModel.toggleFavorite(channel.channelNumber) }) {
                     Icon(
                         if (isFav) Icons.Default.Star else Icons.Default.StarOutline,
                         contentDescription = "Favorite",
-                        tint = if (isFav) YellowAccent else TextMuted
+                        tint = if (isFav) YellowAccent else MaterialTheme.extendedColors.textMuted
                     )
                 }
             }
@@ -92,7 +110,7 @@ fun ProgramDetailBottomSheet(
             Text(
                 text = airing.title,
                 style = MaterialTheme.typography.titleLarge.copy(
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold
                 )
             )
@@ -116,7 +134,7 @@ fun ProgramDetailBottomSheet(
             // Time & Date
             Text(
                 text = TimeFormatting.formatTimeRange(airing.start, airing.end),
-                style = MaterialTheme.typography.bodySmall.copy(color = TextSecondary)
+                style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
             )
 
             // Synopsis
@@ -125,7 +143,7 @@ fun ProgramDetailBottomSheet(
                 Text(
                     text = airing.synopsis ?: "",
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 20.sp
                     )
                 )
@@ -143,9 +161,9 @@ fun ProgramDetailBottomSheet(
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Tune Channel", tint = TextPrimary)
+                Icon(Icons.Default.PlayArrow, contentDescription = "Tune Channel", tint = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Tune Channel ${channel.channelNumber}", style = MaterialTheme.typography.titleMedium.copy(color = TextPrimary, fontSize = 15.sp))
+                Text("Tune Channel ${channel.channelNumber}", style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp))
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -183,31 +201,32 @@ fun ProgramDetailBottomSheet(
                         },
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Icon(Icons.Default.FiberManualRecord, contentDescription = "Record Episode", tint = RedLive)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Record Ep", color = TextPrimary, style = MaterialTheme.typography.labelMedium)
+                        Text("Record Ep", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
                     }
 
                     // Record Series
-                    if (!airing.seriesId.isNullOrEmpty()) {
+                    val seriesId = airing.seriesId
+                    if (!seriesId.isNullOrEmpty()) {
                         Button(
                             onClick = {
                                 coroutineScope.launch {
                                     guideViewModel.recordSeries(
-                                        seriesId = airing.seriesId,
+                                        seriesId = seriesId,
                                         channelNumber = channel.channelNumber
                                     )
                                 }
                             },
                             modifier = Modifier.weight(1f).height(48.dp),
                             shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceVariant)
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
                             Icon(Icons.Default.VideoLibrary, contentDescription = "Record Series", tint = YellowAccent)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Record Series", color = TextPrimary, style = MaterialTheme.typography.labelMedium)
+                            Text("Record Series", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }

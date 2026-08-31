@@ -158,6 +158,8 @@ public struct HDHomeRunRecording: Identifiable, Codable, Sendable, Hashable {
         return end > Date().timeIntervalSince1970
     }
 
+    public var isHDHomeRunNative: Bool { provider == "hdhomerun" }
+
     public var formattedDuration: String {
         guard let dur = durationSeconds, dur > 0 else { return "" }
         let minutes = Int(dur / 60)
