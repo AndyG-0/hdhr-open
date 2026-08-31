@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -9,8 +10,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import hwaccel
+from app.api import dvr as dvr_api
 from app.api import streaming as streaming_api
 from app.auth import get_current_user
+from app.dvr.builtin import watch
+from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+from app.dvr.builtin.tuner_allocator import tuner_allocator
 from app.storage import db
 from app.subprocess_streaming import FFMPEG_NOT_FOUND_DETAIL
 
@@ -159,3 +164,184 @@ def test_stream_channel_direct_returns_502_when_tuner_unreachable(client, tmp_db
 
     assert response.status_code == 502
     assert "Could not reach tuner" in response.json()["detail"]
+
+
+# --- POST /hls/{channel_number} (CC-2 full-backend-fix fallback path) -----
+
+
+@pytest.fixture(autouse=True)
+def _reset_capture_singletons():
+    """capture_pipeline and tuner_allocator are process-wide singletons (same
+    ones the real app uses), so tests must not leak active state between
+    each other."""
+    capture_pipeline._active_captures.clear()
+    capture_pipeline._channel_index.clear()
+    tuner_allocator._channel_owners.clear()
+    tuner_allocator._token_channel.clear()
+    yield
+    capture_pipeline._active_captures.clear()
+    capture_pipeline._channel_index.clear()
+    tuner_allocator._channel_owners.clear()
+    tuner_allocator._token_channel.clear()
+
+
+def _make_active_capture(recording_id: str, channel_number: str, file_path) -> ActiveCapture:
+    now = time.time()
+    return ActiveCapture(
+        recording_id=recording_id,
+        scheduled_id=None,
+        rule_id=None,
+        channel_number=channel_number,
+        channel_name="WNBC",
+        title="Fallback Show",
+        episode_title=None,
+        season_number=None,
+        episode_number=None,
+        start_ts=now,
+        end_ts=now + 3600,
+        file_path=file_path,
+        image_url=None,
+        process=None,
+        is_temporary=True,
+    )
+
+
+def _create_recording_row(recording_id: str, channel_number: str, file_path) -> None:
+    now = time.time()
+    db.create_recording(
+        {
+            "id": recording_id,
+            "title": "Fallback Show",
+            "channel_id": channel_number,
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now,
+            "end_ts": now + 3600,
+            "file_path": str(file_path),
+            "status": "recording",
+            "is_temporary": True,
+        }
+    )
+
+
+def test_stream_channel_hls_backs_stream_with_real_capture_and_returns_metadata(client, tmp_db, tmp_path, monkeypatch):
+    """The full-backend-fix behavior: a successful fallback capture backs the
+    HLS session (live-style tail-follow, not the bare raw-URL pipe), and the
+    response carries real recording metadata (title, has_captions, etc.) the
+    same shape /api/watch/{channel}/start returns - this is what the client
+    needs to call loadRecordingMetadata() on this path too."""
+    _configure_tuner("software")
+    video_file = tmp_path / "live.ts"
+    video_file.write_bytes(b"x" * 64_000)
+
+    active_capture = _make_active_capture("rec_fallback", "4.1", video_file)
+    capture_pipeline._active_captures["rec_fallback"] = active_capture
+    _create_recording_row("rec_fallback", "4.1", video_file)
+
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value="rec_fallback"))
+    release_mock = AsyncMock()
+    monkeypatch.setattr(watch, "release_fallback_capture", release_mock)
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_fallback"
+
+    async def _fake_create_session(*args, **kwargs):
+        on_process_spawned = kwargs["on_process_spawned"]
+        proc = MagicMock()
+        proc.stdin = MagicMock()
+        on_process_spawned(proc)
+        return fake_session
+
+    monkeypatch.setattr(streaming_api.hls_streaming, "create_session", _fake_create_session)
+    monkeypatch.setattr(streaming_api, "pump_tail_follow", AsyncMock(return_value=None))
+
+    response = client.post("/api/streaming/hls/4.1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recording_id"] == "rec_fallback"
+    assert body["title"] == "Fallback Show"
+    assert body["session_id"] == "sess_fallback"
+    assert body["playlist_url"] == "/api/hls/sess_fallback/playlist.m3u8"
+
+
+def test_stream_channel_hls_falls_back_to_raw_url_when_no_capture(client, tmp_db, monkeypatch):
+    """When start_fallback_capture can't get even an unmanaged capture going
+    (e.g. ffmpeg unspawnable), this must still degrade to today's bare
+    raw-URL pipe rather than failing the whole request."""
+    _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_raw"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(streaming_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post("/api/streaming/hls/4.1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "recording_id" not in body
+    assert body["session_id"] == "sess_raw"
+    # Clients decode this response as recording metadata regardless of path,
+    # so `title` must still be present even with no capture behind it.
+    assert body["title"]
+    assert create_session_mock.await_args.kwargs["stdin_pipe"] is False
+
+
+def test_stream_channel_hls_releases_fallback_capture_when_create_session_fails(client, tmp_db, tmp_path, monkeypatch):
+    _configure_tuner("software")
+    video_file = tmp_path / "live.ts"
+    video_file.write_bytes(b"x" * 64_000)
+
+    active_capture = _make_active_capture("rec_fail", "4.1", video_file)
+    capture_pipeline._active_captures["rec_fail"] = active_capture
+    _create_recording_row("rec_fail", "4.1", video_file)
+
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value="rec_fail"))
+    release_mock = AsyncMock()
+    monkeypatch.setattr(watch, "release_fallback_capture", release_mock)
+    monkeypatch.setattr(
+        streaming_api.hls_streaming,
+        "create_session",
+        AsyncMock(side_effect=streaming_api.hls_streaming.HLSStartupError("boom")),
+    )
+
+    response = client.post("/api/streaming/hls/4.1")
+
+    assert response.status_code == 502
+    release_mock.assert_awaited_once()
+    assert release_mock.await_args.args[0] == "rec_fail"
+    assert release_mock.await_args.args[1] == "4.1"
+
+
+def test_stream_channel_hls_releases_fallback_capture_when_data_never_arrives(client, tmp_db, tmp_path, monkeypatch):
+    """A fallback capture that never produces data (tuner still locking, or
+    dead on arrival) must release its viewer token and fall through to the
+    raw-URL path instead of hanging or leaking the capture's reservation."""
+    _configure_tuner("software")
+    video_file = tmp_path / "live.ts"
+    # Empty file => _wait_for_live_capture_data never sees enough bytes.
+    video_file.write_bytes(b"")
+
+    active_capture = _make_active_capture("rec_stall", "4.1", video_file)
+    capture_pipeline._active_captures["rec_stall"] = active_capture
+    _create_recording_row("rec_stall", "4.1", video_file)
+
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value="rec_stall"))
+    release_mock = AsyncMock()
+    monkeypatch.setattr(watch, "release_fallback_capture", release_mock)
+    monkeypatch.setattr(streaming_api, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_stalled_fallback"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(streaming_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post("/api/streaming/hls/4.1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "recording_id" not in body
+    release_mock.assert_awaited_once()
+    assert create_session_mock.await_args.kwargs["stdin_pipe"] is False

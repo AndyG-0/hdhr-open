@@ -97,6 +97,7 @@ public struct HDHomeRunRecording: Identifiable, Codable, Sendable, Hashable {
 
     public let recordingId: String?
     public let sessionId: String?
+    public let playlistUrl: String?
     public let seriesId: String?
     public let title: String
     public let episodeTitle: String?
@@ -126,6 +127,7 @@ public struct HDHomeRunRecording: Identifiable, Codable, Sendable, Hashable {
     enum CodingKeys: String, CodingKey {
         case recordingId = "recording_id"
         case sessionId = "session_id"
+        case playlistUrl = "playlist_url"
         case seriesId = "series_id"
         case title
         case episodeTitle = "episode_title"

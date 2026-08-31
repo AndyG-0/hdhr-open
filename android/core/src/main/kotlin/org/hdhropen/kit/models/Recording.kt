@@ -68,6 +68,8 @@ data class HDHomeRunRecording(
     val recordingId: String? = null,
     @SerialName("session_id")
     val sessionId: String? = null,
+    @SerialName("playlist_url")
+    val playlistUrl: String? = null,
     @SerialName("series_id")
     val seriesId: String? = null,
     val title: String,

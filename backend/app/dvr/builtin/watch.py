@@ -73,6 +73,58 @@ _sessions: dict[str, _WatchSession] = {}
 _lock = asyncio.Lock()
 
 
+async def _build_capture_for_channel(channel_number: str, settings: dict[str, Any], now: float) -> ActiveCapture | None:
+    """Look up channel_number's current airing (for rich metadata) and start
+    a temporary capture for it. Deliberately does not touch tuner_allocator -
+    reservation is the caller's responsibility (see start_watch and
+    start_fallback_capture, which reserve it differently)."""
+    channel = await asyncio.to_thread(db.get_channel_by_number, channel_number)
+    channel_name = channel["name"] if channel else channel_number
+
+    # Look up current airing on this channel to seed rich metadata
+    title = channel_name
+    episode_title = None
+    season_number = None
+    episode_number = None
+    synopsis = None
+    image_url = None
+    original_air_date = None
+    category = None
+
+    if channel:
+        programs = await asyncio.to_thread(db.list_guide_programs, [channel["id"]], now - 300, now + 3600)
+        for p in programs:
+            if p["start_ts"] <= now < p["end_ts"]:
+                title = p.get("title") or channel_name
+                episode_title = p.get("episode_title")
+                season_number = p.get("season_number")
+                episode_number = p.get("episode_number")
+                synopsis = p.get("synopsis")
+                image_url = p.get("image_url")
+                original_air_date = p.get("original_air_date")
+                category = p.get("category")
+                break
+
+    recording_id = uuid.uuid4().hex
+    return await capture_pipeline.start_capture(
+        recording_id=recording_id,
+        channel_number=channel_number,
+        channel_name=channel_name,
+        title=title,
+        episode_title=episode_title,
+        season_number=season_number,
+        episode_number=episode_number,
+        synopsis=synopsis,
+        original_air_date=original_air_date,
+        category=category,
+        image_url=image_url,
+        start_ts=now,
+        end_ts=now + WATCH_MAX_DURATION_SECONDS,
+        settings=settings,
+        is_temporary=True,
+    )
+
+
 async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str, str] | None:
     """Start (or attach to) a live-watch session for channel_number. Returns
     {"recording_id", "session_id"}, or None if no tuner is available and no
@@ -84,52 +136,7 @@ async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str
     async def _create_capture() -> ActiveCapture | None:
         if not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
             return None
-
-        channel = await asyncio.to_thread(db.get_channel_by_number, channel_number)
-        channel_name = channel["name"] if channel else channel_number
-
-        # Look up current airing on this channel to seed rich metadata
-        title = channel_name
-        episode_title = None
-        season_number = None
-        episode_number = None
-        synopsis = None
-        image_url = None
-        original_air_date = None
-        category = None
-
-        if channel:
-            programs = await asyncio.to_thread(db.list_guide_programs, [channel["id"]], now - 300, now + 3600)
-            for p in programs:
-                if p["start_ts"] <= now < p["end_ts"]:
-                    title = p.get("title") or channel_name
-                    episode_title = p.get("episode_title")
-                    season_number = p.get("season_number")
-                    episode_number = p.get("episode_number")
-                    synopsis = p.get("synopsis")
-                    image_url = p.get("image_url")
-                    original_air_date = p.get("original_air_date")
-                    category = p.get("category")
-                    break
-
-        recording_id = uuid.uuid4().hex
-        capture = await capture_pipeline.start_capture(
-            recording_id=recording_id,
-            channel_number=channel_number,
-            channel_name=channel_name,
-            title=title,
-            episode_title=episode_title,
-            season_number=season_number,
-            episode_number=episode_number,
-            synopsis=synopsis,
-            original_air_date=original_air_date,
-            category=category,
-            image_url=image_url,
-            start_ts=now,
-            end_ts=now + WATCH_MAX_DURATION_SECONDS,
-            settings=settings,
-            is_temporary=True,
-        )
+        capture = await _build_capture_for_channel(channel_number, settings, now)
         if capture is None:
             await tuner_allocator.release_tuner(session_id)
         return capture
@@ -163,6 +170,28 @@ async def heartbeat_watch(session_id: str) -> bool:
     return True
 
 
+async def _release_viewer(recording_id: str, channel_number: str, viewer_token: str) -> None:
+    """Detach viewer_token from recording_id's capture; if it's still
+    temporary (never promoted) and this was its last attached viewer, tear
+    the whole thing down and discard what it captured. Shared by stop_watch
+    (the watch-session path) and release_fallback_capture (the direct-HLS
+    fallback path, see app.api.streaming.stream_channel_hls) - both attach
+    exactly one token per viewer to a capture the same way; they only differ
+    in how that capture got started."""
+    remaining_viewers = await capture_pipeline.remove_viewer(recording_id, viewer_token)
+    row = await asyncio.to_thread(db.get_recording, recording_id)
+    if row is None or not row.get("is_temporary"):
+        # Already gone, or promoted to a real recording that survives
+        # independent of any viewer - only release this viewer's own token.
+        await tuner_allocator.release_tuner(viewer_token)
+        return
+
+    if remaining_viewers <= 0:
+        await finalize_capture_release(recording_id, channel_number)
+    else:
+        await tuner_allocator.release_tuner(viewer_token)
+
+
 async def stop_watch(session_id: str) -> None:
     """This viewer closed the player. Detach their session; if their capture
     is still temporary (never promoted) and they were its last attached
@@ -171,19 +200,52 @@ async def stop_watch(session_id: str) -> None:
         session = _sessions.pop(session_id, None)
     if session is None:
         return
+    await _release_viewer(session.recording_id, session.channel_number, session_id)
 
-    remaining_viewers = await capture_pipeline.remove_viewer(session.recording_id, session_id)
-    row = await asyncio.to_thread(db.get_recording, session.recording_id)
-    if row is None or not row.get("is_temporary"):
-        # Already gone, or promoted to a real recording that survives
-        # independent of any viewer - only release this session's own token.
-        await tuner_allocator.release_tuner(session_id)
-        return
 
-    if remaining_viewers <= 0:
-        await finalize_capture_release(session.recording_id, session.channel_number)
-    else:
-        await tuner_allocator.release_tuner(session_id)
+async def start_fallback_capture(channel_number: str, settings: dict[str, Any], viewer_token: str) -> str | None:
+    """Start (or attach to) a capture for channel_number on behalf of the
+    direct-HLS fallback path (see app.api.streaming.stream_channel_hls),
+    deliberately WITHOUT going through tuner_allocator's admission gate
+    first - that gate is exactly what the client's primary path
+    (start_watch) already consulted and rejected before falling back here,
+    so re-checking it would just reproduce the same rejection. This lets the
+    hardware/ffmpeg itself be the arbiter of whether another stream can
+    actually be served, same as this endpoint always has - the only change
+    is that a successful capture now backs real captions/pause/rewind
+    instead of a bare unmanaged ffmpeg pipe.
+
+    Still makes a best-effort tuner_allocator registration afterward so its
+    bookkeeping stays as accurate as possible - but a failure there is only
+    logged, never treated as a reason to fail this call, since by definition
+    the allocator already believes there's no room.
+
+    Returns recording_id, or None if even an unmanaged capture couldn't be
+    started (e.g. ffmpeg unspawnable, tuner not configured)."""
+    now = time.time()
+    capture, _created = await capture_pipeline.get_or_start_capture(
+        channel_number, lambda: _build_capture_for_channel(channel_number, settings, now)
+    )
+    if capture is None:
+        return None
+
+    if not await tuner_allocator.acquire_tuner(viewer_token, channel_number, settings):
+        logger.info(
+            "Fallback capture on channel %s started without a tuner_allocator token "
+            "(allocator already at capacity) - hardware served it anyway",
+            channel_number,
+        )
+
+    await capture_pipeline.add_viewer(capture.recording_id, viewer_token)
+    return capture.recording_id
+
+
+async def release_fallback_capture(recording_id: str, channel_number: str, viewer_token: str) -> None:
+    """Counterpart to start_fallback_capture, called when its direct-HLS
+    packaging session is torn down (see hls_streaming.HLSSession.on_teardown)
+    - the only teardown signal this path has, since unlike watch sessions
+    there's no heartbeat contract here."""
+    await _release_viewer(recording_id, channel_number, viewer_token)
 
 
 async def promote_watch(

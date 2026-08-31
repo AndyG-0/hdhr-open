@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.hdhropen.kit.models.*
 import org.hdhropen.kit.networking.APIClient
+import org.hdhropen.kit.networking.APIError
 import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.*
 import org.hdhropen.kit.utilities.Log
@@ -196,13 +197,17 @@ class PlayerViewModel(
 
             // 2. Direct HLS streaming fallback
             try {
-                val hlsSession = apiClient.createChannelHLSSession(channel.channelNumber)
-                val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
+                val rec = apiClient.createChannelHLSSession(channel.channelNumber)
+                val sessionId = rec.sessionId ?: throw APIError.DecodingError("Missing session_id")
+                val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = sessionId)
                 _isWatchSession.value = false
-                _activeRecording.value = null
-                _activeHLSSessionId.value = hlsSession.sessionId
+                _activeRecording.value = if (rec.recordingId != null) rec else null
+                _activeHLSSessionId.value = sessionId
                 _playbackMode.value = PlaybackMode.ServerTranscodedHls
                 playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = false, headers = hlsAuthHeaders())
+                if (rec.recordingId != null) {
+                    loadRecordingMetadata(rec)
+                }
             } catch (e: Exception) {
                 Log.player.error("Direct HLS channel stream failed: ${e.localizedMessage}")
                 playerEngine.setFailed(e.localizedMessage ?: "Failed to start stream")

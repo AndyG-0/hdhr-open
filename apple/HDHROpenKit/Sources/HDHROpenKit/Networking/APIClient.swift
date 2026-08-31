@@ -183,26 +183,6 @@ public actor APIClient {
     // MARK: - Live Watch APIs
 
     public func startWatch(channelNumber: String) async throws -> HDHomeRunRecording? {
-        struct WatchResponse: Codable {
-            let recordingId: String?
-            let sessionId: String?
-            let playUrl: String?
-            let start: TimeInterval?
-            let title: String?
-            let channelNumber: String?
-            let channelName: String?
-
-            enum CodingKeys: String, CodingKey {
-                case recordingId = "recording_id"
-                case sessionId = "session_id"
-                case playUrl = "play_url"
-                case start
-                case title
-                case channelNumber = "channel_number"
-                case channelName = "channel_name"
-            }
-        }
-
         let resp: HDHomeRunRecording = try await request(path: APIEndpoints.startWatch(channelNumber: channelNumber), method: "POST")
         if resp.recordingId == nil && resp.sessionId == nil {
             return nil
@@ -224,7 +204,7 @@ public actor APIClient {
 
     // MARK: - HLS Packaging APIs
 
-    public func createChannelHLSSession(channelNumber: String) async throws -> HLSSessionResponse {
+    public func createChannelHLSSession(channelNumber: String) async throws -> HDHomeRunRecording {
         try await request(path: APIEndpoints.hlsChannelSession(channelNumber: channelNumber), method: "POST")
     }
 

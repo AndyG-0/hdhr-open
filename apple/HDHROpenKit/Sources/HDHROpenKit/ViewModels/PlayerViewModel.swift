@@ -157,17 +157,21 @@ public final class PlayerViewModel: ObservableObject {
 
         // 2. Direct HLS streaming fallback (busy tuner / no watch session)
         do {
-            let hlsSession = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber)
-            guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
+            let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber)
+            guard let sessionId = rec.sessionId,
+                  let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: sessionId) else {
                 playerEngine.setFailed("Could not build stream URL.")
                 return
             }
-            Log.player.info("Direct channel HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
+            Log.player.info("Direct channel HLS: sessionId=\(sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
             self.isWatchSession = false
-            self.activeRecording = nil
-            self.activeHLSSessionId = hlsSession.sessionId
+            self.activeRecording = rec.recordingId != nil ? rec : nil
+            self.activeHLSSessionId = sessionId
             self.playbackMode = .serverTranscodedHls
             playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: false, headers: await hlsAuthHeaders())
+            if rec.recordingId != nil {
+                loadRecordingMetadata(recording: rec)
+            }
         } catch {
             Log.player.error("Direct HLS channel stream failed: \(error.localizedDescription)")
             playerEngine.setFailed(error.localizedDescription)

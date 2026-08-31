@@ -19,6 +19,7 @@ final class PlayerViewModelSeekResyncTests: XCTestCase {
         return HDHomeRunRecording(
             recordingId: "rec-in-progress",
             sessionId: nil,
+            playlistUrl: nil,
             seriesId: nil,
             title: "In Progress Recording",
             episodeTitle: nil,
@@ -52,6 +53,7 @@ final class PlayerViewModelSeekResyncTests: XCTestCase {
         return HDHomeRunRecording(
             recordingId: "rec-finished",
             sessionId: nil,
+            playlistUrl: nil,
             seriesId: nil,
             title: "Finished Recording",
             episodeTitle: nil,

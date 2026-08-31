@@ -267,7 +267,7 @@ class APIClient(
 
     // MARK: - HLS Packaging APIs
 
-    suspend fun createChannelHLSSession(channelNumber: String): HLSSessionResponse =
+    suspend fun createChannelHLSSession(channelNumber: String): HDHomeRunRecording =
         request(APIEndpoints.hlsChannelSession(channelNumber), method = "POST")
 
     suspend fun createRecordingHLSSession(

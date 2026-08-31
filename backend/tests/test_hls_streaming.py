@@ -133,6 +133,34 @@ async def test_teardown_session_unknown_id_is_noop():
     await hls_streaming.teardown_session("does-not-exist")
 
 
+async def test_teardown_session_fires_on_teardown(monkeypatch):
+    on_teardown = AsyncMock()
+    process = _fake_ffmpeg_process()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(side_effect=lambda *a, **kw: process))
+    session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    _write_playlist(tmp_dir)
+    session = await hls_streaming.create_session(session_id, tmp_dir, [], label="test", on_teardown=on_teardown)
+
+    await hls_streaming.teardown_session(session.session_id)
+
+    on_teardown.assert_awaited_once()
+
+
+async def test_teardown_session_swallows_on_teardown_error(monkeypatch):
+    on_teardown = AsyncMock(side_effect=RuntimeError("boom"))
+    process = _fake_ffmpeg_process()
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(side_effect=lambda *a, **kw: process))
+    session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    _write_playlist(tmp_dir)
+    session = await hls_streaming.create_session(session_id, tmp_dir, [], label="test", on_teardown=on_teardown)
+
+    await hls_streaming.teardown_session(session.session_id)
+
+    on_teardown.assert_awaited_once()
+    assert session.session_id not in hls_streaming._sessions
+    assert not session.tmp_dir.exists()
+
+
 async def test_teardown_session_stops_pump(monkeypatch):
     session = await _make_session(monkeypatch)
     pump_stop_event = asyncio.Event()

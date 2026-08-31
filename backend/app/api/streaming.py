@@ -21,6 +21,7 @@ import logging
 import shlex
 import shutil
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -29,9 +30,14 @@ from fastapi.responses import StreamingResponse
 
 from app import hls_streaming, hwaccel, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
+from app.api.dvr import _LIVE_CAPTURE_READY_TIMEOUT_SECONDS, _format_builtin_recording, _wait_for_live_capture_data
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_admin, get_current_user
+from app.dvr.builtin import watch
+from app.dvr.builtin.capture import capture_pipeline
+from app.dvr.builtin.tail_follow import pump_tail_follow
 from app.integrations import hdhomerun_client
+from app.storage import db
 from app.subprocess_streaming import (
     DETAIL_REASON_CHARS,
     FFMPEG_NOT_FOUND_DETAIL,
@@ -355,24 +361,74 @@ async def stream_channel_hls(channel_number: str):
     watch goes through a builtin-DVR capture first); this exists for the
     "official HDHomeRun DVR" / tuner-busy fallback that `/stream/{channel}`
     already serves to the web frontend as raw mpegts.
+
+    Deliberately still tries to get a real (temporary) DVR capture backing
+    this stream (see watch.start_fallback_capture) rather than always piping
+    the raw tuner URL straight through ffmpeg - that's what lets captions,
+    and this response's recording metadata, exist here at all. Only when
+    even that unmanaged capture can't be started does this fall back to the
+    bare raw-URL pipe this endpoint used exclusively before.
     """
     settings = await get_hdhomerun_settings()
     if not hdhomerun_client.is_tuner_configured(settings):
         raise HTTPException(status_code=404, detail="Tuner not configured")
 
+    viewer_token = uuid.uuid4().hex
+    recording_id = await watch.start_fallback_capture(channel_number, settings, viewer_token)
+    active_capture = await capture_pipeline.get_active_capture(recording_id) if recording_id else None
+
+    if active_capture is not None and not await _wait_for_live_capture_data(active_capture, recording_id):
+        logger.error(
+            "Channel %s: fallback capture produced no data within %ss (tuner likely still locking)",
+            channel_number,
+            _LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
+        )
+        await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
+        active_capture = None
+        recording_id = None
+
     raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
+    input_url = "pipe:0" if active_capture is not None else raw_url
     session_id, tmp_dir = hls_streaming.allocate_session_dir()
     try:
         ffmpeg_args = transcoding.build_ffmpeg_args(
             settings,
-            raw_url,
+            input_url,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
         )
     except transcoding.InvalidCustomFfmpegArgsError as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+        if recording_id is not None:
+            await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Same on_process_spawned dance as dvr.py's stream_recording_hls: the
+    # tail-follow pump has to already be feeding ffmpeg's stdin before
+    # create_session starts waiting for a playlist, or ffmpeg just sits
+    # reading from an open-but-unfed pipe until the startup timeout.
+    pump_task: asyncio.Task[None] | None = None
+    pump_stop_event: asyncio.Event | None = None
+
+    def _start_pump(process: asyncio.subprocess.Process) -> None:
+        nonlocal pump_task, pump_stop_event
+        if active_capture is None:
+            return
+        assert process.stdin is not None
+        pump_stop_event = asyncio.Event()
+        pump_task = asyncio.create_task(
+            pump_tail_follow(
+                active_capture.file_path,
+                process.stdin,
+                pump_stop_event,
+                lambda: capture_pipeline.is_capture_active(recording_id),
+            )
+        )
+
+    async def _on_teardown() -> None:
+        if recording_id is not None:
+            await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
 
     try:
         session = await hls_streaming.create_session(
@@ -380,15 +436,35 @@ async def stream_channel_hls(channel_number: str):
             tmp_dir,
             ffmpeg_args,
             label=f"channel {channel_number}",
+            stdin_pipe=active_capture is not None,
+            on_process_spawned=_start_pump,
             min_segments=hls_streaming.HLS_READY_MIN_SEGMENTS,
+            on_teardown=_on_teardown,
         )
     except hls_streaming.HLSStartupError as exc:
+        if pump_stop_event is not None:
+            pump_stop_event.set()
+        if pump_task is not None:
+            with contextlib.suppress(Exception):
+                await pump_task
+        if recording_id is not None:
+            await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
         raise HTTPException(status_code=502, detail=exc.detail) from exc
 
-    return {
-        "session_id": session.session_id,
-        "playlist_url": f"/api/hls/{session.session_id}/playlist.m3u8",
-    }
+    if active_capture is not None:
+        assert pump_task is not None and pump_stop_event is not None
+        await hls_streaming.attach_pump(session_id, pump_task, pump_stop_event)
+
+    if recording_id is not None:
+        body = _format_builtin_recording(db.get_recording(recording_id))
+    else:
+        # No capture backs this stream (the raw-URL safety net) - clients
+        # still decode this response as recording metadata, so `title` (the
+        # one field they treat as required) has to be present regardless.
+        body = {"title": f"Channel {channel_number}"}
+    body["session_id"] = session.session_id
+    body["playlist_url"] = f"/api/hls/{session.session_id}/playlist.m3u8"
+    return body
 
 
 @router.get("/hwaccel-diagnostics", dependencies=[Depends(get_current_admin)])

@@ -29,7 +29,7 @@ import shutil
 import tempfile
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,6 +122,7 @@ class HLSSession:
     label: str
     pump_task: asyncio.Task[None] | None = None
     pump_stop_event: asyncio.Event | None = None
+    on_teardown: Callable[[], Awaitable[None]] | None = None
     _stderr_tail: bytearray = field(default_factory=bytearray)
 
 
@@ -157,6 +158,7 @@ async def create_session(
     stdin_pipe: bool = False,
     on_process_spawned: Callable[[asyncio.subprocess.Process], None] | None = None,
     min_segments: int = 1,
+    on_teardown: Callable[[], Awaitable[None]] | None = None,
 ) -> HLSSession:
     """Spawn ffmpeg (already built with output_format="hls" pointed at
     `tmp_dir`'s playlist/segment paths, per `allocate_session_dir`) and wait
@@ -177,6 +179,12 @@ async def create_session(
     FFMPEG_STARTUP_TIMEOUT_SECONDS deadline. If ffmpeg exits on its own first
     (e.g. a short on-demand clip that will never reach `min_segments`), a
     non-empty playlist is still accepted - there's nothing left to wait for.
+
+    `on_teardown`, when given, is awaited once from `teardown_session` after
+    ffmpeg has been terminated and `tmp_dir` removed - the only teardown
+    signal this session ever gets (idle-timeout or explicit stop), for a
+    caller that needs to release some resource of its own (e.g. a capture's
+    viewer token) exactly once the session is actually gone.
 
     Cleanup on any failure to reach a registered session - a spawn error, a
     failure to produce a playlist, `on_process_spawned` raising, or this
@@ -212,6 +220,7 @@ async def create_session(
             created_at=now,
             last_request_at=now,
             label=label,
+            on_teardown=on_teardown,
         )
 
         drain_done = asyncio.Event()
@@ -298,6 +307,9 @@ async def teardown_session(session_id: str) -> None:
 
     await terminate_process(session.process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
     await asyncio.to_thread(shutil.rmtree, session.tmp_dir, ignore_errors=True)
+    if session.on_teardown is not None:
+        with contextlib.suppress(Exception):
+            await session.on_teardown()
     logger.info("HLS session [%s] torn down (%s)", session_id, session.label)
 
 

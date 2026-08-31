@@ -135,20 +135,50 @@ Each client wires it up differently and incompletely — see below.
   verification of live caption polling/alignment/seek-resync behavior on a
   real tuner can't be confirmed from code alone in this environment.
 
-- [ ] **CC-2 — iOS/tvOS: fix the direct-HLS-fallback caption gap.** Last
-  remaining gap between Apple and Android/web caption parity, now that CC-7
-  shipped — worth doing next while this code is warm. In
-  `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift`,
-  `playChannel`'s fallback path (used when a watch session can't start — busy
-  tuner / no DVR session, ~lines 148-164) skips `loadRecordingMetadata()`
-  entirely, so captions silently disappear whenever that fallback is taken —
-  and since `loadRecordingMetadata` is also where CC-7's `fetchCaptionsOnce`/
-  `startCaptionPolling` now kick off, this path today gets no captions at
-  all, live or static. Call it on both paths whenever a `recording_id`
-  backing exists. Same shared-`PlayerViewModel` architecture as CC-7 means
-  the fix (and CC-7's polling/alignment/resync) automatically covers both
-  iOS and tvOS. Verify on-device (real tuner) that the overlay renders
-  correctly through this path — can't be confirmed from code alone.
+- [x] **CC-2 — full fix: real (temporary) DVR capture backs the busy-tuner
+  direct-HLS fallback, on all three platforms.** The gap ran deeper than
+  originally scoped: `POST /api/streaming/hls/{channel_number}` (the
+  fallback iOS/tvOS/Android all take when a watch session can't start) had
+  no `recording_id` at all — a bare ffmpeg→raw-URL→HLS pipe — so there was
+  nothing for any client's `loadRecordingMetadata()` to load. Fixed at the
+  root instead of papering over it client-side. Backend
+  (`backend/app/dvr/builtin/watch.py`): extracted `_build_capture_for_channel`
+  out of `start_watch`'s capture-creation closure and added
+  `start_fallback_capture`/`release_fallback_capture`, which call
+  `capture_pipeline.get_or_start_capture` directly — deliberately bypassing
+  `tuner_allocator`'s admission gate (that's this fallback's whole reason to
+  exist), then best-effort-registering the tuner token afterwards so the
+  allocator's bookkeeping stays accurate when possible without reintroducing
+  the rejection this path is meant to avoid. `backend/app/hls_streaming.py`
+  gained a generic `on_teardown` hook on `HLSSession`/`create_session` (the
+  only teardown signal this idle-timeout-reaped path ever gets), and
+  `backend/app/api/streaming.py`'s `stream_channel_hls` now mints a real
+  capture, pumps it into ffmpeg via `pump_tail_follow` exactly like
+  `dvr.py`'s `stream_recording_hls`, and releases it via `on_teardown` —
+  falling back to the original raw-URL pipe only if even the unmanaged
+  capture can't start. The response always carries a `title` (channel name
+  as a placeholder when there's no capture) since every client decodes it as
+  recording metadata regardless of which path was taken. iOS/tvOS
+  (`PlayerViewModel.swift`, `Recording.swift`, `APIClient.swift`) and Android
+  (`PlayerViewModel.kt`, `Recording.kt`, `APIClient.kt`): added
+  `playlistUrl`/`playlist_url` to the shared recording model,
+  `createChannelHLSSession` now returns the full recording type instead of a
+  bare `{session_id, playlist_url}` struct, and `playChannel`'s fallback
+  branch calls `loadRecordingMetadata` whenever the response carries a
+  `recording_id` — same captions/thumbnails/detail wiring the primary
+  watch-session path already had, automatically covering both iOS and tvOS
+  via the shared `PlayerViewModel`. Also dropped iOS's dead `WatchResponse`
+  struct while touching that file (unused — `startWatch` already decoded
+  straight into the shared recording type). Tests: 6 new backend cases in
+  `test_api_streaming.py`/`test_hls_streaming.py` (498/498 backend suite
+  passing); 2 new iOS cases in `PlayerViewModelChannelFallbackTests.swift`
+  using a `URLProtocol`-based mock (24/24 `swift test` passing); 2 new
+  Android cases in `PlayerViewModelChannelFallbackTest.kt` using `mockk`
+  (full `:core:test` suite passing). No live-tuner access in this
+  environment — real concurrent-viewer tuner-exhaustion behavior and
+  confirming the best-effort `tuner_allocator` token degrades gracefully
+  (doesn't wedge a later `start_watch` call) when it fails to acquire still
+  need on-device verification.
 
 - [ ] **CC-8 — Backend: research further live-caption latency reduction
   (needs scoping).** Not started — this is a research item, not a
