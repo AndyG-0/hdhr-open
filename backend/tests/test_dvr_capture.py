@@ -233,7 +233,7 @@ async def test_stop_capture_schedules_eager_caption_generation_when_has_captions
     monkeypatch.setattr("app.media_probe.probe", AsyncMock(return_value={"has_captions": True}))
 
     scheduled: list = []
-    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
+    monkeypatch.setattr(capture_module.jobs, "run_in_background", lambda coro: scheduled.append(coro))
     generate_mock = AsyncMock(return_value=None)
     monkeypatch.setattr(capture_module.media_cache, "generate_captions_vtt", generate_mock)
 

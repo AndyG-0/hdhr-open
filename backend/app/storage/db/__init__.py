@@ -51,6 +51,11 @@ from .guide import (
     upsert_sd_station_map,
     upsert_xmltv_channel_map,
 )
+from .jobs import (
+    create_job_run,
+    finish_job_run,
+    list_job_runs,
+)
 from .recordings import (
     create_recording,
     create_recording_rule,
@@ -192,4 +197,7 @@ __all__ = [
     "list_completed_recordings_by_title",
     "get_recording",
     "delete_recording",
+    "create_job_run",
+    "finish_job_run",
+    "list_job_runs",
 ]

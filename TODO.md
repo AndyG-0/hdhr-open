@@ -217,14 +217,44 @@ Each client wires it up differently and incompletely — see below.
     during this same real-tuner session was a separate correctness bug,
     not a latency contributor — don't re-open it here.
 
-- [ ] **CC-5 — Scheduled Tasks admin (web-admin only).** New, standalone
-  feature, larger than CC-1..CC-4 — plan as its own multi-part iteration. A
-  minimal job-registry + runner + status/history API and admin UI page
-  generalizing background maintenance work. Register the recording-completion
-  caption extraction (from CC-4) and an HLS temp-file/cache cleanup pass
-  (audit existing lifecycle handling in `backend/app/hls_streaming.py` /
-  `backend/app/dvr/builtin/retention.py`) as the first two jobs. Start with
-  the backend job-runner primitives before building the admin UI.
+- [x] **CC-5 — Scheduled Tasks admin, backend primitives.** Backend
+  job-registry + runner + status/history API landed; the admin UI page is
+  deliberately deferred (see follow-up below) — this was scoped as its own
+  multi-part iteration and the backend half is the larger, harder-to-get-wrong
+  piece. `backend/app/jobs.py` is a thin wrapper around the existing
+  `backend/app/scheduler.py` `AsyncIOScheduler` singleton: `register_scheduled_job`
+  wraps an interval-triggered callable so every firing writes a `job_runs`
+  history row (status/started_at/finished_at/error) before/after running,
+  and `register_event_job` + `run_tracked_in_background` do the same for
+  jobs that aren't on a scheduler trigger at all — fired ad hoc via
+  `asyncio.create_task`, same as the pre-existing `run_in_background`
+  helper, just with history tracking layered on. New `job_runs` table via
+  `backend/app/storage/db/connection.py`'s migration convention
+  (`_MIGRATION_5`), queried through a new `backend/app/storage/db/jobs.py`.
+  Registered the two named jobs: (1) recording-completion caption
+  extraction (`backend/app/dvr/builtin/capture.py`'s `stop_capture()`) —
+  still event-driven off recording completion, not interval-scheduled, just
+  routed through `jobs.run_tracked_in_background` instead of the bare
+  `run_in_background` call; (2) HLS idle-session reap + orphaned-directory
+  sweep (`backend/app/hls_streaming.py`'s `register()`) — already
+  interval-scheduled, just routed through `jobs.register_scheduled_job`
+  instead of calling `scheduler.add_job` directly. New
+  `backend/app/api/admin_jobs.py` (`GET /api/admin/jobs`, prefix
+  `/api/admin/jobs`, gated the same way as `admin.py` via
+  `Depends(get_current_admin)`) lists every registered job definition with
+  its 10 most recent runs. Tests: `backend/tests/test_jobs.py` (registry
+  wrapper writes success/failure history rows, both jobs show up as
+  registered after a real app-lifespan boot) and
+  `backend/tests/test_api_admin_jobs.py` (auth gating, run history in the
+  response shape). Full backend suite green (508 passed).
+
+- [ ] **CC-5 follow-up — Scheduled Tasks admin UI page.** Build the admin
+  UI on top of the `/api/admin/jobs` API above. No separate admin route
+  exists in the frontend today — admin-only sections are folded into
+  `frontend/src/routes/settings/+page.svelte` behind `{#if
+  $user?.role === 'admin'}`, composed from
+  `frontend/src/lib/components/settings/*Section.svelte` — a
+  `JobsSection.svelte` there is the natural fit, not a new route.
 
 ## Native Client CI
 

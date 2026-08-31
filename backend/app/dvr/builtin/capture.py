@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app import media_probe
+from app import jobs, media_probe
 from app.async_utils import run_in_background, terminate_process
 from app.config import RECORDINGS_DIR
 from app.dvr import media_cache
@@ -27,6 +27,8 @@ from app.integrations import hdhomerun_client
 from app.storage import db
 
 logger = logging.getLogger(__name__)
+
+CAPTION_EXTRACTION_JOB_ID = "caption_extraction"
 
 _FFMPEG_TERMINATE_TIMEOUT_SECONDS = 5
 _MIN_RECORDING_BYTES = 10 * 1024  # at least 10KB to consider non-empty
@@ -378,7 +380,10 @@ class CapturePipeline:
             )
 
         if is_success and has_captions:
-            run_in_background(media_cache.generate_captions_vtt(str(capture.file_path), recording_id))
+            jobs.run_tracked_in_background(
+                CAPTION_EXTRACTION_JOB_ID,
+                media_cache.generate_captions_vtt(str(capture.file_path), recording_id),
+            )
 
         return {
             "recording_id": recording_id,

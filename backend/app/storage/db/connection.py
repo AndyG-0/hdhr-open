@@ -376,11 +376,25 @@ CREATE INDEX IF NOT EXISTS idx_recordings_status_title ON recordings (status, LO
 """
 
 
+_MIGRATION_5 = """
+CREATE TABLE IF NOT EXISTS job_runs (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_job_runs_job_id_started_at ON job_runs (job_id, started_at);
+"""
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
     _migration_3,
     _MIGRATION_4,
+    _MIGRATION_5,
 )
 
 

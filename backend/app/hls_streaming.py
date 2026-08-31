@@ -35,6 +35,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app import jobs
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.config import HLS_SESSION_DIR
 from app.subprocess_streaming import (
@@ -401,20 +402,26 @@ def register(scheduler: AsyncIOScheduler) -> None:
     """Register the idle-session reaper and the orphaned-directory sweep with
     APScheduler. Kept independent of DVREngine.tick() - HLS packaging
     sessions aren't DVR captures."""
-    scheduler.add_job(
-        reap_idle_sessions,
-        "interval",
+    jobs.register_scheduled_job(
+        scheduler,
+        job_id="hls_streaming_reap_idle_sessions",
+        name="HLS idle session reaper",
+        description="Tears down HLS packaging sessions that have gone quiet past the idle timeout.",
+        func=reap_idle_sessions,
+        trigger="interval",
         seconds=10,
-        id="hls_streaming_reap_idle_sessions",
         replace_existing=True,
         max_instances=1,
         coalesce=True,
     )
-    scheduler.add_job(
-        sweep_orphaned_session_dirs,
-        "interval",
+    jobs.register_scheduled_job(
+        scheduler,
+        job_id="hls_streaming_sweep_orphaned_session_dirs",
+        name="HLS orphaned session directory sweep",
+        description="Removes leftover HLS session directories with no matching in-memory session.",
+        func=sweep_orphaned_session_dirs,
+        trigger="interval",
         seconds=ORPHAN_SESSION_DIR_SWEEP_INTERVAL_SECONDS,
-        id="hls_streaming_sweep_orphaned_session_dirs",
         replace_existing=True,
         max_instances=1,
         coalesce=True,

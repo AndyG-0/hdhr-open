@@ -8,8 +8,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import hls_streaming
+from app import hls_streaming, jobs
 from app.api import admin as admin_api
+from app.api import admin_jobs as admin_jobs_api
 from app.api import devices as devices_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
@@ -23,6 +24,7 @@ from app.api import users as users_api
 from app.api import watch as watch_api
 from app.config import DB_PATH, SECRET_KEY_PATH, settings
 from app.dvr.builtin import engine as dvr_engine
+from app.dvr.builtin.capture import CAPTION_EXTRACTION_JOB_ID
 from app.guide import schedules_direct as schedules_direct_guide
 from app.guide import service as hdhomerun_guide
 from app.guide import xmltv as xmltv_guide
@@ -55,6 +57,11 @@ async def lifespan(app: FastAPI):
         )
     init_db()
     await dvr_engine.dvr_engine.recover_on_startup()
+    jobs.register_event_job(
+        job_id=CAPTION_EXTRACTION_JOB_ID,
+        name="Caption extraction",
+        description="Extracts CEA-608/708 captions to WebVTT after a recording completes.",
+    )
     hdhomerun_guide.register(scheduler)
     xmltv_guide.register(scheduler)
     schedules_direct_guide.register(scheduler)
@@ -106,6 +113,7 @@ app.include_router(devices_api.router)
 app.include_router(users_api.router)
 app.include_router(setup_api.router)
 app.include_router(admin_api.router)
+app.include_router(admin_jobs_api.router)
 app.include_router(watch_api.router)
 
 
