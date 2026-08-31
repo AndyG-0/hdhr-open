@@ -272,7 +272,7 @@ fun PlayerScreen(
                 ) {
                     if (isSeekable) {
                         IconButton(
-                            onClick = { playerEngine.skipBackward(10.0) },
+                            onClick = { playerViewModel.skipBackward(10.0) },
                             modifier = Modifier.size(52.dp)
                         ) {
                             Icon(
@@ -298,7 +298,7 @@ fun PlayerScreen(
 
                     if (isSeekable) {
                         IconButton(
-                            onClick = { playerEngine.skipForward(10.0) },
+                            onClick = { playerViewModel.skipForward(10.0) },
                             modifier = Modifier.size(52.dp)
                         ) {
                             Icon(
@@ -325,7 +325,7 @@ fun PlayerScreen(
                         isLive = isLive,
                         isSeekable = isSeekable,
                         thumbnailCues = thumbnailCues,
-                        onSeek = { target -> playerEngine.seek(target) }
+                        onSeek = { target -> playerViewModel.seek(target) }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
