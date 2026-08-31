@@ -57,15 +57,6 @@ Each client wires it up differently and incompletely — see below.
   server-side extraction latency, not a client bug. Tests added in
   `CaptionControllerTest.kt`.
 
-- [ ] **CC-2 — iOS/tvOS: fix the direct-HLS-fallback caption gap.** In
-  `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift`,
-  `playChannel`'s fallback path (used when a watch session can't start — busy
-  tuner / no DVR session, ~lines 148-164) skips `loadRecordingMetadata()`
-  entirely, so captions silently disappear whenever that fallback is taken.
-  Call it on both paths whenever a `recording_id` backing exists. Verify
-  on-device (real tuner) that the overlay renders correctly through this
-  path — can't be confirmed from code alone.
-
 - [x] **CC-4 — Backend: eager caption extraction on recording completion.**
   `generate_captions_vtt()` ran lazily on first
   `GET /api/dvr/recording-captions.vtt`, which could block that request up
@@ -143,6 +134,21 @@ Each client wires it up differently and incompletely — see below.
   `HDHROpenTV` schemes were used to verify; like CC-2/CC-6, on-device
   verification of live caption polling/alignment/seek-resync behavior on a
   real tuner can't be confirmed from code alone in this environment.
+
+- [ ] **CC-2 — iOS/tvOS: fix the direct-HLS-fallback caption gap.** Last
+  remaining gap between Apple and Android/web caption parity, now that CC-7
+  shipped — worth doing next while this code is warm. In
+  `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift`,
+  `playChannel`'s fallback path (used when a watch session can't start — busy
+  tuner / no DVR session, ~lines 148-164) skips `loadRecordingMetadata()`
+  entirely, so captions silently disappear whenever that fallback is taken —
+  and since `loadRecordingMetadata` is also where CC-7's `fetchCaptionsOnce`/
+  `startCaptionPolling` now kick off, this path today gets no captions at
+  all, live or static. Call it on both paths whenever a `recording_id`
+  backing exists. Same shared-`PlayerViewModel` architecture as CC-7 means
+  the fix (and CC-7's polling/alignment/resync) automatically covers both
+  iOS and tvOS. Verify on-device (real tuner) that the overlay renders
+  correctly through this path — can't be confirmed from code alone.
 
 - [ ] **CC-8 — Backend: research further live-caption latency reduction
   (needs scoping).** Not started — this is a research item, not a
