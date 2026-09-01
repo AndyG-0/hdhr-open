@@ -507,7 +507,6 @@
 	function toggleCaptions() {
 		captionsEnabled = !captionsEnabled;
 		captionController.ensureCaptionTrack();
-		captionController.setMode(captionsEnabled);
 	}
 
 	function selectAudioTrack(index: number) {
@@ -941,15 +940,6 @@
 		min-height: 0;
 		object-fit: contain;
 		background: #000;
-	}
-
-	/* Browser default cue styling sizes text relative to the video element's
-	   own dimensions, which reads as oversized on a large player - pin it to
-	   a fixed, readable size instead. */
-	.video::cue {
-		font-size: 1.05rem;
-		line-height: 1.4;
-		background-color: rgba(0, 0, 0, 0.75);
 	}
 
 	.caption-overlay {

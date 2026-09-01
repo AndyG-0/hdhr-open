@@ -54,7 +54,11 @@ export function createCaptionController(options: CaptionControllerOptions) {
 		const videoElement = options.getVideoElement();
 		if (capTextTrack || !videoElement) return;
 		capTextTrack = videoElement.addTextTrack('subtitles', 'Captions', 'en');
-		capTextTrack.mode = options.getCaptionsEnabled() ? 'showing' : 'hidden';
+		// Always hidden: the player's own .caption-overlay (positioned above
+		// the scrub bar) is the only caption UI - this track exists just to
+		// hold cue timing, and letting it go 'showing' would double-render
+		// every line via the browser's native subtitle rendering too.
+		capTextTrack.mode = 'hidden';
 	}
 
 	// `allowStretch` is only true for cues genuinely new to this session
@@ -181,10 +185,6 @@ export function createCaptionController(options: CaptionControllerOptions) {
 		}
 	}
 
-	function setMode(showing: boolean) {
-		if (capTextTrack) capTextTrack.mode = showing ? 'showing' : 'hidden';
-	}
-
 	// A stale slot from before a seek is on the old absolute clock and
 	// could push a freshly-stretched cue arbitrarily far into the future
 	// relative to the new origin.
@@ -203,7 +203,6 @@ export function createCaptionController(options: CaptionControllerOptions) {
 		loadCaptions,
 		pollLiveCaptions,
 		maybeResyncBaseOffset,
-		setMode,
 		resetStretchCursor,
 		teardown,
 	};

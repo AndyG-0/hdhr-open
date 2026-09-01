@@ -331,14 +331,18 @@ describe('HDHomeRunPlayer', () => {
 		render(HDHomeRunPlayer, { props: seekableProps });
 
 		const ccButton = await screen.findByRole('button', { name: 'Subtitles / Closed Captions' });
-		expect(fakeTextTrack.mode).toBe('hidden');
+		expect(ccButton.className).not.toMatch(/active/);
 
 		// Click CC button to toggle on
 		await fireEvent.click(ccButton);
-		expect(fakeTextTrack.mode).toBe('showing');
+		expect(ccButton.className).toMatch(/active/);
+		// The native TextTrack must stay hidden - the .caption-overlay is the
+		// only caption UI, since showing both double-renders every line.
+		expect(fakeTextTrack.mode).toBe('hidden');
 
 		// Press 'c' keyboard shortcut to toggle off
 		await fireEvent.keyDown(window, { key: 'c' });
+		expect(ccButton.className).not.toMatch(/active/);
 		expect(fakeTextTrack.mode).toBe('hidden');
 	});
 
