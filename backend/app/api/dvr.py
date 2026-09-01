@@ -342,6 +342,14 @@ class RecordingRuleCreateRequest(BaseModel):
     end_padding: int | None = None
     max_episodes_to_keep: int | None = Field(default=None, ge=1)
     server: str | None = None
+    # Builtin-DVR-only: a caller-supplied title (bypasses guide lookup, so a
+    # rule can be created with no backing airing yet), an alternate title
+    # match mode, and an inclusion keyword filter checked against episode
+    # description/subtitle/category. Not supported by the official
+    # HDHomeRun DVR API.
+    title: str | None = None
+    title_match_mode: str | None = None
+    keyword_query: str | None = None
 
 
 def _format_builtin_rule(rule: dict[str, Any]) -> dict[str, Any]:
@@ -364,6 +372,8 @@ def _format_builtin_rule(rule: dict[str, Any]) -> dict[str, Any]:
         "StartPadding": rule.get("start_padding_seconds", 0),
         "EndPadding": rule.get("end_padding_seconds", 0),
         "MaxEpisodesToKeep": rule.get("max_episodes_to_keep"),
+        "TitleMatchMode": rule.get("title_match_mode") or "exact",
+        "KeywordQuery": rule.get("keyword_query"),
         "Provider": "builtin",
         "provider": "builtin",
     }
@@ -428,13 +438,22 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest):
     priority = resolve_dvr_server_priority()
     preferred_server = payload.server if payload.server in ("builtin", "hdhomerun") else None
 
-    target_servers = [preferred_server] if preferred_server else list(priority)
+    # Keyword/contains matching is a builtin-only concept - the official
+    # HDHomeRun DVR API has no equivalent, and silently dropping the filter
+    # would make the rule over-record.
+    is_keyword_rule = bool(payload.keyword_query) or payload.title_match_mode == "contains"
+    if is_keyword_rule and preferred_server == "hdhomerun":
+        raise HTTPException(
+            status_code=400, detail="Keyword/contains-match rules are only supported by the builtin DVR"
+        )
+
+    target_servers = [preferred_server] if preferred_server else (["builtin"] if is_keyword_rule else list(priority))
 
     for target_server in target_servers:
         if target_server == "hdhomerun":
             if hdhomerun_client.is_dvr_configured(settings) or hdhomerun_client.is_tuner_configured(settings):
                 try:
-                    rule_data = payload.model_dump(exclude={"server"})
+                    rule_data = payload.model_dump(exclude={"server", "title", "title_match_mode", "keyword_query"})
                     await hdhomerun_client.add_recording_rule(settings, rule_data)
                     return await list_recording_rules()
                 except hdhomerun_client.HDHomeRunError as exc:
@@ -448,11 +467,13 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest):
             rule_id = f"rule_{uuid.uuid4().hex[:12]}"
             rule_type = "single" if payload.date_time is not None else "series"
 
-            title = await asyncio.to_thread(_lookup_guide_title, payload.series_id, payload.channel, payload.date_time)
+            title = payload.title or await asyncio.to_thread(
+                _lookup_guide_title, payload.series_id, payload.channel, payload.date_time
+            )
             series_match_key = (
                 str(payload.date_time)
                 if rule_type == "single" and payload.date_time
-                else (payload.series_id if payload.series_id != "auto" else title)
+                else (payload.series_id if payload.series_id and payload.series_id != "auto" else title)
             )
 
             rule_entry = {
@@ -467,6 +488,8 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest):
                 "new_only": 1 if payload.recent_only else 0,
                 "priority": 0,
                 "max_episodes_to_keep": payload.max_episodes_to_keep,
+                "title_match_mode": payload.title_match_mode if payload.title_match_mode == "contains" else "exact",
+                "keyword_query": payload.keyword_query,
             }
 
             await asyncio.to_thread(db.create_recording_rule, rule_entry)

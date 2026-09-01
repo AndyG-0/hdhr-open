@@ -4,13 +4,57 @@ import type { HDHomeRunRecordingRule } from '$lib/api';
 interface MatchableAiring {
 	start?: number | null;
 	series_id?: string | null;
+	title?: string | null;
+	episode_title?: string | null;
+	synopsis?: string | null;
+}
+
+function normalize(s: string): string {
+	return s.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Mirrors the backend's rule_expander._title_matches - exact or substring. */
+function titleMatches(ruleTitle: string, airingTitle: string | null | undefined, mode: string | undefined): boolean {
+	if (!ruleTitle || !airingTitle) return false;
+	const normRule = normalize(ruleTitle);
+	const normAiring = normalize(airingTitle);
+	return mode === 'contains' ? normAiring.includes(normRule) : normRule === normAiring;
+}
+
+/** Mirrors the backend's rule_expander._keyword_matches inclusion filter. */
+function keywordMatches(keywordQuery: string | null | undefined, airing: MatchableAiring): boolean {
+	if (!keywordQuery) return true;
+	const terms = keywordQuery
+		.split(',')
+		.map((t) => t.trim())
+		.filter(Boolean)
+		.map(normalize);
+	if (terms.length === 0) return true;
+	const haystacks = [airing.episode_title, airing.synopsis, airing.title].filter(
+		(v): v is string => !!v,
+	).map(normalize);
+	return terms.some((term) => haystacks.some((h) => h.includes(term)));
+}
+
+/** True for a rule that uses substring title matching and/or a keyword filter. */
+function isKeywordRule(r: HDHomeRunRecordingRule): boolean {
+	return r.TitleMatchMode === 'contains' || !!r.KeywordQuery;
+}
+
+function keywordRuleMatchesAiring(r: HDHomeRunRecordingRule, channelNumber: string | undefined, airing: MatchableAiring | null | undefined): boolean {
+	const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
+	if (!channelMatches || !airing) return false;
+	if (!titleMatches(r.Title, airing.title, r.TitleMatchMode)) return false;
+	return keywordMatches(r.KeywordQuery, airing);
 }
 
 /**
  * Finds the recording rule (if any) that covers a given channel/airing.
  * `ChannelOnly` rules match by channel number; `DateTimeOnly` rules match a
  * specific airing's start time (within a minute, to absorb schedule drift);
- * everything else falls back to matching by series ID.
+ * a keyword/contains rule matches by title (exact or substring) AND'd with
+ * an optional keyword filter against episode_title/synopsis/title; everything
+ * else falls back to matching by series ID.
  */
 export function findMatchingRecordingRule(
 	rules: HDHomeRunRecordingRule[] | undefined,
@@ -22,6 +66,9 @@ export function findMatchingRecordingRule(
 		rules.find((r) => {
 			const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
 			if (!channelMatches) return false;
+			if (isKeywordRule(r)) {
+				return keywordRuleMatchesAiring(r, channelNumber, airing);
+			}
 			if (r.DateTimeOnly != null) {
 				return airing?.start != null && Math.abs(r.DateTimeOnly - airing.start) < 60;
 			}
@@ -41,6 +88,10 @@ export interface RecordingRuleIndex {
 	byMinuteAnyChannel: Map<number, HDHomeRunRecordingRule>;
 	byChannelSeries: Map<string, HDHomeRunRecordingRule>;
 	bySeriesAnyChannel: Map<string, HDHomeRunRecordingRule>;
+	/** Keyword/contains rules can't be hashed by exact title or series ID, so
+	 * they're checked via a linear scan after the O(1) lookups miss. Expected
+	 * to be rare (whole-topic standing rules, not one per episode). */
+	keywordRules: HDHomeRunRecordingRule[];
 	/** Original array position per rule, used to break ties the same way `Array.find` would. */
 	order: Map<string, number>;
 }
@@ -51,12 +102,19 @@ export function buildRecordingRuleIndex(rules: HDHomeRunRecordingRule[] | undefi
 		byMinuteAnyChannel: new Map(),
 		byChannelSeries: new Map(),
 		bySeriesAnyChannel: new Map(),
+		keywordRules: [],
 		order: new Map(),
 	};
 	if (!rules) return index;
 
 	rules.forEach((rule, i) => {
 		index.order.set(rule.RecordingRuleID, i);
+
+		if (isKeywordRule(rule)) {
+			index.keywordRules.push(rule);
+			return;
+		}
+
 		const channels = rule.ChannelOnly ? rule.ChannelOnly.split('|') : [null];
 
 		if (rule.DateTimeOnly != null) {
@@ -124,6 +182,10 @@ export function findMatchingRecordingRuleIndexed(
 			consider(index.byChannelSeries.get(`${channelNumber}:${airing.series_id}`));
 		}
 		consider(index.bySeriesAnyChannel.get(airing.series_id));
+	}
+
+	for (const rule of index.keywordRules) {
+		if (keywordRuleMatchesAiring(rule, channelNumber, airing)) consider(rule);
 	}
 
 	return best;

@@ -45,8 +45,9 @@ def create_recording_rule(rule: dict[str, Any]) -> None:
     with _connect() as conn:
         conn.execute(
             "INSERT INTO recording_rules (id, provider, type, title, series_match_key, channel_id, "
-            "start_padding_seconds, end_padding_seconds, new_only, priority, max_episodes_to_keep, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "start_padding_seconds, end_padding_seconds, new_only, priority, max_episodes_to_keep, "
+            "title_match_mode, keyword_query, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 rule["id"],
                 rule["provider"],
@@ -59,6 +60,8 @@ def create_recording_rule(rule: dict[str, Any]) -> None:
                 int(rule.get("new_only", True)),
                 rule.get("priority", 0),
                 rule.get("max_episodes_to_keep"),
+                rule.get("title_match_mode") or "exact",
+                rule.get("keyword_query"),
                 rule.get("created_at") or datetime.now(UTC).isoformat(),
             ),
         )

@@ -105,25 +105,51 @@ def _is_already_recorded_or_scheduled(
     return False
 
 
+_KEYWORD_FIELDS = ("episode_title", "synopsis", "category", "title")
+
+
+def _title_matches(rule_title: str, program_title: str, mode: str) -> bool:
+    if not rule_title or not program_title:
+        return False
+    norm_rule = normalize_title(rule_title)
+    norm_prog = normalize_title(program_title)
+    if mode == "contains":
+        return norm_rule in norm_prog
+    return norm_rule == norm_prog
+
+
+def _keyword_matches(keyword_query: str | None, program: dict[str, Any]) -> bool:
+    """Inclusion filter: matches if any comma-separated term is a substring of
+    the program's episode_title/synopsis/category/title. No filter -> match."""
+    if not keyword_query:
+        return True
+    terms = [normalize_title(t) for t in keyword_query.split(",") if t.strip()]
+    if not terms:
+        return True
+    haystacks = [normalize_title(program.get(f) or "") for f in _KEYWORD_FIELDS]
+    return any(term in haystack for term in terms for haystack in haystacks)
+
+
 def _match_airing(rule: dict[str, Any], program: dict[str, Any]) -> bool:
     """Determine if a guide_program matches a recording rule."""
     rule_title = rule.get("title", "")
     rule_series_key = rule.get("series_match_key")
+    title_mode = rule.get("title_match_mode") or "exact"
     program_ext_id = program.get("external_program_id")
     program_title = program.get("title", "")
 
     # 1. HDHomeRun SeriesID matching (for rules with SiliconDust SeriesID e.g. EP..., SH...)
-    if rule_series_key and program_ext_id and program_ext_id == rule_series_key:
-        return True
+    # 2. Title matching (for XMLTV/EPG feeds or generic title rules) - exact or
+    #    'contains' (substring), per rule.title_match_mode.
+    matched = (rule_series_key and program_ext_id and program_ext_id == rule_series_key) or _title_matches(
+        rule_title, program_title, title_mode
+    )
+    if not matched:
+        return False
 
-    # 2. Title matching (for XMLTV/EPG feeds or generic title rules)
-    if rule_title and program_title:
-        norm_rule = normalize_title(rule_title)
-        norm_prog = normalize_title(program_title)
-        if norm_rule == norm_prog:
-            return True
-
-    return False
+    # 3. Optional keyword inclusion filter (e.g. rule title "College Football",
+    #    keyword_query "Ohio State") - AND'd on top of the title/series match.
+    return _keyword_matches(rule.get("keyword_query"), program)
 
 
 def cleanup_expired_single_rules(

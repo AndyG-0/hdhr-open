@@ -323,6 +323,72 @@ def test_create_recording_rule_explicit_hdhomerun_unconfigured_fails(client, tmp
     assert "not configured" in response.json()["detail"]
 
 
+def test_create_keyword_recording_rule_with_no_series_id_or_date_time(client, tmp_db):
+    payload = {
+        "title": "College Football",
+        "title_match_mode": "exact",
+        "keyword_query": "Ohio State",
+    }
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 200
+    rules = response.json()
+    assert len(rules) == 1
+    rule = rules[0]
+    assert rule["Title"] == "College Football"
+    assert rule["TitleMatchMode"] == "exact"
+    assert rule["KeywordQuery"] == "Ohio State"
+    assert rule["provider"] == "builtin"
+
+    # Round-trip via GET
+    get_res = client.get("/api/dvr/recording-rules")
+    assert get_res.status_code == 200
+    fetched = get_res.json()[0]
+    assert fetched["TitleMatchMode"] == "exact"
+    assert fetched["KeywordQuery"] == "Ohio State"
+
+
+def test_create_keyword_recording_rule_rejects_explicit_hdhomerun_server(client, tmp_db):
+    payload = {
+        "title": "College Football",
+        "keyword_query": "Ohio State",
+        "server": "hdhomerun",
+    }
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 400
+    assert "builtin" in response.json()["detail"].lower()
+
+
+def test_create_contains_mode_recording_rule_rejects_explicit_hdhomerun_server(client, tmp_db):
+    payload = {
+        "title": "College Football",
+        "title_match_mode": "contains",
+        "server": "hdhomerun",
+    }
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 400
+    assert "builtin" in response.json()["detail"].lower()
+
+
+def test_create_keyword_recording_rule_falls_through_to_builtin_despite_hdhomerun_priority(
+    client, tmp_db, monkeypatch
+):
+    from app.integrations import hdhomerun_client
+
+    db.save_app_settings({"dvr_server_priority": "hdhomerun,builtin"})
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    mock_add = AsyncMock(return_value=[])
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    payload = {"title": "College Football", "keyword_query": "Ohio State"}
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 200
+    assert not mock_add.called
+    rules = response.json()
+    assert len(rules) == 1
+    assert rules[0]["provider"] == "builtin"
+
+
 def test_recording_detail_probes_in_progress_recording_once_enough_data(client, tmp_db, tmp_path, monkeypatch):
     """An in-progress recording should surface real video/audio metadata
     (needed for the live audio-track/SAP menu and the playback-info panel)

@@ -12,6 +12,9 @@
 	} from '$lib/api';
 	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
 	import RecordingCard from '$lib/components/RecordingCard.svelte';
+	import HDHomeRunKeywordRuleDialog, {
+		type KeywordRuleOptions,
+	} from '$lib/components/details/HDHomeRunKeywordRuleDialog.svelte';
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
 
@@ -29,6 +32,7 @@
 	let tunerInfo = $state<HDHomeRunTunerInfo | null>(null);
 	let tuners = $state<HDHomeRunTuner[]>([]);
 	let serverFilter = $state<'all' | 'builtin' | 'hdhomerun'>('all');
+	let showKeywordRuleDialog = $state(false);
 	let typeFilter = $state<'all' | 'shows' | 'movies' | 'sports'>('all');
 	let failedImages = $state<Record<string, boolean>>({});
 
@@ -279,6 +283,28 @@
 				max_episodes_to_keep: options?.maxEpisodesToKeep,
 				server: options?.server,
 			});
+		} catch (err) {
+			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			recordingLoading = null;
+		}
+	}
+
+	async function createKeywordRule(options: KeywordRuleOptions) {
+		recordingLoading = 'keyword-rule';
+		try {
+			recordingRules = await api.addHDHomeRunRecordingRule({
+				series_id: 'auto',
+				title: options.title,
+				title_match_mode: options.titleMatchMode,
+				keyword_query: options.keywordQuery,
+				start_padding: options.startPadding,
+				end_padding: options.endPadding,
+				recent_only: options.recentOnly,
+				max_episodes_to_keep: options.maxEpisodesToKeep,
+				server: 'builtin',
+			});
+			showKeywordRuleDialog = false;
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -596,7 +622,12 @@
 			{/if}
 		{/if}
 
-		<h2>{$_('hdhomerun.detail.scheduled_recordings')}</h2>
+		<div class="section-header">
+			<h2>{$_('hdhomerun.detail.scheduled_recordings')}</h2>
+			<button class="new-keyword-rule-btn" onclick={() => (showKeywordRuleDialog = true)}>
+				{$_('hdhomerun.detail.keyword_rule_new_button')}
+			</button>
+		</div>
 		{#if displayedRecordingRules.length > 0}
 			<div class="recording-rules">
 				{#each displayedRecordingRules as rule (rule.RecordingRuleID)}
@@ -625,6 +656,14 @@
 									{$_('hdhomerun.detail.retention_summary', { values: { count: rule.MaxEpisodesToKeep } })}
 								</span>
 							{/if}
+							{#if rule.TitleMatchMode === 'contains'}
+								<span class="rule-badge">{$_('hdhomerun.detail.keyword_rule_match_contains')}</span>
+							{/if}
+							{#if rule.KeywordQuery}
+								<span class="rule-badge">
+									{$_('hdhomerun.detail.keyword_rule_badge', { values: { keywords: rule.KeywordQuery } })}
+								</span>
+							{/if}
 						</div>
 						<button
 							class="cancel-rule-btn"
@@ -641,6 +680,14 @@
 		{/if}
 	{/if}
 </div>
+
+{#if showKeywordRuleDialog}
+	<HDHomeRunKeywordRuleDialog
+		loading={recordingLoading === 'keyword-rule'}
+		onConfirm={createKeywordRule}
+		onClose={() => (showKeywordRuleDialog = false)}
+	/>
+{/if}
 
 {#if playingMedia}
 	<HDHomeRunPlayer
@@ -852,6 +899,24 @@
 		flex-direction: column;
 		gap: 0.5rem;
 		margin: 0.5rem 0 1.5rem;
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+
+	.new-keyword-rule-btn {
+		background: var(--color-surface-hover, rgba(0, 0, 0, 0.05));
+		border: 1px solid var(--color-border);
+		border-radius: 0.4rem;
+		padding: 0.4rem 0.75rem;
+		font-size: 0.85rem;
+		color: var(--color-text);
+		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	.rule-card {

@@ -40,6 +40,30 @@ describe('findMatchingRecordingRule', () => {
 		expect(findMatchingRecordingRule([r], undefined, { series_id: 'series-1' })).toBe(r);
 		expect(findMatchingRecordingRule([r], undefined, { series_id: 'other' })).toBeNull();
 	});
+
+	it('matches an exact-title keyword rule only when the synopsis contains the keyword', () => {
+		const r = rule({
+			Title: 'College Football',
+			SeriesID: 'college football',
+			TitleMatchMode: 'exact',
+			KeywordQuery: 'Ohio State',
+		});
+		expect(
+			findMatchingRecordingRule([r], undefined, { title: 'College Football', synopsis: 'Ohio State at Michigan' }),
+		).toBe(r);
+		expect(
+			findMatchingRecordingRule([r], undefined, { title: 'College Football', synopsis: 'Purdue at Indiana' }),
+		).toBeNull();
+		expect(
+			findMatchingRecordingRule([r], undefined, { title: 'NFL Football', synopsis: 'Ohio State at Michigan' }),
+		).toBeNull();
+	});
+
+	it('matches a contains-mode title rule via substring', () => {
+		const r = rule({ Title: 'College Football', SeriesID: undefined, TitleMatchMode: 'contains' });
+		expect(findMatchingRecordingRule([r], undefined, { title: 'College Football: Ohio State at Michigan' })).toBe(r);
+		expect(findMatchingRecordingRule([r], undefined, { title: 'NFL Football' })).toBeNull();
+	});
 });
 
 describe('findMatchingRecordingRuleIndexed', () => {
@@ -115,5 +139,22 @@ describe('findMatchingRecordingRuleIndexed', () => {
 		for (const [channel, airing] of cases) {
 			expect(find(rules, channel, airing)).toBe(findMatchingRecordingRule(rules, channel, airing));
 		}
+	});
+
+	it('matches an exact-title keyword rule only when the synopsis contains the keyword', () => {
+		const r = rule({
+			Title: 'College Football',
+			SeriesID: 'college football',
+			TitleMatchMode: 'exact',
+			KeywordQuery: 'Ohio State',
+		});
+		expect(find([r], undefined, { title: 'College Football', synopsis: 'Ohio State at Michigan' })).toBe(r);
+		expect(find([r], undefined, { title: 'College Football', synopsis: 'Purdue at Indiana' })).toBeNull();
+	});
+
+	it('matches a contains-mode title rule via substring, via the linear keyword-rule fallback', () => {
+		const r = rule({ Title: 'College Football', SeriesID: undefined, TitleMatchMode: 'contains' });
+		expect(find([r], undefined, { title: 'College Football: Ohio State at Michigan' })).toBe(r);
+		expect(find([r], undefined, { title: 'NFL Football' })).toBeNull();
 	});
 });

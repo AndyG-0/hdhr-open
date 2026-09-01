@@ -7,6 +7,9 @@ from app.dvr.builtin.rule_expander import (
     _SINGLE_RULE_FALLBACK_GRACE_SECONDS,
     _index_scheduled,
     _is_already_recorded_or_scheduled,
+    _keyword_matches,
+    _match_airing,
+    _title_matches,
     cleanup_expired_single_rules,
     expand_rules_sync,
     normalize_title,
@@ -288,6 +291,137 @@ def test_expand_rules_skips_already_recorded_episodes(tmp_db):
     # S01E01 is skipped because it's not new and already completed; S01E02 is scheduled
     assert len(scheduled) == 1
     assert scheduled[0]["episode_title"] == "Episode Two"
+
+
+def test_title_matches_exact_mode():
+    assert _title_matches("College Football", "college   football", "exact")
+    assert not _title_matches("College Football", "College Football: Ohio State", "exact")
+    assert not _title_matches("", "College Football", "exact")
+    assert not _title_matches("College Football", "", "exact")
+
+
+def test_title_matches_contains_mode():
+    assert _title_matches("College Football", "College Football: Ohio State at Michigan", "contains")
+    assert not _title_matches("College Football", "NFL Football", "contains")
+
+
+def test_keyword_matches_no_filter_matches_everything():
+    assert _keyword_matches(None, {"synopsis": "anything"})
+    assert _keyword_matches("", {"synopsis": "anything"})
+    assert _keyword_matches("   ", {"synopsis": "anything"})
+
+
+def test_keyword_matches_single_term_across_fields():
+    assert _keyword_matches("Ohio State", {"synopsis": "Ohio State at Michigan", "title": "College Football"})
+    assert _keyword_matches("Ohio State", {"episode_title": "Ohio State vs California"})
+    assert _keyword_matches("Ohio State", {"category": "Ohio State Sports"})
+    assert not _keyword_matches("Ohio State", {"synopsis": "Michigan at Penn State"})
+
+
+def test_keyword_matches_is_case_and_whitespace_insensitive():
+    assert _keyword_matches("ohio   state", {"synopsis": "Ohio State at Michigan"})
+
+
+def test_keyword_matches_multi_term_is_or():
+    query = "Ohio State, Michigan"
+    assert _keyword_matches(query, {"synopsis": "Ohio State at Purdue"})
+    assert _keyword_matches(query, {"synopsis": "Michigan at Purdue"})
+    assert not _keyword_matches(query, {"synopsis": "Purdue at Indiana"})
+
+
+def test_match_airing_legacy_rules_unaffected_by_new_fields():
+    # A rule created before the migration has no title_match_mode/keyword_query
+    # keys at all; a rule created after has them explicitly set to their
+    # defaults ('exact', None). Both must behave identically to pre-existing
+    # exact title matching.
+    program = {"title": "Local News at 6", "external_program_id": None}
+    legacy_rule = {"title": "Local News at 6", "series_match_key": "local news at 6"}
+    modern_rule_with_defaults = {
+        "title": "Local News at 6",
+        "series_match_key": "local news at 6",
+        "title_match_mode": "exact",
+        "keyword_query": None,
+    }
+    assert _match_airing(legacy_rule, program)
+    assert _match_airing(modern_rule_with_defaults, program)
+    assert not _match_airing(legacy_rule, {"title": "Local News at 11", "external_program_id": None})
+
+
+def test_match_airing_contains_mode_with_keyword_filter():
+    rule = {
+        "title": "College Football",
+        "series_match_key": None,
+        "title_match_mode": "contains",
+        "keyword_query": "Ohio State",
+    }
+    matching = {"title": "College Football", "synopsis": "Ohio State at Michigan", "external_program_id": None}
+    non_matching = {"title": "College Football", "synopsis": "Purdue at Indiana", "external_program_id": None}
+    other_show = {"title": "NFL Football", "synopsis": "Ohio State at Michigan", "external_program_id": None}
+    assert _match_airing(rule, matching)
+    assert not _match_airing(rule, non_matching)
+    assert not _match_airing(rule, other_show)
+
+
+def test_expand_rules_keyword_rule_matches_only_synopsis_containing_keyword(tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "5.1", "KTLA", True)
+    now = time.time()
+
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "xmltv",
+                "external_program_id": None,
+                "title": "College Football",
+                "episode_title": None,
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "Ohio State at Michigan.",
+                "start_ts": now + 1000,
+                "end_ts": now + 5000,
+                "original_air_date": None,
+                "image_url": None,
+                "is_new": 1,
+                "category": "Sports",
+            },
+            {
+                "channel_id": channel_id,
+                "source_provider": "xmltv",
+                "external_program_id": None,
+                "title": "College Football",
+                "episode_title": None,
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "Purdue at Indiana.",
+                "start_ts": now + 10000,
+                "end_ts": now + 14000,
+                "original_air_date": None,
+                "image_url": None,
+                "is_new": 1,
+                "category": "Sports",
+            },
+        ]
+    )
+
+    rule_id = "rule_cfb_ohio_state"
+    db.create_recording_rule(
+        {
+            "id": rule_id,
+            "provider": "builtin",
+            "type": "series",
+            "title": "College Football",
+            "series_match_key": "college football",
+            "channel_id": "5.1",
+            "new_only": False,
+            "title_match_mode": "exact",
+            "keyword_query": "Ohio State",
+        }
+    )
+
+    scheduled = expand_rules_sync()
+    assert len(scheduled) == 1
+    assert scheduled[0]["synopsis"] == "Ohio State at Michigan."
 
 
 def _make_single_rule(rule_id: str, target_ts: float, **overrides) -> dict:

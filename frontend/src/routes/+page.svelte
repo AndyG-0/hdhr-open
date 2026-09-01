@@ -137,8 +137,7 @@
 		if (fullGuide || loadingGuide) return;
 		loadingGuide = true;
 		try {
-			const now = Date.now() / 1000;
-			fullGuide = await api.getHDHomeRunGuide(now - 6 * 3600, now + 48 * 3600);
+			fullGuide = await api.getHDHomeRunGuide();
 		} catch {
 			fullGuide = [];
 		} finally {
