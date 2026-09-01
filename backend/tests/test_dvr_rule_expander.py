@@ -424,6 +424,131 @@ def test_expand_rules_keyword_rule_matches_only_synopsis_containing_keyword(tmp_
     assert scheduled[0]["synopsis"] == "Ohio State at Michigan."
 
 
+def test_expand_rules_keyword_rule_matches_episode_title_subtitle(tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "5.1", "KTLA", True)
+    now = time.time()
+
+    # Episode title (XMLTV <sub-title>) has the keyword, while synopsis does not
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "xmltv",
+                "external_program_id": None,
+                "title": "College Football",
+                "episode_title": "Ohio State vs Oregon",
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "Big Ten matchup.",
+                "start_ts": now + 1000,
+                "end_ts": now + 5000,
+                "original_air_date": None,
+                "image_url": None,
+                "is_new": 1,
+                "category": "Sports",
+            },
+            {
+                "channel_id": channel_id,
+                "source_provider": "xmltv",
+                "external_program_id": None,
+                "title": "College Football",
+                "episode_title": "Penn State vs Wisconsin",
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "Big Ten matchup.",
+                "start_ts": now + 10000,
+                "end_ts": now + 14000,
+                "original_air_date": None,
+                "image_url": None,
+                "is_new": 1,
+                "category": "Sports",
+            },
+        ]
+    )
+
+    rule_id = "rule_cfb_subtitle_ohio"
+    db.create_recording_rule(
+        {
+            "id": rule_id,
+            "provider": "builtin",
+            "type": "series",
+            "title": "College Football",
+            "series_match_key": "college football",
+            "channel_id": "5.1",
+            "new_only": False,
+            "title_match_mode": "exact",
+            "keyword_query": "Ohio State",
+        }
+    )
+
+    scheduled = expand_rules_sync()
+    assert len(scheduled) == 1
+    assert scheduled[0]["episode_title"] == "Ohio State vs Oregon"
+
+
+def test_expand_rules_hdhomerun_series_id_with_keyword_filter(tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "7.1", "KABC", True)
+    now = time.time()
+
+    # Two airings under the same SeriesID, only one matching the keyword filter
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "SH00012345",
+                "title": "College Football",
+                "episode_title": "Ohio State at Penn State",
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "Live football.",
+                "start_ts": now + 1000,
+                "end_ts": now + 5000,
+                "original_air_date": "2026-09-01",
+                "image_url": None,
+                "is_new": 1,
+                "category": "Sports, Football",
+            },
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "SH00012345",
+                "title": "College Football",
+                "episode_title": "Michigan at Iowa",
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "Live football.",
+                "start_ts": now + 10000,
+                "end_ts": now + 14000,
+                "original_air_date": "2026-09-01",
+                "image_url": None,
+                "is_new": 1,
+                "category": "Sports, Football",
+            },
+        ]
+    )
+
+    rule_id = "rule_hdhr_series_keyword"
+    db.create_recording_rule(
+        {
+            "id": rule_id,
+            "provider": "builtin",
+            "type": "series",
+            "title": "College Football",
+            "series_match_key": "SH00012345",
+            "channel_id": "7.1",
+            "new_only": False,
+            "keyword_query": "Ohio State",
+        }
+    )
+
+    scheduled = expand_rules_sync()
+    assert len(scheduled) == 1
+    assert scheduled[0]["episode_title"] == "Ohio State at Penn State"
+
+
 def _make_single_rule(rule_id: str, target_ts: float, **overrides) -> dict:
     rule = {
         "id": rule_id,

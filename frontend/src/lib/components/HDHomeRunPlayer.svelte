@@ -34,6 +34,7 @@
 		onClose: () => void;
 		channel?: HDHomeRunChannel | null;
 		airing?: HDHomeRunGuideEntry | null;
+		channels?: HDHomeRunChannel[];
 		recordingRules?: HDHomeRunRecordingRule[];
 		pendingRuleIds?: Set<string>;
 		officialDvrActive?: boolean;
@@ -65,6 +66,7 @@
 		onClose,
 		channel = null,
 		airing = null,
+		channels = [],
 		recordingRules = [],
 		pendingRuleIds = new Set<string>(),
 		officialDvrActive = false,
@@ -632,6 +634,7 @@
 					{isPending}
 					{isActionLoading}
 					{channelName}
+					{channels}
 					{effectiveAiring}
 					{officialDvrActive}
 					bind:showRecordMenu

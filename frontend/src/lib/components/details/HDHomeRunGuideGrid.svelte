@@ -646,8 +646,10 @@
 			closeContextMenu();
 		}}
 		onRecordSeries={() => {
-			if (!menuState || !menuState.airing.series_id) return;
-			onRecordSeries(menuState.airing.series_id, menuState.channel.channel_number);
+			if (!menuState) return;
+			onRecordSeries(menuState.airing.series_id || 'auto', menuState.channel.channel_number, {
+				title: menuState.airing.title,
+			});
 			closeContextMenu();
 		}}
 		onOpenOptions={() => {
@@ -668,8 +670,9 @@
 		airing={optionsDialogState.airing}
 		channelName={optionsDialogState.channel.name}
 		channelNumber={optionsDialogState.channel.channel_number}
+		{channels}
 		isHd={optionsDialogState.channel.is_hd}
-		canRecordSeries={!!optionsDialogState.airing.series_id}
+		canRecordSeries={!!(optionsDialogState.airing.series_id || optionsDialogState.airing.title)}
 		{officialDvrActive}
 		existingRule={findExistingRule(optionsDialogState.airing, optionsDialogState.channel)}
 		loading={isLoadingFor(
@@ -684,15 +687,20 @@
 		}}
 		onConfirm={(mode, options) => {
 			if (!optionsDialogState) return;
+			const targetChannel = options?.channel !== undefined ? options.channel : optionsDialogState.channel.channel_number;
 			if (mode === 'episode') {
 				onRecordEpisode(
 					optionsDialogState.airing.series_id,
-					optionsDialogState.channel.channel_number,
+					targetChannel,
 					optionsDialogState.airing.start,
 					options,
 				);
-			} else if (optionsDialogState.airing.series_id) {
-				onRecordSeries(optionsDialogState.airing.series_id, optionsDialogState.channel.channel_number, options);
+			} else {
+				onRecordSeries(
+					optionsDialogState.airing.series_id || 'auto',
+					targetChannel,
+					options,
+				);
 			}
 			optionsDialogState = null;
 		}}

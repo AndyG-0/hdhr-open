@@ -15,6 +15,8 @@ public struct HDHomeRunRecordingRule: Identifiable, Codable, Sendable, Hashable 
     public let endPadding: Int?
     public let recentOnly: Int?
     public let maxEpisodesToKeep: Int?
+    public let titleMatchMode: String?
+    public let keywordQuery: String?
     public let provider: String?
 
     enum CodingKeys: String, CodingKey {
@@ -30,6 +32,8 @@ public struct HDHomeRunRecordingRule: Identifiable, Codable, Sendable, Hashable 
         case endPadding = "EndPadding"
         case recentOnly = "RecentOnly"
         case maxEpisodesToKeep = "MaxEpisodesToKeep"
+        case titleMatchMode = "TitleMatchMode"
+        case keywordQuery = "KeywordQuery"
         case provider = "Provider"
     }
 
@@ -46,6 +50,8 @@ public struct HDHomeRunRecordingRule: Identifiable, Codable, Sendable, Hashable 
         endPadding: Int? = nil,
         recentOnly: Int? = nil,
         maxEpisodesToKeep: Int? = nil,
+        titleMatchMode: String? = nil,
+        keywordQuery: String? = nil,
         provider: String? = nil
     ) {
         self.recordingRuleId = recordingRuleId
@@ -60,6 +66,8 @@ public struct HDHomeRunRecordingRule: Identifiable, Codable, Sendable, Hashable 
         self.endPadding = endPadding
         self.recentOnly = recentOnly
         self.maxEpisodesToKeep = maxEpisodesToKeep
+        self.titleMatchMode = titleMatchMode
+        self.keywordQuery = keywordQuery
         self.provider = provider
     }
 
@@ -73,6 +81,9 @@ public struct HDHomeRunRecordingRule: Identifiable, Codable, Sendable, Hashable 
 }
 
 public struct RecordingRuleOptions: Sendable {
+    public var title: String?
+    public var titleMatchMode: String?
+    public var keywordQuery: String?
     public var startPadding: Int?
     public var endPadding: Int?
     public var recentOnly: Bool?
@@ -80,12 +91,18 @@ public struct RecordingRuleOptions: Sendable {
     public var server: String?
 
     public init(
+        title: String? = nil,
+        titleMatchMode: String? = nil,
+        keywordQuery: String? = nil,
         startPadding: Int? = nil,
         endPadding: Int? = nil,
         recentOnly: Bool? = nil,
         maxEpisodesToKeep: Int? = nil,
         server: String? = nil
     ) {
+        self.title = title
+        self.titleMatchMode = titleMatchMode
+        self.keywordQuery = keywordQuery
         self.startPadding = startPadding
         self.endPadding = endPadding
         self.recentOnly = recentOnly
@@ -98,6 +115,9 @@ public struct AddRecordingRulePayload: Codable, Sendable {
     public let seriesId: String
     public let dateTime: TimeInterval?
     public let channel: String?
+    public let title: String?
+    public let titleMatchMode: String?
+    public let keywordQuery: String?
     public let recentOnly: Bool?
     public let startPadding: Int?
     public let endPadding: Int?
@@ -108,6 +128,9 @@ public struct AddRecordingRulePayload: Codable, Sendable {
         case seriesId = "series_id"
         case dateTime = "date_time"
         case channel
+        case title
+        case titleMatchMode = "title_match_mode"
+        case keywordQuery = "keyword_query"
         case recentOnly = "recent_only"
         case startPadding = "start_padding"
         case endPadding = "end_padding"
@@ -119,6 +142,9 @@ public struct AddRecordingRulePayload: Codable, Sendable {
         seriesId: String,
         dateTime: TimeInterval? = nil,
         channel: String? = nil,
+        title: String? = nil,
+        titleMatchMode: String? = nil,
+        keywordQuery: String? = nil,
         recentOnly: Bool? = nil,
         startPadding: Int? = nil,
         endPadding: Int? = nil,
@@ -128,6 +154,9 @@ public struct AddRecordingRulePayload: Codable, Sendable {
         self.seriesId = seriesId
         self.dateTime = dateTime
         self.channel = channel
+        self.title = title
+        self.titleMatchMode = titleMatchMode
+        self.keywordQuery = keywordQuery
         self.recentOnly = recentOnly
         self.startPadding = startPadding
         self.endPadding = endPadding

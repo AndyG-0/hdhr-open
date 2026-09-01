@@ -108,4 +108,31 @@ final class ModelsSerializationTests: XCTestCase {
         XCTAssertTrue(rec.isHDHomeRunNative)
         XCTAssertEqual(rec.formattedDuration, "30m")
     }
+
+    func testDecodeRecordingRuleWithKeywords() throws {
+        let json = """
+        {
+            "RecordingRuleID": "rule_kw_123",
+            "SeriesID": "auto",
+            "Title": "College Football",
+            "ChannelOnly": "5.1",
+            "RecentOnly": 0,
+            "StartPadding": 60,
+            "EndPadding": 120,
+            "MaxEpisodesToKeep": 5,
+            "TitleMatchMode": "contains",
+            "KeywordQuery": "Ohio State, Michigan",
+            "Provider": "builtin"
+        }
+        """.data(using: .utf8)!
+
+        let rule = try JSONDecoder().decode(HDHomeRunRecordingRule.self, from: json)
+        XCTAssertEqual(rule.recordingRuleId, "rule_kw_123")
+        XCTAssertEqual(rule.seriesId, "auto")
+        XCTAssertEqual(rule.title, "College Football")
+        XCTAssertEqual(rule.titleMatchMode, "contains")
+        XCTAssertEqual(rule.keywordQuery, "Ohio State, Michigan")
+        XCTAssertEqual(rule.maxEpisodesToKeep, 5)
+        XCTAssertEqual(rule.provider, "builtin")
+    }
 }

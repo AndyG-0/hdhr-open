@@ -11,12 +11,18 @@ const airing: HDHomeRunGuideEntry = {
 	end: 1_700_003_600,
 };
 
-function renderDialog(overrides: { officialDvrActive?: boolean; canRecordSeries?: boolean } = {}) {
+function renderDialog(overrides: { officialDvrActive?: boolean; canRecordSeries?: boolean; channels?: any[] } = {}) {
 	const onConfirm = vi.fn();
 	const onClose = vi.fn();
 	render(HDHomeRunRecordingOptionsDialog, {
 		airing,
 		channelName: 'KDFW',
+		channelNumber: '4.1',
+		channels: [
+			{ channel_number: '4.1', name: 'KDFW FOX' },
+			{ channel_number: '5.1', name: 'KXAS NBC' },
+			{ channel_number: '8.1', name: 'WFAA ABC' },
+		],
 		canRecordSeries: true,
 		officialDvrActive: false,
 		loading: false,
@@ -28,16 +34,21 @@ function renderDialog(overrides: { officialDvrActive?: boolean; canRecordSeries?
 }
 
 describe('HDHomeRunRecordingOptionsDialog', () => {
-	it('confirms with no extra fields when defaults are left unchanged', async () => {
+	it('confirms with default fields when defaults are left unchanged', async () => {
 		const { onConfirm } = renderDialog();
 
 		await fireEvent.click(screen.getByRole('button', { name: /Record Episode/ }));
 
 		expect(onConfirm).toHaveBeenCalledWith('episode', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: undefined,
+			channel: '4.1',
 			startPadding: undefined,
 			endPadding: undefined,
 			recentOnly: undefined,
 			maxEpisodesToKeep: undefined,
+			server: undefined,
 		});
 	});
 
@@ -48,10 +59,15 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Record Series' }));
 
 		expect(onConfirm).toHaveBeenCalledWith('series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: undefined,
+			channel: '4.1',
 			startPadding: 300,
 			endPadding: undefined,
 			recentOnly: undefined,
 			maxEpisodesToKeep: undefined,
+			server: undefined,
 		});
 	});
 
@@ -62,14 +78,141 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		await fireEvent.click(screen.getByRole('button', { name: /Record Episode/ }));
 
 		expect(onConfirm).toHaveBeenCalledWith('episode', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: undefined,
+			channel: '4.1',
 			startPadding: undefined,
 			endPadding: undefined,
 			recentOnly: undefined,
 			maxEpisodesToKeep: 3,
+			server: undefined,
 		});
 	});
 
-	it('hides the retention control and shows a note when the official DVR is active', () => {
+	it('supports selecting "Any channel"', async () => {
+		const { onConfirm } = renderDialog();
+
+		await fireEvent.click(screen.getByLabelText('Any channel'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Record Series' }));
+
+		expect(onConfirm).toHaveBeenCalledWith('series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: undefined,
+			channel: undefined,
+			startPadding: undefined,
+			endPadding: undefined,
+			recentOnly: undefined,
+			maxEpisodesToKeep: undefined,
+			server: undefined,
+		});
+	});
+
+	it('supports selecting multiple specific channels', async () => {
+		const { onConfirm } = renderDialog();
+
+		await fireEvent.click(screen.getByLabelText('Specific channels'));
+		// Check second channel 5.1 in addition to default 4.1
+		const ch5Checkbox = screen.getByLabelText(/5.1 KXAS NBC/);
+		await fireEvent.click(ch5Checkbox);
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Record Series' }));
+
+		expect(onConfirm).toHaveBeenCalledWith('series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: undefined,
+			channel: '4.1|5.1',
+			startPadding: undefined,
+			endPadding: undefined,
+			recentOnly: undefined,
+			maxEpisodesToKeep: undefined,
+			server: undefined,
+		});
+	});
+
+	it('supports keyword filtering and automatically targets builtin server', async () => {
+		const { onConfirm } = renderDialog();
+
+		await fireEvent.input(screen.getByPlaceholderText('e.g. Ohio State, Michigan'), {
+			target: { value: 'Ohio State, Michigan' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: /Record Series \(Keywords\)/ }));
+
+		expect(onConfirm).toHaveBeenCalledWith('series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: 'Ohio State, Michigan',
+			channel: '4.1',
+			startPadding: undefined,
+			endPadding: undefined,
+			recentOnly: undefined,
+			maxEpisodesToKeep: undefined,
+			server: 'builtin',
+		});
+	});
+
+	it('supports title match mode "contains"', async () => {
+		const { onConfirm } = renderDialog();
+
+		await fireEvent.click(screen.getByLabelText('Contains'));
+		await fireEvent.click(screen.getByRole('button', { name: /Record Series \(Keywords\)/ }));
+
+		expect(onConfirm).toHaveBeenCalledWith('series', {
+			title: 'Evening News',
+			titleMatchMode: 'contains',
+			keywordQuery: undefined,
+			channel: '4.1',
+			startPadding: undefined,
+			endPadding: undefined,
+			recentOnly: undefined,
+			maxEpisodesToKeep: undefined,
+			server: 'builtin',
+		});
+	});
+
+	it('populates keyword from subtitle suggestion chip', async () => {
+		const onConfirm = vi.fn();
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing: {
+				series_id: 'SH123',
+				title: 'College Football',
+				episode_title: 'Ohio State vs Michigan',
+				start: 1_700_000_000,
+				end: 1_700_003_600,
+			},
+			channelName: 'FOX',
+			channelNumber: '4.1',
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			onConfirm,
+			onClose: vi.fn(),
+		});
+
+		const chip = screen.getByRole('button', { name: /\+ Use subtitle: "Ohio State vs Michigan"/ });
+		expect(chip).toBeInTheDocument();
+		await fireEvent.click(chip);
+
+		const keywordInput = screen.getByPlaceholderText('e.g. Ohio State, Michigan') as HTMLInputElement;
+		expect(keywordInput.value).toBe('Ohio State vs Michigan');
+
+		await fireEvent.click(screen.getByRole('button', { name: /Record Series \(Keywords\)/ }));
+		expect(onConfirm).toHaveBeenCalledWith('series', {
+			title: 'College Football',
+			titleMatchMode: 'exact',
+			keywordQuery: 'Ohio State vs Michigan',
+			channel: '4.1',
+			startPadding: undefined,
+			endPadding: undefined,
+			recentOnly: undefined,
+			maxEpisodesToKeep: undefined,
+			server: 'builtin',
+		});
+	});
+
+	it('hides the retention control and shows a note when the official DVR is active and no keywords are set', () => {
 		renderDialog({ officialDvrActive: true });
 
 		expect(
@@ -79,7 +222,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(screen.queryByLabelText(/Keep last/)).not.toBeInTheDocument();
 	});
 
-	it('does not render a "Record Series" button when the airing has no series', () => {
+	it('does not render a "Record Series" button when canRecordSeries is false', () => {
 		renderDialog({ canRecordSeries: false });
 
 		expect(screen.queryByRole('button', { name: 'Record Series' })).not.toBeInTheDocument();
@@ -101,6 +244,10 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		await fireEvent.click(screen.getByRole('button', { name: /Record Episode/ }));
 
 		expect(onConfirm).toHaveBeenCalledWith('episode', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: undefined,
+			channel: '4.1',
 			startPadding: undefined,
 			endPadding: undefined,
 			recentOnly: undefined,

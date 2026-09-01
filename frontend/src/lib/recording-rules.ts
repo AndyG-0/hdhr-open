@@ -7,6 +7,7 @@ interface MatchableAiring {
 	title?: string | null;
 	episode_title?: string | null;
 	synopsis?: string | null;
+	category?: string | null;
 }
 
 function normalize(s: string): string {
@@ -30,7 +31,7 @@ function keywordMatches(keywordQuery: string | null | undefined, airing: Matchab
 		.filter(Boolean)
 		.map(normalize);
 	if (terms.length === 0) return true;
-	const haystacks = [airing.episode_title, airing.synopsis, airing.title].filter(
+	const haystacks = [airing.episode_title, airing.synopsis, airing.category, airing.title].filter(
 		(v): v is string => !!v,
 	).map(normalize);
 	return terms.some((term) => haystacks.some((h) => h.includes(term)));
@@ -44,7 +45,9 @@ function isKeywordRule(r: HDHomeRunRecordingRule): boolean {
 function keywordRuleMatchesAiring(r: HDHomeRunRecordingRule, channelNumber: string | undefined, airing: MatchableAiring | null | undefined): boolean {
 	const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
 	if (!channelMatches || !airing) return false;
-	if (!titleMatches(r.Title, airing.title, r.TitleMatchMode)) return false;
+	const seriesMatches = !!(r.SeriesID && airing.series_id && r.SeriesID === airing.series_id);
+	const titleMatchesAiring = titleMatches(r.Title, airing.title, r.TitleMatchMode);
+	if (!seriesMatches && !titleMatchesAiring) return false;
 	return keywordMatches(r.KeywordQuery, airing);
 }
 
@@ -61,7 +64,7 @@ export function findMatchingRecordingRule(
 	channelNumber: string | undefined,
 	airing: MatchableAiring | null | undefined,
 ): HDHomeRunRecordingRule | null {
-	if (!rules || rules.length === 0) return null;
+	if (!rules || rules.length === 0 || !airing) return null;
 	return (
 		rules.find((r) => {
 			const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
@@ -70,9 +73,11 @@ export function findMatchingRecordingRule(
 				return keywordRuleMatchesAiring(r, channelNumber, airing);
 			}
 			if (r.DateTimeOnly != null) {
-				return airing?.start != null && Math.abs(r.DateTimeOnly - airing.start) < 60;
+				return airing.start != null && Math.abs(r.DateTimeOnly - airing.start) < 60;
 			}
-			return !!(r.SeriesID && airing?.series_id && r.SeriesID === airing.series_id);
+			const seriesMatches = !!(r.SeriesID && airing.series_id && r.SeriesID === airing.series_id);
+			const titleMatchesAiring = titleMatches(r.Title, airing.title, r.TitleMatchMode);
+			return seriesMatches || titleMatchesAiring;
 		}) ?? null
 	);
 }
@@ -88,6 +93,8 @@ export interface RecordingRuleIndex {
 	byMinuteAnyChannel: Map<number, HDHomeRunRecordingRule>;
 	byChannelSeries: Map<string, HDHomeRunRecordingRule>;
 	bySeriesAnyChannel: Map<string, HDHomeRunRecordingRule>;
+	byChannelTitle: Map<string, HDHomeRunRecordingRule>;
+	byTitleAnyChannel: Map<string, HDHomeRunRecordingRule>;
 	/** Keyword/contains rules can't be hashed by exact title or series ID, so
 	 * they're checked via a linear scan after the O(1) lookups miss. Expected
 	 * to be rare (whole-topic standing rules, not one per episode). */
@@ -102,6 +109,8 @@ export function buildRecordingRuleIndex(rules: HDHomeRunRecordingRule[] | undefi
 		byMinuteAnyChannel: new Map(),
 		byChannelSeries: new Map(),
 		bySeriesAnyChannel: new Map(),
+		byChannelTitle: new Map(),
+		byTitleAnyChannel: new Map(),
 		keywordRules: [],
 		order: new Map(),
 	};
@@ -127,17 +136,31 @@ export function buildRecordingRuleIndex(rules: HDHomeRunRecordingRule[] | undefi
 					if (!index.byChannelMinute.has(key)) index.byChannelMinute.set(key, rule);
 				}
 			}
-		} else if (rule.SeriesID) {
-			for (const channel of channels) {
-				if (channel === null) {
-					if (!index.bySeriesAnyChannel.has(rule.SeriesID)) index.bySeriesAnyChannel.set(rule.SeriesID, rule);
-				} else {
-					const key = `${channel}:${rule.SeriesID}`;
-					if (!index.byChannelSeries.has(key)) index.byChannelSeries.set(key, rule);
+		} else {
+			if (rule.SeriesID) {
+				for (const channel of channels) {
+					if (channel === null) {
+						if (!index.bySeriesAnyChannel.has(rule.SeriesID)) index.bySeriesAnyChannel.set(rule.SeriesID, rule);
+					} else {
+						const key = `${channel}:${rule.SeriesID}`;
+						if (!index.byChannelSeries.has(key)) index.byChannelSeries.set(key, rule);
+					}
+				}
+			}
+			if (rule.Title) {
+				const normTitle = normalize(rule.Title);
+				if (normTitle) {
+					for (const channel of channels) {
+						if (channel === null) {
+							if (!index.byTitleAnyChannel.has(normTitle)) index.byTitleAnyChannel.set(normTitle, rule);
+						} else {
+							const key = `${channel}:${normTitle}`;
+							if (!index.byChannelTitle.has(key)) index.byChannelTitle.set(key, rule);
+						}
+					}
 				}
 			}
 		}
-		// Rules with neither DateTimeOnly nor a truthy SeriesID never match anything (matches the original's implicit behavior).
 	});
 
 	return index;
@@ -182,6 +205,16 @@ export function findMatchingRecordingRuleIndexed(
 			consider(index.byChannelSeries.get(`${channelNumber}:${airing.series_id}`));
 		}
 		consider(index.bySeriesAnyChannel.get(airing.series_id));
+	}
+
+	if (airing?.title) {
+		const normTitle = normalize(airing.title);
+		if (normTitle) {
+			if (channelNumber) {
+				consider(index.byChannelTitle.get(`${channelNumber}:${normTitle}`));
+			}
+			consider(index.byTitleAnyChannel.get(normTitle));
+		}
 	}
 
 	for (const rule of index.keywordRules) {

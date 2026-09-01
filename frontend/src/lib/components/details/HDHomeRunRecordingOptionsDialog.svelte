@@ -1,11 +1,17 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import type { HDHomeRunGuideEntry, HDHomeRunRecordingRule, RecordingRuleOptions } from '$lib/api';
+	import type {
+		HDHomeRunGuideEntry,
+		HDHomeRunRecordingRule,
+		RecordingRuleOptions,
+		HDHomeRunChannel,
+	} from '$lib/api';
 
 	interface Props {
 		airing: HDHomeRunGuideEntry;
 		channelName: string;
 		channelNumber?: string;
+		channels?: HDHomeRunChannel[];
 		isHd?: boolean;
 		canRecordSeries?: boolean;
 		officialDvrActive?: boolean;
@@ -21,6 +27,7 @@
 		airing,
 		channelName,
 		channelNumber = '',
+		channels = [],
 		isHd = false,
 		canRecordSeries = false,
 		officialDvrActive = false,
@@ -38,6 +45,10 @@
 	let selectedServer = $state<'default' | 'builtin' | 'hdhomerun'>('default');
 	let retentionMode = $state<'unlimited' | 'limited'>('unlimited');
 	let retentionCount = $state(3);
+	let titleMatchMode = $state<'exact' | 'contains'>('exact');
+	let keywordQuery = $state('');
+	let channelMode = $state<'any' | 'current' | 'custom'>('current');
+	let selectedCustomChannels = $state<string[]>([]);
 	let imageFailed = $state(false);
 
 	const effectiveChannelNumber = $derived(channelNumber || airing.channel_number || '');
@@ -47,12 +58,41 @@
 		airing.start != null && airing.end != null && airing.start <= nowSeconds && nowSeconds < airing.end,
 	);
 
+	$effect(() => {
+		const initialCh = effectiveChannelNumber;
+		if (initialCh && selectedCustomChannels.length === 0) {
+			selectedCustomChannels = [initialCh];
+		}
+	});
+
+	const isKeywordActive = $derived(keywordQuery.trim().length > 0 || titleMatchMode === 'contains');
 	const isOfficialDvrTarget = $derived(
-		selectedServer === 'hdhomerun' || (selectedServer === 'default' && officialDvrActive),
+		!isKeywordActive && (selectedServer === 'hdhomerun' || (selectedServer === 'default' && officialDvrActive)),
 	);
 
+	function getEffectiveChannel(): string | undefined {
+		if (channelMode === 'any') return undefined;
+		if (channelMode === 'current') return effectiveChannelNumber || undefined;
+		if (channelMode === 'custom') {
+			const selected = selectedCustomChannels.filter(Boolean);
+			return selected.length > 0 ? selected.join('|') : undefined;
+		}
+		return undefined;
+	}
+
 	function buildOptions(): RecordingRuleOptions {
+		const trimmedKeywords = keywordQuery.trim();
+		const hasKeywords = trimmedKeywords.length > 0;
+		const hasContainsMatch = titleMatchMode === 'contains';
+		const serverToUse = (hasKeywords || hasContainsMatch)
+			? 'builtin'
+			: (selectedServer !== 'default' ? selectedServer : undefined);
+
 		return {
+			title: airing.title,
+			titleMatchMode: hasContainsMatch ? 'contains' : 'exact',
+			keywordQuery: hasKeywords ? trimmedKeywords : undefined,
+			channel: getEffectiveChannel(),
 			startPadding: startPaddingMinutes ? startPaddingMinutes * 60 : undefined,
 			endPadding: endPaddingMinutes ? endPaddingMinutes * 60 : undefined,
 			recentOnly: recentOnly || undefined,
@@ -60,7 +100,7 @@
 				!isOfficialDvrTarget && retentionMode === 'limited' && retentionCount > 0
 					? retentionCount
 					: undefined,
-			server: selectedServer !== 'default' ? selectedServer : undefined,
+			server: serverToUse,
 		};
 	}
 
@@ -247,6 +287,104 @@
 				</select>
 			</label>
 
+			<div class="match-mode-field">
+				<span class="match-mode-label">{$_('hdhomerun.detail.keyword_rule_match_mode_label')}</span>
+				<div class="match-mode-choices">
+					<label class="radio">
+						<input type="radio" name="title-match-mode" value="exact" bind:group={titleMatchMode} />
+						{$_('hdhomerun.detail.keyword_rule_match_exact')}
+					</label>
+					<label class="radio">
+						<input type="radio" name="title-match-mode" value="contains" bind:group={titleMatchMode} />
+						{$_('hdhomerun.detail.keyword_rule_match_contains')}
+					</label>
+				</div>
+			</div>
+
+			<div class="keyword-field">
+				<label>
+					{$_('hdhomerun.detail.keyword_rule_keyword_label')}
+					<input
+						type="text"
+						bind:value={keywordQuery}
+						placeholder={$_('hdhomerun.detail.keyword_rule_keyword_placeholder')}
+					/>
+				</label>
+				{#if airing.episode_title && !keywordQuery.toLowerCase().includes(airing.episode_title.toLowerCase())}
+					<button
+						type="button"
+						class="keyword-suggestion-chip"
+						onclick={() => {
+							if (!keywordQuery.trim()) {
+								keywordQuery = airing.episode_title!;
+							} else {
+								keywordQuery = `${keywordQuery.trim()}, ${airing.episode_title}`;
+							}
+						}}
+					>
+						+ {$_('hdhomerun.detail.use_subtitle_as_keyword', { values: { subtitle: airing.episode_title } })}
+					</button>
+				{/if}
+				<span class="hint">{$_('hdhomerun.detail.keyword_rule_keyword_hint')}</span>
+			</div>
+
+			{#if isKeywordActive}
+				<div class="keyword-server-note">
+					ℹ️ {$_('hdhomerun.detail.keyword_rule_builtin_only_note')}
+				</div>
+			{/if}
+
+			<div class="channel-scope-field">
+				<span class="channel-scope-label">{$_('hdhomerun.detail.channel_label')}</span>
+				<div class="channel-scope-choices">
+					{#if effectiveChannelNumber}
+						<label class="radio">
+							<input type="radio" name="channel-mode" value="current" bind:group={channelMode} />
+							{$_('hdhomerun.detail.channel_mode_current', { values: { channel: `${effectiveChannelNumber} ${channelName}`.trim() } })}
+						</label>
+					{/if}
+					<label class="radio">
+						<input type="radio" name="channel-mode" value="any" bind:group={channelMode} />
+						{$_('hdhomerun.detail.channel_mode_any')}
+					</label>
+					{#if channels && channels.length > 0}
+						<label class="radio">
+							<input type="radio" name="channel-mode" value="custom" bind:group={channelMode} />
+							{$_('hdhomerun.detail.channel_mode_custom')}
+						</label>
+					{/if}
+				</div>
+
+				{#if channelMode === 'custom' && channels && channels.length > 0}
+					<div class="channel-picker-wrap">
+						<span class="channel-picker-prompt">{$_('hdhomerun.detail.select_channels_prompt')}</span>
+						<div class="channel-checklist" role="group" aria-label={$_('hdhomerun.detail.select_channels_prompt')}>
+							{#each channels as ch}
+								<label class="channel-check-item">
+									<input
+										type="checkbox"
+										value={ch.channel_number}
+										checked={selectedCustomChannels.includes(ch.channel_number)}
+										onchange={(e) => {
+											const checked = (e.currentTarget as HTMLInputElement).checked;
+											if (checked) {
+												if (!selectedCustomChannels.includes(ch.channel_number)) {
+													selectedCustomChannels = [...selectedCustomChannels, ch.channel_number];
+												}
+											} else {
+												selectedCustomChannels = selectedCustomChannels.filter((c) => c !== ch.channel_number);
+											}
+										}}
+									/>
+									<span class="channel-check-number">{ch.channel_number}</span>
+									<span class="channel-check-name">{ch.name}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+
 			<div class="padding-grid">
 				<label>
 					{$_('hdhomerun.detail.start_padding_label')}
@@ -323,7 +461,11 @@
 					disabled={loading}
 					onclick={() => onConfirm('series', buildOptions())}
 				>
-					{$_('hdhomerun.detail.record_series')}
+					{#if isKeywordActive}
+						{$_('hdhomerun.detail.record_series_with_keywords')}
+					{:else}
+						{$_('hdhomerun.detail.record_series')}
+					{/if}
 				</button>
 			{/if}
 		{/if}
@@ -553,7 +695,8 @@
 	}
 
 	.options-body select,
-	.options-body input[type='number'] {
+	.options-body input[type='number'],
+	.options-body input[type='text'] {
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: 0.35rem;
@@ -563,9 +706,124 @@
 	}
 
 	.options-body select:focus,
-	.options-body input[type='number']:focus {
+	.options-body input[type='number']:focus,
+	.options-body input[type='text']:focus {
 		outline: none;
 		border-color: var(--color-accent);
+	}
+
+	.match-mode-field,
+	.keyword-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.match-mode-label {
+		font-size: 0.84rem;
+		color: var(--color-text);
+	}
+
+	.match-mode-choices {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+	}
+
+	.keyword-suggestion-chip {
+		display: inline-flex;
+		align-self: flex-start;
+		background: rgba(91, 141, 250, 0.12);
+		border: 1px dashed rgba(91, 141, 250, 0.4);
+		border-radius: 0.35rem;
+		padding: 0.25rem 0.55rem;
+		font-size: 0.78rem;
+		color: var(--color-accent);
+		cursor: pointer;
+		transition: background 0.15s ease;
+		text-align: left;
+	}
+
+	.keyword-suggestion-chip:hover {
+		background: rgba(91, 141, 250, 0.22);
+	}
+
+	.keyword-server-note {
+		font-size: 0.78rem;
+		color: var(--color-accent);
+		background: rgba(91, 141, 250, 0.08);
+		border: 1px solid rgba(91, 141, 250, 0.25);
+		border-radius: 0.35rem;
+		padding: 0.35rem 0.55rem;
+		line-height: 1.35;
+	}
+
+	.channel-scope-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.channel-scope-label {
+		font-size: 0.84rem;
+		color: var(--color-text);
+	}
+
+	.channel-scope-choices {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.channel-picker-wrap {
+		margin-top: 0.25rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		background: rgba(0, 0, 0, 0.15);
+		border: 1px solid var(--color-border);
+		border-radius: 0.4rem;
+		padding: 0.5rem;
+	}
+
+	.channel-picker-prompt {
+		font-size: 0.78rem;
+		color: var(--color-text-muted);
+	}
+
+	.channel-checklist {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+		gap: 0.35rem;
+		max-height: 9rem;
+		overflow-y: auto;
+		padding: 0.2rem 0;
+	}
+
+	.channel-check-item {
+		display: flex !important;
+		flex-direction: row !important;
+		align-items: center;
+		gap: 0.35rem !important;
+		font-size: 0.8rem !important;
+		cursor: pointer;
+		padding: 0.2rem 0.3rem;
+		border-radius: 0.25rem;
+	}
+
+	.channel-check-item:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.channel-check-number {
+		font-weight: 600;
+	}
+
+	.channel-check-name {
+		color: var(--color-text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.options-body label.checkbox,

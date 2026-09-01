@@ -55,6 +55,10 @@ export interface RecordingRuleOptions {
 	recentOnly?: boolean;
 	maxEpisodesToKeep?: number;
 	server?: 'builtin' | 'hdhomerun';
+	title?: string;
+	titleMatchMode?: 'exact' | 'contains';
+	keywordQuery?: string;
+	channel?: string;
 }
 
 export interface HDHomeRunFullGuideChannel {

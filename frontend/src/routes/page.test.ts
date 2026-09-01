@@ -309,10 +309,14 @@ describe('home +page.svelte (guide)', () => {
 		expect(addHDHomeRunRecordingRule).toHaveBeenCalledWith({
 			series_id: 'SH123',
 			channel: '4.1',
+			title: 'Evening News',
+			title_match_mode: 'exact',
+			keyword_query: undefined,
 			start_padding: 300,
 			end_padding: 600,
 			recent_only: undefined,
 			max_episodes_to_keep: 2,
+			server: undefined,
 		});
 		vi.useRealTimers();
 	});

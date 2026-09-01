@@ -48,4 +48,51 @@ final class RecordingRulesTests: XCTestCase {
         let noMatch = RecordingRuleMatcher.findMatchingRule(rules: [rule], channelNumber: "9.1", airing: airing)
         XCTAssertNil(noMatch)
     }
+
+    func testFindMatchingSeriesRuleByTitleWithoutSeriesId() {
+        let rule = HDHomeRunRecordingRule(
+            recordingRuleId: "rule_xmltv",
+            seriesId: "auto",
+            title: "Evening News",
+            channelOnly: nil
+        )
+
+        let airing = HDHomeRunGuideEntry(
+            seriesId: nil,
+            title: "Evening News",
+            start: 1700000000,
+            end: 1700003600,
+            channelNumber: "4.1"
+        )
+
+        let match = RecordingRuleMatcher.findMatchingRule(rules: [rule], channelNumber: "4.1", airing: airing)
+        XCTAssertNotNil(match)
+        XCTAssertEqual(match?.recordingRuleId, "rule_xmltv")
+    }
+
+    func testFindMatchingMultiChannelRule() {
+        let rule = HDHomeRunRecordingRule(
+            recordingRuleId: "rule_multi",
+            seriesId: "auto",
+            title: "Local News",
+            channelOnly: "4.1|4.2"
+        )
+
+        let airing1 = HDHomeRunGuideEntry(
+            title: "Local News",
+            channelNumber: "4.1"
+        )
+        let airing2 = HDHomeRunGuideEntry(
+            title: "Local News",
+            channelNumber: "4.2"
+        )
+        let airing3 = HDHomeRunGuideEntry(
+            title: "Local News",
+            channelNumber: "5.1"
+        )
+
+        XCTAssertNotNil(RecordingRuleMatcher.findMatchingRule(rules: [rule], channelNumber: "4.1", airing: airing1))
+        XCTAssertNotNil(RecordingRuleMatcher.findMatchingRule(rules: [rule], channelNumber: "4.2", airing: airing2))
+        XCTAssertNil(RecordingRuleMatcher.findMatchingRule(rules: [rule], channelNumber: "5.1", airing: airing3))
+    }
 }

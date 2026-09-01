@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import type { HDHomeRunGuideEntry, HDHomeRunRecordingRule, RecordingRuleOptions } from '$lib/api';
+	import type { HDHomeRunGuideEntry, HDHomeRunRecordingRule, RecordingRuleOptions, HDHomeRunChannel } from '$lib/api';
 	import HDHomeRunRecordingOptionsDialog from '../details/HDHomeRunRecordingOptionsDialog.svelte';
 
 	interface Props {
@@ -8,6 +8,7 @@
 		isPending: boolean;
 		isActionLoading: boolean;
 		channelName: string;
+		channels?: HDHomeRunChannel[];
 		effectiveAiring: HDHomeRunGuideEntry | null;
 		officialDvrActive: boolean;
 		showRecordMenu: boolean;
@@ -23,6 +24,7 @@
 		isPending,
 		isActionLoading,
 		channelName,
+		channels = [],
 		effectiveAiring,
 		officialDvrActive,
 		showRecordMenu = $bindable(),
@@ -68,7 +70,7 @@
 					<button class="menu-item" disabled={isActionLoading} onclick={() => onRecordEpisode()}>
 						🔴 {$_('player.record_episode')}
 					</button>
-					{#if effectiveAiring?.series_id}
+					{#if effectiveAiring?.series_id || effectiveAiring?.title}
 						<button class="menu-item" disabled={isActionLoading} onclick={() => onRecordSeries()}>
 							{$_('player.record_series')}
 						</button>
@@ -93,7 +95,9 @@
 	<HDHomeRunRecordingOptionsDialog
 		airing={effectiveAiring}
 		{channelName}
-		canRecordSeries={Boolean(effectiveAiring.series_id)}
+		channelNumber={effectiveAiring.channel_number}
+		{channels}
+		canRecordSeries={Boolean(effectiveAiring.series_id || effectiveAiring.title)}
 		{officialDvrActive}
 		existingRule={currentRule}
 		loading={isActionLoading}

@@ -29,6 +29,10 @@ data class HDHomeRunRecordingRule(
     val recentOnly: Int? = null,
     @SerialName("MaxEpisodesToKeep")
     val maxEpisodesToKeep: Int? = null,
+    @SerialName("TitleMatchMode")
+    val titleMatchMode: String? = null,
+    @SerialName("KeywordQuery")
+    val keywordQuery: String? = null,
     @SerialName("Provider")
     val provider: String? = null
 ) {
@@ -38,6 +42,9 @@ data class HDHomeRunRecordingRule(
 }
 
 data class RecordingRuleOptions(
+    val title: String? = null,
+    val titleMatchMode: String? = null,
+    val keywordQuery: String? = null,
     val startPadding: Int? = null,
     val endPadding: Int? = null,
     val recentOnly: Boolean? = null,
@@ -52,6 +59,11 @@ data class AddRecordingRulePayload(
     @SerialName("date_time")
     val dateTime: Double? = null,
     val channel: String? = null,
+    val title: String? = null,
+    @SerialName("title_match_mode")
+    val titleMatchMode: String? = null,
+    @SerialName("keyword_query")
+    val keywordQuery: String? = null,
     @SerialName("recent_only")
     val recentOnly: Boolean? = null,
     @SerialName("start_padding")

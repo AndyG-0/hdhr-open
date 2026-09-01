@@ -298,6 +298,7 @@
 				title: options.title,
 				title_match_mode: options.titleMatchMode,
 				keyword_query: options.keywordQuery,
+				channel: options.channel,
 				start_padding: options.startPadding,
 				end_padding: options.endPadding,
 				recent_only: options.recentOnly,
@@ -683,6 +684,7 @@
 
 {#if showKeywordRuleDialog}
 	<HDHomeRunKeywordRuleDialog
+		channels={channels}
 		loading={recordingLoading === 'keyword-rule'}
 		onConfirm={createKeywordRule}
 		onClose={() => (showKeywordRuleDialog = false)}
@@ -700,6 +702,7 @@
 		seekable={playingMedia.seekable}
 		channel={playingMedia.channel}
 		airing={playingMedia.airing}
+		{channels}
 		recordingRules={displayedRecordingRules}
 		officialDvrActive={dvrInfo?.is_builtin === false}
 		{recordingLoading}

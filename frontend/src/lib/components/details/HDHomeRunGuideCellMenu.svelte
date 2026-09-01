@@ -200,7 +200,7 @@
 			<button class="menu-item primary" disabled={loading} onclick={onRecordEpisode} role="menuitem">
 				🔴 {$_('hdhomerun.detail.record_episode')}
 			</button>
-			{#if airing.series_id}
+			{#if airing.series_id || airing.title}
 				<button class="menu-item" disabled={loading} onclick={onRecordSeries} role="menuitem">
 					{$_('hdhomerun.detail.record_series')}
 				</button>

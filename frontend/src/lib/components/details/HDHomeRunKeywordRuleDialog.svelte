@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
+	import type { HDHomeRunChannel } from '$lib/api';
 
 	export interface KeywordRuleOptions {
 		title: string;
 		titleMatchMode: 'exact' | 'contains';
 		keywordQuery?: string;
+		channel?: string;
 		startPadding?: number;
 		endPadding?: number;
 		recentOnly?: boolean;
@@ -12,16 +14,19 @@
 	}
 
 	interface Props {
+		channels?: HDHomeRunChannel[];
 		loading: boolean;
 		onConfirm: (options: KeywordRuleOptions) => void;
 		onClose: () => void;
 	}
 
-	let { loading, onConfirm, onClose }: Props = $props();
+	let { channels = [], loading, onConfirm, onClose }: Props = $props();
 
 	let title = $state('');
 	let titleMatchMode = $state<'exact' | 'contains'>('exact');
 	let keywordQuery = $state('');
+	let channelMode = $state<'any' | 'custom'>('any');
+	let selectedCustomChannels = $state<string[]>([]);
 	let startPaddingMinutes = $state(0);
 	let endPaddingMinutes = $state(0);
 	let recentOnly = $state(false);
@@ -30,12 +35,22 @@
 
 	const canSubmit = $derived(title.trim().length > 0);
 
+	function getEffectiveChannel(): string | undefined {
+		if (channelMode === 'any') return undefined;
+		if (channelMode === 'custom') {
+			const selected = selectedCustomChannels.filter(Boolean);
+			return selected.length > 0 ? selected.join('|') : undefined;
+		}
+		return undefined;
+	}
+
 	function submit() {
 		if (!canSubmit) return;
 		onConfirm({
 			title: title.trim(),
 			titleMatchMode,
 			keywordQuery: keywordQuery.trim() || undefined,
+			channel: getEffectiveChannel(),
 			startPadding: startPaddingMinutes ? startPaddingMinutes * 60 : undefined,
 			endPadding: endPaddingMinutes ? endPaddingMinutes * 60 : undefined,
 			recentOnly: recentOnly || undefined,
@@ -99,6 +114,51 @@
 			/>
 			<span class="hint">{$_('hdhomerun.detail.keyword_rule_keyword_hint')}</span>
 		</label>
+
+		{#if channels && channels.length > 0}
+			<div class="channel-scope-field">
+				<span class="channel-scope-label">{$_('hdhomerun.detail.channel_label')}</span>
+				<div class="channel-scope-choices">
+					<label class="radio">
+						<input type="radio" name="keyword-channel-mode" value="any" bind:group={channelMode} />
+						{$_('hdhomerun.detail.channel_mode_any')}
+					</label>
+					<label class="radio">
+						<input type="radio" name="keyword-channel-mode" value="custom" bind:group={channelMode} />
+						{$_('hdhomerun.detail.channel_mode_custom')}
+					</label>
+				</div>
+
+				{#if channelMode === 'custom'}
+					<div class="channel-picker-wrap">
+						<span class="channel-picker-prompt">{$_('hdhomerun.detail.select_channels_prompt')}</span>
+						<div class="channel-checklist" role="group" aria-label={$_('hdhomerun.detail.select_channels_prompt')}>
+							{#each channels as ch}
+								<label class="channel-check-item">
+									<input
+										type="checkbox"
+										value={ch.channel_number}
+										checked={selectedCustomChannels.includes(ch.channel_number)}
+										onchange={(e) => {
+											const checked = (e.currentTarget as HTMLInputElement).checked;
+											if (checked) {
+												if (!selectedCustomChannels.includes(ch.channel_number)) {
+													selectedCustomChannels = [...selectedCustomChannels, ch.channel_number];
+												}
+											} else {
+												selectedCustomChannels = selectedCustomChannels.filter((c) => c !== ch.channel_number);
+											}
+										}}
+									/>
+									<span class="channel-check-number">{ch.channel_number}</span>
+									<span class="channel-check-name">{ch.name}</span>
+								</label>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		<label>
 			{$_('hdhomerun.detail.start_padding_label')}
@@ -227,6 +287,7 @@
 	}
 
 	.match-mode-field,
+	.channel-scope-field,
 	.retention-field {
 		display: flex;
 		flex-direction: column;
@@ -234,9 +295,67 @@
 	}
 
 	.match-mode-label,
+	.channel-scope-label,
 	.retention-label {
 		font-size: 0.85rem;
 		color: var(--color-text);
+	}
+
+	.channel-scope-choices {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.channel-picker-wrap {
+		margin-top: 0.25rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+		background: rgba(0, 0, 0, 0.15);
+		border: 1px solid var(--color-border);
+		border-radius: 0.4rem;
+		padding: 0.5rem;
+	}
+
+	.channel-picker-prompt {
+		font-size: 0.78rem;
+		color: var(--color-text-muted);
+	}
+
+	.channel-checklist {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+		gap: 0.35rem;
+		max-height: 9rem;
+		overflow-y: auto;
+		padding: 0.2rem 0;
+	}
+
+	.channel-check-item {
+		display: flex !important;
+		flex-direction: row !important;
+		align-items: center;
+		gap: 0.35rem !important;
+		font-size: 0.8rem !important;
+		cursor: pointer;
+		padding: 0.2rem 0.3rem;
+		border-radius: 0.25rem;
+	}
+
+	.channel-check-item:hover {
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.channel-check-number {
+		font-weight: 600;
+	}
+
+	.channel-check-name {
+		color: var(--color-text-muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.retention-choices {

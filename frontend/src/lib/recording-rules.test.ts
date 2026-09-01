@@ -52,10 +52,30 @@ describe('findMatchingRecordingRule', () => {
 			findMatchingRecordingRule([r], undefined, { title: 'College Football', synopsis: 'Ohio State at Michigan' }),
 		).toBe(r);
 		expect(
+			findMatchingRecordingRule([r], undefined, { title: 'College Football', episode_title: 'Ohio State at Michigan' }),
+		).toBe(r);
+		expect(
+			findMatchingRecordingRule([r], undefined, { title: 'College Football', category: 'Ohio State Football' }),
+		).toBe(r);
+		expect(
 			findMatchingRecordingRule([r], undefined, { title: 'College Football', synopsis: 'Purdue at Indiana' }),
 		).toBeNull();
 		expect(
 			findMatchingRecordingRule([r], undefined, { title: 'NFL Football', synopsis: 'Ohio State at Michigan' }),
+		).toBeNull();
+	});
+
+	it('matches a keyword rule using SeriesID when airing has matching series_id and keyword', () => {
+		const r = rule({
+			Title: 'College Football',
+			SeriesID: 'SH012345',
+			KeywordQuery: 'Buckeyes',
+		});
+		expect(
+			findMatchingRecordingRule([r], undefined, { series_id: 'SH012345', synopsis: 'Go Buckeyes!' }),
+		).toBe(r);
+		expect(
+			findMatchingRecordingRule([r], undefined, { series_id: 'SH012345', synopsis: 'Wolverines vs Spartans' }),
 		).toBeNull();
 	});
 
@@ -156,5 +176,29 @@ describe('findMatchingRecordingRuleIndexed', () => {
 		const r = rule({ Title: 'College Football', SeriesID: undefined, TitleMatchMode: 'contains' });
 		expect(find([r], undefined, { title: 'College Football: Ohio State at Michigan' })).toBe(r);
 		expect(find([r], undefined, { title: 'NFL Football' })).toBeNull();
+	});
+
+	it('matches a standard series rule by title when airing has no series_id (e.g. XMLTV)', () => {
+		const r = rule({
+			RecordingRuleID: 'r_xmltv',
+			Title: 'Evening News',
+			SeriesID: 'Evening News',
+			TitleMatchMode: 'exact',
+		});
+		expect(find([r], undefined, { title: 'Evening News', series_id: null })).toBe(r);
+		expect(findMatchingRecordingRule([r], undefined, { title: 'Evening News', series_id: null })).toBe(r);
+		expect(find([r], undefined, { title: 'Morning News', series_id: null })).toBeNull();
+	});
+
+	it('matches a channel-restricted series rule by title without keywords', () => {
+		const r = rule({
+			RecordingRuleID: 'r_ch_title',
+			Title: 'Doctor Who',
+			SeriesID: 'auto',
+			ChannelOnly: '4.1',
+		});
+		expect(find([r], '4.1', { title: 'Doctor Who' })).toBe(r);
+		expect(findMatchingRecordingRule([r], '4.1', { title: 'Doctor Who' })).toBe(r);
+		expect(find([r], '5.1', { title: 'Doctor Who' })).toBeNull();
 	});
 });

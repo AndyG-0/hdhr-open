@@ -272,12 +272,13 @@
 		options?: RecordingRuleOptions,
 	) {
 		const targetId = seriesId || channelNumber || 'now';
+		const effectiveChannel = options?.channel !== undefined ? options.channel : channelNumber;
 		recordingLoading = targetId;
 		try {
 			await applyRuleMutation(() =>
 				api.addHDHomeRunRecordingRule({
 					series_id: seriesId || 'auto',
-					channel: channelNumber,
+					channel: effectiveChannel,
 					date_time: startTime ?? undefined,
 					start_padding: options?.startPadding,
 					end_padding: options?.endPadding,
@@ -294,12 +295,17 @@
 	}
 
 	async function recordShowSeries(seriesId: string, channelNumber?: string, options?: RecordingRuleOptions) {
-		recordingLoading = seriesId;
+		const targetId = seriesId || channelNumber || options?.title || 'series';
+		const effectiveChannel = options?.channel !== undefined ? options.channel : channelNumber;
+		recordingLoading = targetId;
 		try {
 			await applyRuleMutation(() =>
 				api.addHDHomeRunRecordingRule({
-					series_id: seriesId,
-					channel: channelNumber,
+					series_id: seriesId || 'auto',
+					channel: effectiveChannel,
+					title: options?.title,
+					title_match_mode: options?.titleMatchMode,
+					keyword_query: options?.keywordQuery,
 					start_padding: options?.startPadding,
 					end_padding: options?.endPadding,
 					recent_only: options?.recentOnly,
@@ -386,6 +392,7 @@
 		isWatchSession={playingMedia.isWatchSession}
 		channel={playingMedia.channel}
 		airing={playingMedia.airing}
+		{channels}
 		recordingRules={displayedRecordingRules}
 		{pendingRuleIds}
 		{officialDvrActive}
