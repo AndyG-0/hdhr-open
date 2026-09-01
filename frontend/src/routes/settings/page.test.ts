@@ -499,3 +499,22 @@ describe('settings +page.svelte — appearance section', () => {
 		await waitFor(() => expect(updatePreferences).toHaveBeenCalledWith({ theme: 'dark' }));
 	});
 });
+
+describe('settings +page.svelte — section ordering', () => {
+	it('renders Your settings at the top, Admin settings in the middle, and Channel Lineup at the bottom for admin', async () => {
+		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
+		render(Page);
+
+		const yourSettingsHeading = await screen.findByRole('heading', { level: 2, name: 'Your settings' });
+		const adminSettingsHeading = await screen.findByRole('heading', { level: 2, name: 'Admin settings' });
+		const channelLineupHeading = await screen.findByRole('heading', { level: 3, name: 'Channel Lineup & Guide Mapping' });
+
+		expect(
+			yourSettingsHeading.compareDocumentPosition(adminSettingsHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			adminSettingsHeading.compareDocumentPosition(channelLineupHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+	});
+});
+

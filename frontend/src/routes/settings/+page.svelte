@@ -194,6 +194,17 @@
 	<button class="back" onclick={() => goto('/')}>{$_('common.back')}</button>
 	<h1>{$_('settings.page.title')}</h1>
 
+	<div class="settings-group">
+		<h2 class="group-title">{$_('settings.your_settings.title')}</h2>
+		<p class="group-subtitle">{$_('settings.your_settings.subtitle')}</p>
+
+		<ProfileSection />
+
+		<LanguageSection />
+
+		<AppearanceSection />
+	</div>
+
 	{#if $user?.role === 'admin'}
 		<div class="settings-group">
 			<h2 class="group-title">Admin settings</h2>
@@ -267,17 +278,6 @@
 			/>
 		</div>
 	{/if}
-
-	<div class="settings-group">
-		<h2 class="group-title">{$_('settings.your_settings.title')}</h2>
-		<p class="group-subtitle">{$_('settings.your_settings.subtitle')}</p>
-
-		<ProfileSection />
-
-		<LanguageSection />
-
-		<AppearanceSection />
-	</div>
 </div>
 
 <style>
