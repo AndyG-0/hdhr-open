@@ -42,6 +42,39 @@ class ModelsSerializationTest {
     }
 
     @Test
+    fun testDecodeGuideEntry() {
+        val jsonString = """
+        {
+            "series_id": "SH123",
+            "title": "Quantum Odyssey",
+            "episode_title": "Into the Void",
+            "season_number": 3,
+            "episode_number": "7",
+            "synopsis": "An epic exploration into deep space.",
+            "start": 1700000000.0,
+            "end": 1700003600.0,
+            "original_airdate": "2023-11-14",
+            "image_url": "http://example.com/img.jpg",
+            "channel_number": "4.1",
+            "category": "Sci-Fi, Adventure",
+            "is_new": true,
+            "has_cc": true,
+            "audio": "stereo"
+        }
+        """.trimIndent()
+
+        val entry = json.decodeFromString<HDHomeRunGuideEntry>(jsonString)
+        assertEquals("Quantum Odyssey", entry.title)
+        assertEquals("Into the Void", entry.episodeTitle)
+        assertEquals(3, entry.seasonNumber)
+        assertEquals("S3E7", entry.formattedEpisodeDesignation)
+        assertEquals("Sci-Fi, Adventure", entry.category)
+        assertEquals(true, entry.isNew)
+        assertEquals(true, entry.hasCC)
+        assertEquals("STEREO", entry.formattedAudio)
+    }
+
+    @Test
     fun testDecodeRecording() {
         val jsonString = """
         {

@@ -184,7 +184,23 @@ def _parse_date(programme_el: ElementTree.Element) -> str | None:
 
 
 def _parse_is_new(programme_el: ElementTree.Element) -> bool:
-    return programme_el.find("new") is not None
+    return programme_el.find("new") is not None or programme_el.find("premiere") is not None
+
+
+def _parse_audio(programme_el: ElementTree.Element) -> str | None:
+    audio_el = programme_el.find("audio")
+    if audio_el is not None:
+        stereo_el = audio_el.find("stereo")
+        if stereo_el is not None and stereo_el.text and stereo_el.text.strip():
+            return stereo_el.text.strip()
+    stereo_direct = programme_el.find("stereo")
+    if stereo_direct is not None and stereo_direct.text and stereo_direct.text.strip():
+        return stereo_direct.text.strip()
+    return None
+
+
+def _parse_has_subtitles(programme_el: ElementTree.Element) -> int:
+    return 1 if programme_el.find("subtitles") is not None else 0
 
 
 def _programme_to_row(
@@ -229,6 +245,8 @@ def _programme_to_row(
         "image_url": _parse_icon(programme_el),
         "is_new": int(_parse_is_new(programme_el)),
         "category": _parse_categories(programme_el),
+        "audio": _parse_audio(programme_el),
+        "has_subtitles": _parse_has_subtitles(programme_el),
     }
 
 

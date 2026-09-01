@@ -115,6 +115,8 @@ CREATE TABLE IF NOT EXISTS guide_programs (
     image_url TEXT,
     is_new INTEGER NOT NULL DEFAULT 0,
     category TEXT,
+    audio TEXT,
+    has_subtitles INTEGER NOT NULL DEFAULT 1,
     UNIQUE (channel_id, source_provider, start_ts)
 );
 CREATE INDEX IF NOT EXISTS idx_guide_programs_channel_start ON guide_programs (channel_id, start_ts);
@@ -405,6 +407,16 @@ def _migration_7(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE IF EXISTS devices")
 
 
+def _migration_8(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "guide_programs" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(guide_programs)").fetchall()}
+        if "audio" not in cols:
+            conn.execute("ALTER TABLE guide_programs ADD COLUMN audio TEXT")
+        if "has_subtitles" not in cols:
+            conn.execute("ALTER TABLE guide_programs ADD COLUMN has_subtitles INTEGER NOT NULL DEFAULT 1")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -413,6 +425,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_5,
     _MIGRATION_6,
     _migration_7,
+    _migration_8,
 )
 
 

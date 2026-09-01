@@ -89,7 +89,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 	it('calls onClose when the close button is clicked', async () => {
 		const { onClose } = renderDialog();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
 		expect(onClose).toHaveBeenCalled();
 	});
@@ -107,5 +107,76 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			maxEpisodesToKeep: undefined,
 			server: 'builtin',
 		});
+	});
+
+	it('renders rich show details, badges, synopsis, and episode info', () => {
+		const richAiring: HDHomeRunGuideEntry = {
+			series_id: 'SH999',
+			title: 'Science Mystery',
+			episode_title: 'The Hidden Quantum Realm',
+			season_number: 2,
+			episode_number: '5',
+			synopsis: 'A deep dive into quantum particles and strange phenomena.',
+			start: 1_700_000_000,
+			end: 1_700_003_600,
+			original_airdate: '2023-11-14',
+			image_url: 'https://example.com/poster.jpg',
+			category: 'Science, Documentary',
+			is_new: true,
+			has_cc: true,
+			is_hd: true,
+			audio: 'stereo',
+		};
+
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing: richAiring,
+			channelName: 'Discovery',
+			channelNumber: '10.1',
+			isHd: true,
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			onConfirm: vi.fn(),
+			onClose: vi.fn(),
+		});
+
+		expect(screen.getByText('Science Mystery')).toBeInTheDocument();
+		expect(screen.getByText('S2E5 • The Hidden Quantum Realm')).toBeInTheDocument();
+		expect(screen.getByText('A deep dive into quantum particles and strange phenomena.')).toBeInTheDocument();
+		expect(screen.getByText('10.1')).toBeInTheDocument();
+		expect(screen.getByText('Discovery')).toBeInTheDocument();
+		expect(screen.getAllByText('HD').length).toBeGreaterThan(0);
+		expect(screen.getByText('CC')).toBeInTheDocument();
+		expect(screen.getByText('STEREO')).toBeInTheDocument();
+		expect(screen.getByText('NEW')).toBeInTheDocument();
+		expect(screen.getByText('Science')).toBeInTheDocument();
+		expect(screen.getByText('Documentary')).toBeInTheDocument();
+		expect(screen.getByText(/Original air date: Nov 14, 2023/)).toBeInTheDocument();
+	});
+
+	it('renders cancel recording button when existingRule is present', async () => {
+		const onCancelRule = vi.fn();
+		const onClose = vi.fn();
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing,
+			channelName: 'KDFW',
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			existingRule: {
+				RecordingRuleID: 'rule_123',
+				SeriesID: 'SH123',
+				Title: 'Evening News',
+			},
+			onCancelRule,
+			onConfirm: vi.fn(),
+			onClose,
+		});
+
+		const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+		await fireEvent.click(cancelBtn);
+
+		expect(onCancelRule).toHaveBeenCalledWith('rule_123');
+		expect(onClose).toHaveBeenCalled();
 	});
 });

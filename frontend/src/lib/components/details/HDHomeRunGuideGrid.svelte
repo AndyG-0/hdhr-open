@@ -404,18 +404,17 @@
 		if (isLive(airing)) {
 			onWatch(channel);
 		} else {
-			openContextMenu(airing, channel, e.clientX, e.clientY);
+			optionsDialogState = { airing, channel };
 		}
 	}
 
 	function onCellKeydown(e: KeyboardEvent, airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel) {
 		if (e.key !== 'Enter' && e.key !== ' ') return;
 		e.preventDefault();
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 		if (isLive(airing)) {
 			onWatch(channel);
 		} else {
-			openContextMenu(airing, channel, rect.left, rect.bottom);
+			optionsDialogState = { airing, channel };
 		}
 	}
 
@@ -507,7 +506,7 @@
 								type="button"
 								class="result-btn more-btn"
 								aria-label="Options"
-								onclick={(e) => openContextMenu(item.airing, item.channel, e.clientX, e.clientY)}
+								onclick={() => (optionsDialogState = { airing: item.airing, channel: item.channel })}
 							>
 								⋯
 							</button>
@@ -633,11 +632,14 @@
 	<HDHomeRunGuideCellMenu
 		airing={menuState.airing}
 		channelName={menuState.channel.name}
+		channelNumber={menuState.channel.channel_number}
+		isHd={menuState.channel.is_hd}
 		x={menuState.x}
 		y={menuState.y}
 		existingRule={findExistingRule(menuState.airing, menuState.channel)}
 		loading={isLoadingFor(menuState.airing, menuState.channel, findExistingRule(menuState.airing, menuState.channel))}
 		pending={pendingRuleIds.has(findExistingRule(menuState.airing, menuState.channel)?.RecordingRuleID ?? '')}
+		onWatch={() => onWatch(menuState!.channel)}
 		onRecordEpisode={() => {
 			if (!menuState) return;
 			onRecordEpisode(menuState.airing.series_id, menuState.channel.channel_number, menuState.airing.start);
@@ -665,13 +667,21 @@
 	<HDHomeRunRecordingOptionsDialog
 		airing={optionsDialogState.airing}
 		channelName={optionsDialogState.channel.name}
+		channelNumber={optionsDialogState.channel.channel_number}
+		isHd={optionsDialogState.channel.is_hd}
 		canRecordSeries={!!optionsDialogState.airing.series_id}
 		{officialDvrActive}
+		existingRule={findExistingRule(optionsDialogState.airing, optionsDialogState.channel)}
 		loading={isLoadingFor(
 			optionsDialogState.airing,
 			optionsDialogState.channel,
 			findExistingRule(optionsDialogState.airing, optionsDialogState.channel),
 		)}
+		onWatch={() => onWatch(optionsDialogState!.channel)}
+		onCancelRule={(ruleId) => {
+			onCancelRule(ruleId);
+			optionsDialogState = null;
+		}}
 		onConfirm={(mode, options) => {
 			if (!optionsDialogState) return;
 			if (mode === 'episode') {

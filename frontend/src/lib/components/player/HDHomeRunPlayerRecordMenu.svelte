@@ -95,7 +95,12 @@
 		{channelName}
 		canRecordSeries={Boolean(effectiveAiring.series_id)}
 		{officialDvrActive}
+		existingRule={currentRule}
 		loading={isActionLoading}
+		onCancelRule={async () => {
+			await onCancelRecording();
+			showOptionsDialog = false;
+		}}
 		onConfirm={onConfirmOptions}
 		onClose={() => (showOptionsDialog = false)}
 	/>

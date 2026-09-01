@@ -327,3 +327,32 @@ async def test_refresh_auto_maps_by_display_name_prefix_and_callsign(tmp_db, mon
     assert len(rows2) == 1
     assert rows2[0]["title"] == "KABC Show"
 
+
+async def test_refresh_parses_audio_subtitles_and_subtitle(tmp_db, monkeypatch):
+    db.upsert_channel("ch1", "3.1", "KTVK", True)
+    _configure_xmltv()
+    now = time.time()
+    xml = f"""<tv>
+        <channel id="3.1"><display-name>3.1</display-name><display-name>KTVK</display-name></channel>
+        <programme channel="3.1" start="{_xmltv_time(now)}" stop="{_xmltv_time(now + 1800)}">
+            <title>Inside Edition</title>
+            <sub-title>Grandpa Boat Disaster</sub-title>
+            <category>news</category>
+            <audio><stereo>stereo</stereo></audio>
+            <subtitles type="teletext"><language>en</language></subtitles>
+            <new />
+        </programme>
+    </tv>"""
+    monkeypatch.setattr(guide_xmltv, "_fetch_xmltv_root", AsyncMock(return_value=_root(xml)))
+    await guide_xmltv.refresh_xmltv_guide()
+
+    rows = db.list_guide_programs(["ch1"], now - 10, now + 3600)
+    assert len(rows) == 1
+    assert rows[0]["title"] == "Inside Edition"
+    assert rows[0]["episode_title"] == "Grandpa Boat Disaster"
+    assert rows[0]["audio"] == "stereo"
+    assert rows[0]["has_subtitles"] == 1
+    assert rows[0]["is_new"] == 1
+    assert rows[0]["category"] == "news"
+
+

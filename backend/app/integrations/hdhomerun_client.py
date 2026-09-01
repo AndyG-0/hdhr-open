@@ -172,6 +172,23 @@ async def fetch_tuner_status(settings: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[str, Any]:
+    filters = entry.get("Filter")
+    if isinstance(filters, list):
+        category = ", ".join(str(f) for f in filters if f)
+    else:
+        category = entry.get("Category")
+
+    audio_props = entry.get("AudioProperties") or entry.get("Audio")
+    if isinstance(audio_props, list):
+        audio_str = ", ".join(str(a) for a in audio_props if a)
+    elif audio_props:
+        audio_str = str(audio_props)
+    else:
+        audio_str = None
+
+    is_new = bool(entry.get("First") or entry.get("New") or entry.get("IsNew") or entry.get("OriginalAirdate") == entry.get("Airdate"))
+    has_cc = bool(entry.get("CC") or entry.get("ClosedCaption") or True)
+
     return {
         "series_id": entry.get("SeriesID"),
         "title": entry.get("Title", ""),
@@ -183,6 +200,10 @@ def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[s
         "original_airdate": entry.get("OriginalAirdate"),
         "image_url": entry.get("ImageURL"),
         "channel_number": channel_number or entry.get("ChannelNumber", ""),
+        "category": category,
+        "audio": audio_str,
+        "is_new": is_new,
+        "has_cc": has_cc,
     }
 
 

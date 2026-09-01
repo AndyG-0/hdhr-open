@@ -77,10 +77,62 @@ public struct TVProgramDetailModal: View {
                             .font(.system(size: 38, weight: .bold))
                             .foregroundColor(Theme.textPrimary)
 
-                        if let ep = airing.episodeTitle, !ep.isEmpty {
+                        if let epDesig = airing.formattedEpisodeDesignation {
+                            if let ep = airing.episodeTitle, !ep.isEmpty {
+                                Text("\(epDesig) • \(ep)")
+                                    .font(.title2)
+                                    .foregroundColor(Theme.textSecondary)
+                            } else {
+                                Text(epDesig)
+                                    .font(.title2)
+                                    .foregroundColor(Theme.textSecondary)
+                            }
+                        } else if let ep = airing.episodeTitle, !ep.isEmpty {
                             Text(ep)
                                 .font(.title2)
                                 .foregroundColor(Theme.textSecondary)
+                        }
+
+                        HStack(spacing: 12) {
+                            if airing.hasCC != false {
+                                Text("CC")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.3))
+                                    .foregroundColor(Theme.textPrimary)
+                                    .cornerRadius(4)
+                            }
+
+                            if airing.isNew == true {
+                                Text("NEW")
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.green.opacity(0.3))
+                                    .foregroundColor(.green)
+                                    .cornerRadius(4)
+                            }
+
+                            if let audio = airing.formattedAudio, !audio.isEmpty {
+                                Text(audio)
+                                    .font(.caption.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.3))
+                                    .foregroundColor(Theme.textPrimary)
+                                    .cornerRadius(4)
+                            }
+
+                            if let cat = airing.category, !cat.isEmpty {
+                                Text(cat)
+                                    .font(.caption)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.2))
+                                    .foregroundColor(Theme.textSecondary)
+                                    .cornerRadius(4)
+                            }
                         }
 
                         HStack(spacing: 16) {

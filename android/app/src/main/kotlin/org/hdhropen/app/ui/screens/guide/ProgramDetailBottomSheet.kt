@@ -116,11 +116,12 @@ fun ProgramDetailBottomSheet(
             )
 
             // Episode / Season
-            if (!airing.episodeTitle.isNullOrEmpty() || !airing.episodeNumber.isNullOrEmpty()) {
+            val epDesignation = airing.formattedEpisodeDesignation
+            if (!epDesignation.isNullOrEmpty() || !airing.episodeTitle.isNullOrEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 val epText = buildString {
-                    airing.episodeNumber?.let { append("Ep $it") }
-                    if (!airing.episodeNumber.isNullOrEmpty() && !airing.episodeTitle.isNullOrEmpty()) append(" • ")
+                    if (!epDesignation.isNullOrEmpty()) append(epDesignation)
+                    if (!epDesignation.isNullOrEmpty() && !airing.episodeTitle.isNullOrEmpty()) append(" • ")
                     airing.episodeTitle?.let { append(it) }
                 }
                 Text(
@@ -131,11 +132,114 @@ fun ProgramDetailBottomSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Badges Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (channel.isHD) {
+                    Surface(
+                        color = BluePrimary.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(3.dp)
+                    ) {
+                        Text(
+                            text = "HD",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                if (airing.hasCC != false) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(3.dp)
+                    ) {
+                        Text(
+                            text = "CC",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                if (airing.isNew == true) {
+                    Surface(
+                        color = GreenActive.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(3.dp)
+                    ) {
+                        Text(
+                            text = "NEW",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = GreenActive,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                val audioStr = airing.formattedAudio
+                if (!audioStr.isNullOrEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(3.dp)
+                    ) {
+                        Text(
+                            text = audioStr,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+                val catStr = airing.category
+                if (!catStr.isNullOrEmpty()) {
+                    catStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }.take(2).forEach { cat ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(3.dp)
+                        ) {
+                            Text(
+                                text = cat,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 9.sp
+                                ),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Time & Date
             Text(
                 text = TimeFormatting.formatTimeRange(airing.start, airing.end),
                 style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
             )
+
+            // Original Air Date
+            val origAirDate = airing.originalAirdate
+            if (!origAirDate.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Original Air Date: $origAirDate",
+                    style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.extendedColors.textMuted)
+                )
+            }
 
             // Synopsis
             if (!airing.synopsis.isNullOrEmpty()) {

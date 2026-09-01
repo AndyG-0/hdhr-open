@@ -64,12 +64,17 @@ def _row_to_airing(row: dict[str, Any], channel_number: str) -> dict[str, Any]:
         "title": row["title"],
         "episode_title": row["episode_title"],
         "episode_number": episode_number_str,
+        "season_number": row.get("season_number"),
         "synopsis": row["synopsis"],
         "start": row["start_ts"],
         "end": row["end_ts"],
         "original_airdate": row["original_air_date"],
         "image_url": row["image_url"],
         "channel_number": channel_number,
+        "category": row.get("category"),
+        "is_new": bool(row.get("is_new", 0)),
+        "audio": row.get("audio"),
+        "has_cc": bool(row.get("has_subtitles", 1)) if row.get("has_subtitles") is not None else True,
     }
 
 

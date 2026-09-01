@@ -27,6 +27,38 @@ final class ModelsSerializationTests: XCTestCase {
         XCTAssertEqual(channel.now?.title, "Evening News")
     }
 
+    func testDecodeGuideEntry() throws {
+        let json = """
+        {
+            "series_id": "SH123",
+            "title": "Cosmos: A Spacetime Odyssey",
+            "episode_title": "Standing Up in the Milky Way",
+            "season_number": 1,
+            "episode_number": "1",
+            "synopsis": "A journey across time and space.",
+            "start": 1700000000,
+            "end": 1700003600,
+            "original_airdate": "2023-11-14",
+            "image_url": "http://example.com/poster.jpg",
+            "channel_number": "4.1",
+            "category": "Documentary, Science",
+            "is_new": true,
+            "has_cc": true,
+            "audio": "stereo"
+        }
+        """.data(using: .utf8)!
+
+        let entry = try JSONDecoder().decode(HDHomeRunGuideEntry.self, from: json)
+        XCTAssertEqual(entry.title, "Cosmos: A Spacetime Odyssey")
+        XCTAssertEqual(entry.episodeTitle, "Standing Up in the Milky Way")
+        XCTAssertEqual(entry.seasonNumber, 1)
+        XCTAssertEqual(entry.formattedEpisodeDesignation, "S1E1")
+        XCTAssertEqual(entry.category, "Documentary, Science")
+        XCTAssertEqual(entry.isNew, true)
+        XCTAssertEqual(entry.hasCC, true)
+        XCTAssertEqual(entry.formattedAudio, "STEREO")
+    }
+
     func testDecodeRecording() throws {
         let json = """
         {

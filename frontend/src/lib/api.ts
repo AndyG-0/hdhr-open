@@ -16,12 +16,18 @@ export interface HDHomeRunGuideEntry {
 	title: string;
 	episode_title: string | null;
 	episode_number?: string | null;
+	season_number?: number | null;
 	synopsis?: string | null;
 	start: number | null;
 	end: number | null;
 	original_airdate?: number | string | null;
 	image_url?: string | null;
 	channel_number?: string;
+	category?: string | null;
+	is_new?: boolean | null;
+	audio?: string | null;
+	has_cc?: boolean | null;
+	is_hd?: boolean | null;
 }
 
 export interface HDHomeRunRecordingRule {

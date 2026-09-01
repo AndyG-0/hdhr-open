@@ -53,15 +53,79 @@ public struct iOSProgramDetailSheet: View {
                         Text(airing.title)
                             .font(.title2.bold())
 
-                        if let ep = airing.episodeTitle {
+                        if let epDesig = airing.formattedEpisodeDesignation {
+                            if let ep = airing.episodeTitle, !ep.isEmpty {
+                                Text("\(epDesig) • \(ep)")
+                                    .font(.headline)
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text(epDesig)
+                                    .font(.headline)
+                                    .foregroundColor(.secondary)
+                            }
+                        } else if let ep = airing.episodeTitle {
                             Text(ep)
                                 .font(.headline)
                                 .foregroundColor(.secondary)
                         }
 
+                        HStack(spacing: 6) {
+                            if channel.isHD {
+                                Text("HD")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.blue.opacity(0.8))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(3)
+                            }
+                            if airing.hasCC != false {
+                                Text("CC")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.secondary.opacity(0.2))
+                                    .foregroundColor(.primary)
+                                    .cornerRadius(3)
+                            }
+                            if airing.isNew == true {
+                                Text("NEW")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.green.opacity(0.2))
+                                    .foregroundColor(.green)
+                                    .cornerRadius(3)
+                            }
+                            if let audio = airing.formattedAudio, !audio.isEmpty {
+                                Text(audio)
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.secondary.opacity(0.2))
+                                    .foregroundColor(.primary)
+                                    .cornerRadius(3)
+                            }
+                            if let cat = airing.category, !cat.isEmpty {
+                                Text(cat.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? cat)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .foregroundColor(.secondary)
+                                    .cornerRadius(3)
+                            }
+                        }
+
                         Text(TimeFormatting.formatTimeRange(start: airing.start, end: airing.end))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+
+                        if let airDate = airing.originalAirdate, !airDate.isEmpty {
+                            Text("Original Air Date: \(airDate)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
 
                     if let syn = airing.synopsis, !syn.isEmpty {

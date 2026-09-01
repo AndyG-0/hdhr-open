@@ -84,8 +84,10 @@ def _airing_to_row(channel_id: str, airing: dict[str, Any]) -> dict[str, Any] | 
         "end_ts": float(end),
         "original_air_date": airing.get("original_airdate"),
         "image_url": airing.get("image_url"),
-        "is_new": 0,
-        "category": None,
+        "is_new": int(bool(airing.get("is_new"))),
+        "category": airing.get("category"),
+        "audio": airing.get("audio"),
+        "has_subtitles": 1 if airing.get("has_cc") is not False else 0,
     }
 
 

@@ -64,6 +64,8 @@ def test_get_guide_returns_persisted_programs(client, tmp_db):
                 "image_url": "http://example.com/image.jpg",
                 "is_new": 0,
                 "category": None,
+                "audio": "stereo",
+                "has_subtitles": 1,
             }
         ]
     )
@@ -77,6 +79,10 @@ def test_get_guide_returns_persisted_programs(client, tmp_db):
     assert body[0]["channel_name"] == "WNBC"
     assert body[0]["airings"][0]["title"] == "Some Show"
     assert body[0]["airings"][0]["episode_number"] == "1.1"
+    assert body[0]["airings"][0]["season_number"] == 1
+    assert body[0]["airings"][0]["has_cc"] is True
+    assert body[0]["airings"][0]["audio"] == "stereo"
+    assert body[0]["airings"][0]["is_new"] is False
 
 
 def test_get_channels_requires_tuner_configured(client, tmp_db):

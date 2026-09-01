@@ -20,8 +20,44 @@ data class HDHomeRunGuideEntry(
     @SerialName("image_url")
     val imageUrl: String? = null,
     @SerialName("channel_number")
-    val channelNumber: String? = null
+    val channelNumber: String? = null,
+    @SerialName("season_number")
+    val seasonNumber: Int? = null,
+    val category: String? = null,
+    @SerialName("is_new")
+    val isNew: Boolean? = null,
+    @SerialName("has_cc")
+    val hasCC: Boolean? = null,
+    val audio: String? = null
 ) {
+    val formattedAudio: String?
+        get() {
+            val a = audio?.trim() ?: return null
+            val lower = a.lowercase()
+            return when {
+                lower == "stereo" -> "STEREO"
+                "5.1" in lower -> "5.1"
+                "dolby" in lower || "dd" in lower -> "DOLBY"
+                lower == "mono" -> "MONO"
+                else -> a.uppercase()
+            }
+        }
+    val formattedEpisodeDesignation: String?
+        get() {
+            if (seasonNumber != null && !episodeNumber.isNullOrEmpty()) {
+                val epNum = if (episodeNumber.contains(".")) episodeNumber.substringAfter(".") else episodeNumber
+                return "S${seasonNumber}E${epNum}"
+            }
+            if (!episodeNumber.isNullOrEmpty()) {
+                if (episodeNumber.contains(".")) {
+                    val s = episodeNumber.substringBefore(".")
+                    val e = episodeNumber.substringAfter(".")
+                    return "S${s}E${e}"
+                }
+                return "Ep $episodeNumber"
+            }
+            return null
+        }
     val id: String
         get() = if (seriesId != null && start != null) {
             "${seriesId}_${start.toLong()}_${channelNumber ?: ""}"
