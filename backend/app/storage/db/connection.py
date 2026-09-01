@@ -30,34 +30,24 @@ CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'member'
 );
 
-CREATE TABLE IF NOT EXISTS devices (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_device_id ON sessions (device_id);
 
 -- Bearer tokens for native clients (iOS/tvOS/Android/Android TV/Fire TV),
 -- issued alongside a session cookie at login. A system media pipeline
 -- (AVPlayer/ExoPlayer) handed a raw stream URL doesn't reliably thread an
--- app's cookie jar the way a browser fetch does, and per-device revocation
+-- app's cookie jar the way a browser fetch does, and per-token revocation
 -- ("remove this Apple TV") is a single row delete instead of hunting down a
 -- shared cookie. Only `token_hash` is stored — the raw token is shown once,
 -- at issuance, the same way a PIN's hash/salt work in `users` above.
 CREATE TABLE IF NOT EXISTS auth_tokens (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
     token_hash TEXT NOT NULL,
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -389,12 +379,40 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_job_id_started_at ON job_runs (job_id, s
 """
 
 
+_MIGRATION_6 = """
+ALTER TABLE recording_rules ADD COLUMN title_match_mode TEXT NOT NULL DEFAULT 'exact';
+ALTER TABLE recording_rules ADD COLUMN keyword_query TEXT;
+"""
+
+
+# Removes the `devices` entity: sessions and auth_tokens were only ever
+# grouped under a device for bulk ("forget this browser") revocation, which
+# turned out not to be worth the extra entity/cookie/registration round-trip
+# — see app.auth and app.api.users for the per-session/per-token model this
+# leaves behind. Guarded column checks because a fresh install's _SCHEMA
+# above never had `device_id` in the first place — only a pre-existing DB
+# upgrading through this migration does.
+def _migration_7(conn: sqlite3.Connection) -> None:
+    session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    if "device_id" in session_cols:
+        conn.execute("DROP INDEX IF EXISTS idx_sessions_device_id")
+        conn.execute("ALTER TABLE sessions DROP COLUMN device_id")
+
+    token_cols = {row[1] for row in conn.execute("PRAGMA table_info(auth_tokens)").fetchall()}
+    if "device_id" in token_cols:
+        conn.execute("ALTER TABLE auth_tokens DROP COLUMN device_id")
+
+    conn.execute("DROP TABLE IF EXISTS devices")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
     _migration_3,
     _MIGRATION_4,
     _MIGRATION_5,
+    _MIGRATION_6,
+    _migration_7,
 )
 
 

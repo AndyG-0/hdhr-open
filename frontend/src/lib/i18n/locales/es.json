@@ -2,9 +2,6 @@
 	"layout": {
 		"fatal_title": "No se pudo conectar con el backend de HDHR Open",
 		"fatal_hint": "Comprueba que el backend esté en ejecución y sea accesible, luego recarga esta página.",
-		"name_device_title": "Asigna un nombre a este dispositivo",
-		"name_device_hint": "Ayuda a diferenciarlo en la lista de dispositivos — p. ej., \"Tablet de la cocina\" o \"TV del salón\".",
-		"done": "Listo",
 		"nav_guide": "Guía",
 		"nav_recordings": "Grabaciones",
 		"nav_settings": "Ajustes"
@@ -43,17 +40,6 @@
 			"delete": "Eliminar perfil",
 			"delete_link": "Eliminar este perfil",
 			"delete_error": "No se pudo eliminar el perfil — puede ser el único que queda."
-		},
-		"devices": {
-			"heading": "Dispositivos",
-			"this_device_label": "Este dispositivo",
-			"rename": "Cambiar nombre de este dispositivo",
-			"rename_error": "No se pudo cambiar el nombre del dispositivo.",
-			"load_error": "No se pudieron cargar los dispositivos.",
-			"forgetting": "Olvidando…",
-			"forget": "Olvidar",
-			"forget_device": "Olvidar dispositivo",
-			"forget_error": "No se pudo olvidar el dispositivo."
 		}
 	},
 	"common": {

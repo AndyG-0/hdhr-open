@@ -11,7 +11,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import hls_streaming, jobs
 from app.api import admin as admin_api
 from app.api import admin_jobs as admin_jobs_api
-from app.api import devices as devices_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
 from app.api import hls as hls_api
@@ -109,7 +108,6 @@ app.include_router(hls_api.router)
 app.include_router(dvr_api.router)
 app.include_router(network_settings_api.router)
 app.include_router(settings_api.router)
-app.include_router(devices_api.router)
 app.include_router(users_api.router)
 app.include_router(setup_api.router)
 app.include_router(admin_api.router)

@@ -37,6 +37,8 @@ export interface HDHomeRunRecordingRule {
 	EndPadding?: number;
 	RecentOnly?: number | boolean;
 	MaxEpisodesToKeep?: number | null;
+	TitleMatchMode?: 'exact' | 'contains';
+	KeywordQuery?: string | null;
 	Provider?: 'builtin' | 'hdhomerun';
 	provider?: 'builtin' | 'hdhomerun';
 }
@@ -297,19 +299,6 @@ export interface NetworkTestConnectionResult {
 	error: string | null;
 }
 
-export interface DeviceInfo {
-	id: string;
-	name: string;
-}
-
-export interface DeviceListEntry extends DeviceInfo {
-	last_seen_at: string;
-}
-
-export interface DeviceRegisterResult extends DeviceInfo {
-	is_new: boolean;
-}
-
 export interface UserProfile {
 	id: string;
 	name: string;
@@ -375,8 +364,8 @@ export function describeFetchError(error: unknown): FetchErrorKind {
 	return error instanceof TypeError ? 'network' : 'server';
 }
 
-// `credentials: 'include'` on every request so the device/session cookies
-// (set by the backend as httponly, so JS can't attach them manually) round-trip
+// `credentials: 'include'` on every request so the session cookie
+// (set by the backend as httponly, so JS can't attach it manually) round-trips
 // even when the frontend and backend are on different ports/origins.
 async function getJSON<T>(path: string): Promise<T> {
 	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, { credentials: 'include' });
@@ -515,7 +504,7 @@ export const api = {
 			`/api/streaming/hwaccel-diagnostics${device ? `?device=${encodeURIComponent(device)}` : ''}`,
 		),
 	addHDHomeRunRecordingRule: (rule: {
-		series_id: string;
+		series_id?: string;
 		date_time?: number;
 		channel?: string;
 		recent_only?: boolean;
@@ -523,6 +512,9 @@ export const api = {
 		end_padding?: number;
 		max_episodes_to_keep?: number;
 		server?: 'builtin' | 'hdhomerun';
+		title?: string;
+		title_match_mode?: 'exact' | 'contains';
+		keyword_query?: string;
 	}) => postJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules', rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>
 		deleteJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`),
@@ -559,11 +551,6 @@ export const api = {
 		postJSON<{ code?: number; message?: string }>(`/api/network-settings/schedules-direct/lineups/${encodeURIComponent(lineupId)}`),
 	deleteSchedulesDirectLineup: (lineupId: string) =>
 		deleteJSON<{ code?: number; message?: string }>(`/api/network-settings/schedules-direct/lineups/${encodeURIComponent(lineupId)}`),
-	registerDevice: () => postJSON<DeviceRegisterResult>('/api/devices/register'),
-	currentDevice: () => getJSON<DeviceInfo>('/api/devices/me'),
-	renameDevice: (name: string) => patchJSON<DeviceInfo>('/api/devices/me', { name }),
-	listDevices: () => getJSON<DeviceListEntry[]>('/api/devices'),
-	deleteDevice: (id: string) => deleteJSON<{ status: string }>(`/api/devices/${id}`),
 	listUsers: () => getJSON<UserProfile[]>('/api/users'),
 	createUser: (name: string, avatar?: string, pin?: string) =>
 		postJSON<CurrentUser>('/api/users', {

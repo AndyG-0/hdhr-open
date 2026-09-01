@@ -106,6 +106,25 @@ describe('api', () => {
 		expect(result).toEqual(rules);
 	});
 
+	it('addHDHomeRunRecordingRule POSTs a keyword rule with no series_id', async () => {
+		const rules = [{ RecordingRuleID: 'r2', SeriesID: 'college football', Title: 'College Football' }];
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => rules }));
+
+		const result = await api.addHDHomeRunRecordingRule({
+			title: 'College Football',
+			title_match_mode: 'exact',
+			keyword_query: 'Ohio State',
+		});
+
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/dvr/recording-rules', {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ title: 'College Football', title_match_mode: 'exact', keyword_query: 'Ohio State' }),
+		});
+		expect(result).toEqual(rules);
+	});
+
 	it('deleteHDHomeRunRecordingRule DELETEs the given rule endpoint', async () => {
 		const rules: unknown[] = [];
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => rules }));
@@ -171,65 +190,6 @@ describe('api', () => {
 			body: JSON.stringify({ dvr_host: 'dvr.local' }),
 		});
 		expect(response).toEqual(result);
-	});
-
-	it('registerDevice POSTs to the device register endpoint', async () => {
-		const result = { id: 'dev1', name: 'New Device', is_new: true };
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => result }));
-
-		const response = await api.registerDevice();
-
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/devices/register', {
-			method: 'POST',
-			credentials: 'include',
-		});
-		expect(response).toEqual(result);
-	});
-
-	it('currentDevice fetches the current device endpoint', async () => {
-		const device = { id: 'dev1', name: 'Kitchen Tablet' };
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => device }));
-
-		const result = await api.currentDevice();
-
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/devices/me', { credentials: 'include' });
-		expect(result).toEqual(device);
-	});
-
-	it('renameDevice PATCHes the current device endpoint with the new name', async () => {
-		const device = { id: 'dev1', name: 'Kitchen Tablet' };
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => device }));
-
-		const result = await api.renameDevice('Kitchen Tablet');
-
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/devices/me', {
-			method: 'PATCH',
-			credentials: 'include',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ name: 'Kitchen Tablet' }),
-		});
-		expect(result).toEqual(device);
-	});
-
-	it('listDevices fetches the devices endpoint', async () => {
-		const devices = [{ id: 'dev1', name: 'Kitchen Tablet', last_seen_at: '2026-01-01T00:00:00Z' }];
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => devices }));
-
-		const result = await api.listDevices();
-
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/devices', { credentials: 'include' });
-		expect(result).toEqual(devices);
-	});
-
-	it('deleteDevice DELETEs the given device endpoint', async () => {
-		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'ok' }) }));
-
-		await api.deleteDevice('dev1');
-
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/devices/dev1', {
-			method: 'DELETE',
-			credentials: 'include',
-		});
 	});
 
 	it('listUsers fetches the users endpoint', async () => {

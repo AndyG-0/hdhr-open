@@ -2,9 +2,6 @@
 	"layout": {
 		"fatal_title": "Impossible de joindre le serveur HDHR Open",
 		"fatal_hint": "Vérifiez que le serveur est en cours d'exécution et accessible, puis rechargez cette page.",
-		"name_device_title": "Nommez cet appareil",
-		"name_device_hint": "Permet de le distinguer dans la liste des appareils — p. ex. « Tablette de cuisine » ou « TV du salon ».",
-		"done": "Terminé",
 		"nav_guide": "Guide",
 		"nav_recordings": "Enregistrements",
 		"nav_settings": "Réglages"
@@ -43,17 +40,6 @@
 			"delete": "Supprimer le profil",
 			"delete_link": "Supprimer ce profil",
 			"delete_error": "Impossible de supprimer le profil — il s'agit peut-être du seul restant."
-		},
-		"devices": {
-			"heading": "Appareils",
-			"this_device_label": "Cet appareil",
-			"rename": "Renommer cet appareil",
-			"rename_error": "Impossible de renommer l'appareil.",
-			"load_error": "Impossible de charger les appareils.",
-			"forgetting": "Suppression…",
-			"forget": "Oublier",
-			"forget_device": "Oublier l'appareil",
-			"forget_error": "Impossible d'oublier l'appareil."
 		}
 	},
 	"common": {

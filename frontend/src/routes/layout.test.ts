@@ -3,22 +3,17 @@ import { createRawSnippet } from 'svelte';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 
-const { goto, registerDevice, currentUser, setupStatus, getPreferences, pageState } = vi.hoisted(
-	() => ({
-		goto: vi.fn(),
-		registerDevice: vi.fn(),
-		currentUser: vi.fn(),
-		setupStatus: vi.fn(),
-		getPreferences: vi.fn(),
-		pageState: { url: new URL('http://localhost/') },
-	}),
-);
+const { goto, currentUser, setupStatus, getPreferences, pageState } = vi.hoisted(() => ({
+	goto: vi.fn(),
+	currentUser: vi.fn(),
+	setupStatus: vi.fn(),
+	getPreferences: vi.fn(),
+	pageState: { url: new URL('http://localhost/') },
+}));
 vi.mock('$app/navigation', () => ({ goto }));
 vi.mock('$app/state', () => ({ page: pageState }));
 vi.mock('$lib/api', () => ({
 	api: {
-		registerDevice,
-		renameDevice: vi.fn(),
 		currentUser,
 		logoutUser: vi.fn(),
 		setupStatus,
@@ -30,7 +25,6 @@ vi.mock('$lib/api', () => ({
 import Layout from './+layout.svelte';
 import { user, userLoaded } from '$lib/stores/user';
 import { needsSetup, setupStatusLoaded, setupStatusError } from '$lib/stores/setup';
-import { device } from '$lib/stores/device';
 
 function emptyChildren() {
 	return createRawSnippet(() => ({ render: () => '<div data-testid="app-content"></div>' }));
@@ -50,8 +44,6 @@ describe('+layout.svelte', () => {
 		needsSetup.set(false);
 		setupStatusLoaded.set(false);
 		setupStatusError.set(null);
-		device.set(null);
-		registerDevice.mockResolvedValue({ id: 'd1', name: 'New Device', is_new: false });
 		getPreferences.mockReturnValue(new Promise(() => {}));
 	});
 

@@ -2,9 +2,6 @@
 	"layout": {
 		"fatal_title": "Could not reach the HDHR Open backend",
 		"fatal_hint": "Check that the backend is running and reachable, then reload this page.",
-		"name_device_title": "Name this device",
-		"name_device_hint": "Helps tell it apart in the device list — e.g. \"Kitchen Tablet\" or \"Living Room TV\".",
-		"done": "Done",
 		"nav_guide": "Guide",
 		"nav_recordings": "Recordings",
 		"nav_settings": "Settings"
@@ -43,17 +40,6 @@
 			"delete": "Delete profile",
 			"delete_link": "Delete this profile",
 			"delete_error": "Could not delete profile — it may be the only one left."
-		},
-		"devices": {
-			"heading": "Devices",
-			"this_device_label": "This device",
-			"rename": "Rename this device",
-			"rename_error": "Could not rename device.",
-			"load_error": "Could not load devices.",
-			"forgetting": "Forgetting…",
-			"forget": "Forget",
-			"forget_device": "Forget device",
-			"forget_error": "Could not forget device."
 		}
 	},
 	"common": {

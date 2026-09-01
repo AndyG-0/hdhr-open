@@ -4,47 +4,38 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import devices as devices_api
 from app.api import users as users_api
 
 
 @pytest.fixture
 def client():
     app = FastAPI()
-    app.include_router(devices_api.router)
     app.include_router(users_api.router)
     return TestClient(app)
 
 
 def test_full_register_login_logout_profile_switch_flow(client, tmp_db):
-    # 1. First launch on a fresh browser: register the device.
-    register = client.post("/api/devices/register")
-    assert register.json()["is_new"] is True
-
-    # 2. Profile picker is empty on a fresh install — no profile is seeded.
+    # 1. Profile picker is empty on a fresh install — no profile is seeded.
     profiles = client.get("/api/users").json()
     assert profiles == []
 
-    # 3. Create two real profiles.
+    # 2. Create two real profiles.
     alice = client.post("/api/users", json={"name": "Alice"}).json()
     client.post("/api/users/logout")
     bob = client.post("/api/users", json={"name": "Bob"}).json()
     client.post("/api/users/logout")
 
-    # 4. Alice logs in on this device.
+    # 3. Alice logs in.
     login = client.post(f"/api/users/{alice['id']}/login", json={})
     assert login.json()["id"] == alice["id"]
 
-    # 5. Bob logs in on the same device, replacing Alice's session.
+    # 4. Bob logs in on the same client, replacing Alice's session.
     client.post("/api/users/logout")
     login = client.post(f"/api/users/{bob['id']}/login", json={})
     assert login.json()["id"] == bob["id"]
 
 
-def test_users_endpoint_requires_both_device_and_user_auth(client, tmp_db):
-    assert client.get("/api/users/me").status_code == 401
-
-    client.post("/api/devices/register")
+def test_users_me_requires_a_session(client, tmp_db):
     assert client.get("/api/users/me").status_code == 401
 
     profile = client.post("/api/users", json={"name": "Alice"}).json()
@@ -53,7 +44,6 @@ def test_users_endpoint_requires_both_device_and_user_auth(client, tmp_db):
 
 
 def test_login_with_token_name_issues_a_bearer_token_usable_without_cookies(client, tmp_db):
-    client.post("/api/devices/register")
     alice = client.post("/api/users", json={"name": "Alice"}).json()
     client.post("/api/users/logout")
 
@@ -70,7 +60,6 @@ def test_login_with_token_name_issues_a_bearer_token_usable_without_cookies(clie
 
 
 def test_login_without_token_name_does_not_issue_a_token(client, tmp_db):
-    client.post("/api/devices/register")
     alice = client.post("/api/users", json={"name": "Alice"}).json()
     client.post("/api/users/logout")
 
@@ -79,7 +68,6 @@ def test_login_without_token_name_does_not_issue_a_token(client, tmp_db):
 
 
 def test_bearer_token_lifecycle_list_and_revoke(client, tmp_db):
-    client.post("/api/devices/register")
     alice = client.post("/api/users", json={"name": "Alice"}).json()
     login = client.post(f"/api/users/{alice['id']}/login", json={"token_name": "Alice's iPhone"}).json()
     token = login["token"]
@@ -97,8 +85,7 @@ def test_bearer_token_lifecycle_list_and_revoke(client, tmp_db):
     assert revoked.status_code == 401
 
 
-def test_bearer_token_survives_across_devices_but_revoke_requires_ownership(client, tmp_db):
-    client.post("/api/devices/register")
+def test_bearer_token_revoke_requires_ownership(client, tmp_db):
     alice = client.post("/api/users", json={"name": "Alice"}).json()
     client.post("/api/users/logout")
     bob = client.post("/api/users", json={"name": "Bob"}).json()
@@ -106,7 +93,6 @@ def test_bearer_token_survives_across_devices_but_revoke_requires_ownership(clie
 
     # Alice's session shouldn't be able to see or revoke Bob's token.
     alice_session = TestClient(client.app)
-    alice_session.post("/api/devices/register")
     alice_session.post(f"/api/users/{alice['id']}/login", json={})
     bob_tokens = alice_session.get("/api/users/me/tokens").json()
     assert bob_tokens == []

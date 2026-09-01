@@ -1,4 +1,4 @@
-"""Users, devices, sessions, auth tokens, and per-user preferences.
+"""Users, sessions, auth tokens, and per-user preferences.
 
 No FK constraints here (no table in `connection._SCHEMA` uses one, and
 `_connect()` never sets `PRAGMA foreign_keys=ON`). Cascades on delete are
@@ -13,26 +13,19 @@ from typing import Any
 
 from app.storage.db.connection import _connect, _upsert, _validate_update_columns
 
-# Allow-lists for the dynamic `UPDATE ... SET {columns}` helpers below
-# (update_user/update_device), which build their SQL from **fields keys. No
-# caller passes attacker-controlled key names today, but at least one
-# (update_user, via app/api/users.py) already builds its kwargs from a
-# Pydantic model's `model_dump()` rather than literal field names — this
-# guards against a future caller doing that with an unvalidated dict. `id`
-# (and `created_at`, where present) are deliberately excluded: no update_*
-# function is ever called with those.
+# Allow-list for the dynamic `UPDATE ... SET {columns}` helper below
+# (update_user), which builds its SQL from **fields keys. No caller passes
+# attacker-controlled key names today, but update_user (via app/api/users.py)
+# already builds its kwargs from a Pydantic model's `model_dump()` rather
+# than literal field names — this guards against a future caller doing that
+# with an unvalidated dict. `id`/`created_at` are deliberately excluded:
+# update_user is never called with those.
 _USER_UPDATABLE_COLUMNS = frozenset({"name", "avatar", "pin_hash", "pin_salt", "pin_iterations", "role"})
-_DEVICE_UPDATABLE_COLUMNS = frozenset({"name", "last_seen_at"})
 
 _USER_SCOPED_TABLES: tuple[tuple[str, str], ...] = (
     ("sessions", "user_id"),
     ("auth_tokens", "user_id"),
     ("user_preferences", "user_id"),
-)
-
-_DEVICE_SCOPED_TABLES: tuple[tuple[str, str], ...] = (
-    ("sessions", "device_id"),
-    ("auth_tokens", "device_id"),
 )
 
 
@@ -82,52 +75,11 @@ def delete_user(user_id: str) -> None:
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
 
 
-def create_device(id: str, name: str, created_at: str, last_seen_at: str) -> None:
+def create_session(id: str, user_id: str, created_at: str, expires_at: str) -> None:
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO devices (id, name, created_at, last_seen_at) VALUES (?, ?, ?, ?)",
-            (id, name, created_at, last_seen_at),
-        )
-
-
-def get_device(device_id: str) -> dict[str, Any] | None:
-    with _connect() as conn:
-        row = conn.execute("SELECT * FROM devices WHERE id = ?", (device_id,)).fetchone()
-    return None if row is None else dict(row)
-
-
-def list_devices() -> list[dict[str, Any]]:
-    with _connect() as conn:
-        rows = conn.execute("SELECT * FROM devices ORDER BY created_at ASC").fetchall()
-    return [dict(row) for row in rows]
-
-
-def update_device(device_id: str, **fields: Any) -> None:
-    if not fields:
-        return
-    _validate_update_columns("devices", _DEVICE_UPDATABLE_COLUMNS, fields)
-    columns = ", ".join(f"{key} = ?" for key in fields)
-    with _connect() as conn:
-        conn.execute(f"UPDATE devices SET {columns} WHERE id = ?", (*fields.values(), device_id))
-
-
-def touch_device(device_id: str, last_seen_at: str) -> None:
-    with _connect() as conn:
-        conn.execute("UPDATE devices SET last_seen_at = ? WHERE id = ?", (last_seen_at, device_id))
-
-
-def delete_device(device_id: str) -> None:
-    with _connect() as conn:
-        for table, column in _DEVICE_SCOPED_TABLES:
-            conn.execute(f"DELETE FROM {table} WHERE {column} = ?", (device_id,))
-        conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
-
-
-def create_session(id: str, user_id: str, device_id: str, created_at: str, expires_at: str) -> None:
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO sessions (id, user_id, device_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-            (id, user_id, device_id, created_at, expires_at),
+            "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (id, user_id, created_at, expires_at),
         )
 
 
@@ -147,11 +99,6 @@ def delete_sessions_for_user(user_id: str) -> None:
         conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
 
-def delete_sessions_for_device(device_id: str) -> None:
-    with _connect() as conn:
-        conn.execute("DELETE FROM sessions WHERE device_id = ?", (device_id,))
-
-
 def delete_expired_sessions(now: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
@@ -163,11 +110,11 @@ def delete_expired_sessions(now: str) -> None:
 # only its hash is ever persisted.
 
 
-def create_auth_token(id: str, user_id: str, device_id: str, token_hash: str, name: str, created_at: str) -> None:
+def create_auth_token(id: str, user_id: str, token_hash: str, name: str, created_at: str) -> None:
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO auth_tokens (id, user_id, device_id, token_hash, name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (id, user_id, device_id, token_hash, name, created_at),
+            "INSERT INTO auth_tokens (id, user_id, token_hash, name, created_at) VALUES (?, ?, ?, ?, ?)",
+            (id, user_id, token_hash, name, created_at),
         )
 
 

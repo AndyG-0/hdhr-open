@@ -6,7 +6,6 @@ const {
 	goto,
 	settings,
 	updateSettings,
-	listDevices,
 	listUsers,
 	listHouseholdUsers,
 	getPreferences,
@@ -32,7 +31,6 @@ const {
 	goto: vi.fn(),
 	settings: vi.fn(),
 	updateSettings: vi.fn(),
-	listDevices: vi.fn(),
 	listUsers: vi.fn(),
 	listHouseholdUsers: vi.fn(),
 	getPreferences: vi.fn(),
@@ -61,7 +59,6 @@ vi.mock('$lib/api', () => ({
 	api: {
 		settings,
 		updateSettings,
-		listDevices,
 		listUsers,
 		listHouseholdUsers,
 		getPreferences,
@@ -102,7 +99,6 @@ beforeEach(() => {
 	user.set(null);
 	settings.mockResolvedValue({ ...BASE_SETTINGS });
 	updateSettings.mockResolvedValue({ ...BASE_SETTINGS });
-	listDevices.mockResolvedValue([]);
 	listUsers.mockResolvedValue([]);
 	listHouseholdUsers.mockResolvedValue([]);
 	getPreferences.mockResolvedValue({ ...DEFAULT_PREFERENCES });
@@ -116,7 +112,7 @@ describe('settings +page.svelte — admin sections', () => {
 		user.set({ id: 'u1', name: 'Member', avatar: null, role: 'member' });
 		render(Page);
 
-		await waitFor(() => expect(listDevices).toHaveBeenCalled());
+		await waitFor(() => expect(listUsers).toHaveBeenCalled());
 
 		expect(screen.queryByText('Household members')).not.toBeInTheDocument();
 		expect(screen.queryByText('Timezone')).not.toBeInTheDocument();
@@ -457,7 +453,7 @@ describe('settings +page.svelte — admin sections', () => {
 });
 
 
-describe('settings +page.svelte — devices and profile', () => {
+describe('settings +page.svelte — profile', () => {
 	it('lets a member save their profile name', async () => {
 		user.set({ id: 'u1', name: 'Member', avatar: null, role: 'member' });
 		updateSettings.mockResolvedValue({ ...BASE_SETTINGS });
@@ -468,14 +464,6 @@ describe('settings +page.svelte — devices and profile', () => {
 		await fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
 
 		await waitFor(() => expect(listUsers).toHaveBeenCalled());
-	});
-
-	it('lists other devices and can forget one', async () => {
-		user.set({ id: 'u1', name: 'Member', avatar: null, role: 'member' });
-		listDevices.mockResolvedValue([{ id: 'd1', name: 'Other Device', last_seen_at: '2026-01-01' }]);
-		render(Page);
-
-		await screen.findByText('Other Device');
 	});
 });
 

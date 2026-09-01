@@ -66,6 +66,20 @@ def test_migration_1_allows_multi_provider_coexistence(tmp_path, monkeypatch):
             );
             INSERT INTO guide_programs (id, channel_id, source_provider, title, start_ts, end_ts)
             VALUES ('p1', 'c1', 'hdhomerun_cloud', 'Old Show', 1000.0, 2000.0);
+            CREATE TABLE recording_rules (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                series_match_key TEXT,
+                channel_id TEXT,
+                start_padding_seconds INTEGER NOT NULL DEFAULT 0,
+                end_padding_seconds INTEGER NOT NULL DEFAULT 0,
+                new_only INTEGER NOT NULL DEFAULT 1,
+                priority INTEGER NOT NULL DEFAULT 0,
+                max_episodes_to_keep INTEGER,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE recordings (
                 id TEXT PRIMARY KEY,
                 scheduled_recording_id TEXT,
@@ -117,6 +131,20 @@ def test_migration_3_adds_metadata_columns(tmp_path, monkeypatch):
 
     with sqlite3.connect(test_db) as conn:
         conn.executescript("""
+            CREATE TABLE recording_rules (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                series_match_key TEXT,
+                channel_id TEXT,
+                start_padding_seconds INTEGER NOT NULL DEFAULT 0,
+                end_padding_seconds INTEGER NOT NULL DEFAULT 0,
+                new_only INTEGER NOT NULL DEFAULT 1,
+                priority INTEGER NOT NULL DEFAULT 0,
+                max_episodes_to_keep INTEGER,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE scheduled_recordings (
                 id TEXT PRIMARY KEY,
                 rule_id TEXT,
@@ -183,6 +211,20 @@ def test_migration_4_adds_status_title_index(tmp_path, monkeypatch):
 
     with sqlite3.connect(test_db) as conn:
         conn.executescript("""
+            CREATE TABLE recording_rules (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                series_match_key TEXT,
+                channel_id TEXT,
+                start_padding_seconds INTEGER NOT NULL DEFAULT 0,
+                end_padding_seconds INTEGER NOT NULL DEFAULT 0,
+                new_only INTEGER NOT NULL DEFAULT 1,
+                priority INTEGER NOT NULL DEFAULT 0,
+                max_episodes_to_keep INTEGER,
+                created_at TEXT NOT NULL
+            );
             CREATE TABLE recordings (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -204,3 +246,53 @@ def test_migration_4_adds_status_title_index(tmp_path, monkeypatch):
 
         index_names = {row[1] for row in conn.execute("PRAGMA index_list(recordings)").fetchall()}
         assert "idx_recordings_status_title" in index_names
+
+
+def test_migration_7_drops_devices_and_device_id_columns(tmp_path, monkeypatch):
+    test_db = tmp_path / "migration7_test.db"
+    monkeypatch.setattr(db, "DB_PATH", test_db)
+
+    with sqlite3.connect(test_db) as conn:
+        conn.executescript("""
+            CREATE TABLE devices (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL
+            );
+            CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+            CREATE INDEX idx_sessions_device_id ON sessions (device_id);
+            CREATE TABLE auth_tokens (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                revoked_at TEXT
+            );
+            INSERT INTO devices (id, name, created_at, last_seen_at)
+            VALUES ('dev1', 'Kitchen Tablet', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+            PRAGMA user_version = 6;
+        """)
+
+    with sqlite3.connect(test_db) as conn:
+        db._apply_migrations(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == len(db._MIGRATIONS)
+
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        assert "devices" not in tables
+
+        session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        assert "device_id" not in session_cols
+
+        token_cols = {row[1] for row in conn.execute("PRAGMA table_info(auth_tokens)").fetchall()}
+        assert "device_id" not in token_cols

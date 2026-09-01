@@ -39,38 +39,6 @@ class _FakeRequest:
         self.headers = headers or {}
 
 
-async def test_get_current_device_raises_401_without_a_cookie(tmp_db):
-    with pytest.raises(HTTPException) as exc_info:
-        await auth.get_current_device(_FakeRequest({}))
-    assert exc_info.value.status_code == 401
-
-
-async def test_get_current_device_raises_401_for_an_unknown_device_id(tmp_db):
-    with pytest.raises(HTTPException) as exc_info:
-        await auth.get_current_device(_FakeRequest({auth.DEVICE_COOKIE_NAME: "nope"}))
-    assert exc_info.value.status_code == 401
-
-
-async def test_get_current_device_returns_the_device_and_bumps_last_seen(tmp_db):
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-
-    device = await auth.get_current_device(_FakeRequest({auth.DEVICE_COOKIE_NAME: "dev1"}))
-
-    assert device["id"] == "dev1"
-    # The dependency's own return value is a pre-touch snapshot; the bump is
-    # a side effect visible on the next read, not on this one.
-    assert db.get_device("dev1")["last_seen_at"] != "2020-01-01T00:00:00Z"
-
-
-async def test_get_current_device_resolves_via_header(tmp_db):
-    db.create_device("dev2", "Living Room", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-
-    device = await auth.get_current_device(_FakeRequest({}, headers={auth.DEVICE_HEADER_NAME: "dev2"}))
-
-    assert device["id"] == "dev2"
-    assert db.get_device("dev2")["last_seen_at"] != "2020-01-01T00:00:00Z"
-
-
 async def test_get_current_session_raises_401_without_a_cookie(tmp_db):
     with pytest.raises(HTTPException) as exc_info:
         await auth.get_current_session(_FakeRequest({}))
@@ -79,9 +47,8 @@ async def test_get_current_session_raises_401_without_a_cookie(tmp_db):
 
 async def test_get_current_session_raises_401_for_an_expired_session(tmp_db):
     db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
     expired = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-    db.create_session("sess1", "alice", "dev1", "2020-01-01T00:00:00Z", expired)
+    db.create_session("sess1", "alice", "2020-01-01T00:00:00Z", expired)
 
     with pytest.raises(HTTPException) as exc_info:
         await auth.get_current_session(_FakeRequest({auth.SESSION_COOKIE_NAME: "sess1"}))
@@ -90,8 +57,7 @@ async def test_get_current_session_raises_401_for_an_expired_session(tmp_db):
 
 async def test_get_current_session_returns_the_session_when_valid(tmp_db):
     db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-    db.create_session("sess1", "alice", "dev1", "2020-01-01T00:00:00Z", auth.session_expiry())
+    db.create_session("sess1", "alice", "2020-01-01T00:00:00Z", auth.session_expiry())
 
     session = await auth.get_current_session(_FakeRequest({auth.SESSION_COOKIE_NAME: "sess1"}))
 
@@ -101,8 +67,7 @@ async def test_get_current_session_returns_the_session_when_valid(tmp_db):
 
 async def test_get_current_user_resolves_from_a_valid_session(tmp_db):
     db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-    db.create_session("sess1", "alice", "dev1", "2020-01-01T00:00:00Z", auth.session_expiry())
+    db.create_session("sess1", "alice", "2020-01-01T00:00:00Z", auth.session_expiry())
 
     user = await auth.get_current_user(_FakeRequest({auth.SESSION_COOKIE_NAME: "sess1"}))
 
@@ -111,8 +76,7 @@ async def test_get_current_user_resolves_from_a_valid_session(tmp_db):
 
 async def test_get_current_user_raises_401_when_the_user_row_is_gone(tmp_db):
     db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-    db.create_session("sess1", "alice", "dev1", "2020-01-01T00:00:00Z", auth.session_expiry())
+    db.create_session("sess1", "alice", "2020-01-01T00:00:00Z", auth.session_expiry())
     db.delete_user("alice")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -122,10 +86,7 @@ async def test_get_current_user_raises_401_when_the_user_row_is_gone(tmp_db):
 
 async def test_get_current_user_resolves_from_a_valid_bearer_token(tmp_db):
     db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-    db.create_auth_token(
-        "tok1", "alice", "dev1", auth.hash_token("secret-token"), "Alice's iPhone", "2020-01-01T00:00:00Z"
-    )
+    db.create_auth_token("tok1", "alice", auth.hash_token("secret-token"), "Alice's iPhone", "2020-01-01T00:00:00Z")
 
     user = await auth.get_current_user(_FakeRequest({}, headers={"Authorization": "Bearer secret-token"}))
 
@@ -140,10 +101,7 @@ async def test_get_current_user_raises_401_for_an_unknown_bearer_token(tmp_db):
 
 async def test_get_current_user_raises_401_for_a_revoked_bearer_token(tmp_db):
     db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
-    db.create_device("dev1", "Kitchen", "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-    db.create_auth_token(
-        "tok1", "alice", "dev1", auth.hash_token("secret-token"), "Alice's iPhone", "2020-01-01T00:00:00Z"
-    )
+    db.create_auth_token("tok1", "alice", auth.hash_token("secret-token"), "Alice's iPhone", "2020-01-01T00:00:00Z")
     db.revoke_auth_token("tok1", "2020-01-02T00:00:00Z")
 
     with pytest.raises(HTTPException) as exc_info:

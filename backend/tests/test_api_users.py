@@ -4,7 +4,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import devices as devices_api
 from app.api import users as users_api
 from app.auth import SESSION_COOKIE_NAME
 from app.storage import db
@@ -13,7 +12,6 @@ from app.storage import db
 @pytest.fixture
 def client():
     app = FastAPI()
-    app.include_router(devices_api.router)
     app.include_router(users_api.router)
     return TestClient(app)
 
@@ -25,15 +23,7 @@ def test_list_profiles_is_empty_on_a_fresh_install(client, tmp_db):
     assert response.json() == []
 
 
-def test_create_profile_requires_a_device_cookie(client, tmp_db):
-    response = client.post("/api/users", json={"name": "Alice"})
-
-    assert response.status_code == 401
-
-
 def test_create_profile_logs_the_new_user_in(client, tmp_db):
-    client.post("/api/devices/register")
-
     response = client.post("/api/users", json={"name": "Alice", "avatar": "cat.png"})
 
     assert response.status_code == 200
@@ -48,15 +38,12 @@ def test_create_profile_logs_the_new_user_in(client, tmp_db):
 
 
 def test_create_profile_rejects_a_malformed_pin(client, tmp_db):
-    client.post("/api/devices/register")
-
     response = client.post("/api/users", json={"name": "Alice", "pin": "abc"})
 
     assert response.status_code == 422
 
 
 def test_login_with_no_pin_set_succeeds_without_a_pin(client, tmp_db):
-    client.post("/api/devices/register")
     profile = client.post("/api/users", json={"name": "Alice"}).json()
     client.post("/api/users/logout")
 
@@ -67,15 +54,12 @@ def test_login_with_no_pin_set_succeeds_without_a_pin(client, tmp_db):
 
 
 def test_login_for_an_unknown_profile_returns_404(client, tmp_db):
-    client.post("/api/devices/register")
-
     response = client.post("/api/users/nope/login", json={})
 
     assert response.status_code == 404
 
 
 def test_login_with_a_pin_requires_the_correct_pin(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Bob", "pin": "1234"})
     client.post("/api/users/logout")
 
@@ -87,7 +71,6 @@ def test_login_with_a_pin_requires_the_correct_pin(client, tmp_db):
 
 
 def test_login_locks_out_after_too_many_wrong_pins(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Bob", "pin": "1234"})
     client.post("/api/users/logout")
     user_id = db.list_users()[-1]["id"]
@@ -104,7 +87,6 @@ def test_login_locks_out_after_too_many_wrong_pins(client, tmp_db):
 
 
 def test_login_lockout_is_scoped_per_profile(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Bob", "pin": "1234"})
     client.post("/api/users", json={"name": "Alice", "pin": "5678"})
     client.post("/api/users/logout")
@@ -119,7 +101,6 @@ def test_login_lockout_is_scoped_per_profile(client, tmp_db):
 
 
 def test_login_success_resets_the_failed_attempt_count(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Bob", "pin": "1234"})
     client.post("/api/users/logout")
     user_id = db.list_users()[-1]["id"]
@@ -134,7 +115,6 @@ def test_login_success_resets_the_failed_attempt_count(client, tmp_db):
 
 
 def test_logout_clears_the_session(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Alice"})
 
     response = client.post("/api/users/logout")
@@ -156,7 +136,6 @@ def test_me_requires_a_session(client, tmp_db):
 
 
 def test_patch_me_updates_name_and_avatar(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Alice"})
 
     response = client.patch("/api/users/me", json={"name": "Renamed", "avatar": "dog.png"})
@@ -168,7 +147,6 @@ def test_patch_me_updates_name_and_avatar(client, tmp_db):
 
 
 def test_patch_me_can_set_and_then_clear_a_pin(client, tmp_db):
-    client.post("/api/devices/register")
     profile = client.post("/api/users", json={"name": "Alice"}).json()
 
     client.patch("/api/users/me", json={"pin": "4321"})
@@ -179,7 +157,6 @@ def test_patch_me_can_set_and_then_clear_a_pin(client, tmp_db):
 
 
 def test_delete_me_refuses_to_delete_the_only_remaining_profile(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Alice"})
 
     response = client.delete("/api/users/me")
@@ -188,7 +165,6 @@ def test_delete_me_refuses_to_delete_the_only_remaining_profile(client, tmp_db):
 
 
 def test_delete_me_succeeds_when_another_profile_exists(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Alice"})
     bob = client.post("/api/users", json={"name": "Bob"}).json()
 
@@ -199,7 +175,6 @@ def test_delete_me_succeeds_when_another_profile_exists(client, tmp_db):
 
 
 def test_get_and_patch_preferences_round_trip(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Alice"})
 
     defaults = {"theme": "dark", "locale": "en"}
@@ -213,7 +188,6 @@ def test_get_and_patch_preferences_round_trip(client, tmp_db):
 
 
 def test_patch_preferences_round_trips_locale(client, tmp_db):
-    client.post("/api/devices/register")
     client.post("/api/users", json={"name": "Alice"})
 
     response = client.patch("/api/users/me/preferences", json={"locale": "es"})

@@ -2,9 +2,6 @@
 	"layout": {
 		"fatal_title": "HDHR Open-Backend nicht erreichbar",
 		"fatal_hint": "Stelle sicher, dass das Backend läuft und erreichbar ist, und lade diese Seite dann neu.",
-		"name_device_title": "Dieses Gerät benennen",
-		"name_device_hint": "Hilft, es in der Geräteliste zu unterscheiden — z. B. „Küchen-Tablet“ oder „Wohnzimmer-TV“.",
-		"done": "Fertig",
 		"nav_guide": "Guide",
 		"nav_recordings": "Aufnahmen",
 		"nav_settings": "Einstellungen"
@@ -43,17 +40,6 @@
 			"delete": "Profil löschen",
 			"delete_link": "Dieses Profil löschen",
 			"delete_error": "Profil konnte nicht gelöscht werden — es könnte das letzte verbleibende sein."
-		},
-		"devices": {
-			"heading": "Geräte",
-			"this_device_label": "Dieses Gerät",
-			"rename": "Dieses Gerät umbenennen",
-			"rename_error": "Gerät konnte nicht umbenannt werden.",
-			"load_error": "Geräte konnten nicht geladen werden.",
-			"forgetting": "Wird entfernt…",
-			"forget": "Entfernen",
-			"forget_device": "Gerät entfernen",
-			"forget_error": "Gerät konnte nicht entfernt werden."
 		}
 	},
 	"common": {

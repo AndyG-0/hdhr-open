@@ -13,6 +13,36 @@ register('de', () => import('./lib/i18n/locales/de.json'));
 init({ fallbackLocale: 'en', initialLocale: 'en' });
 await waitLocale();
 
+// Node 26+ defines its own experimental global `localStorage` getter (gated
+// behind --localstorage-file) that returns undefined. Since vitest's jsdom
+// environment aliases `window` to `globalThis`, this shadows jsdom's real
+// Storage instance too — `window.localStorage` hits the same broken getter.
+// Replace it outright with a minimal in-memory Storage polyfill.
+{
+	const store = new Map<string, string>();
+	const localStoragePolyfill: Storage = {
+		getItem: (key) => (store.has(key) ? store.get(key)! : null),
+		setItem: (key, value) => {
+			store.set(key, String(value));
+		},
+		removeItem: (key) => {
+			store.delete(key);
+		},
+		clear: () => {
+			store.clear();
+		},
+		key: (index) => Array.from(store.keys())[index] ?? null,
+		get length() {
+			return store.size;
+		},
+	};
+	Object.defineProperty(globalThis, 'localStorage', {
+		value: localStoragePolyfill,
+		configurable: true,
+		writable: true,
+	});
+}
+
 // jsdom doesn't implement ResizeObserver; components only use it to detect
 // content-size changes (e.g. scrollFade), which isn't relevant in tests.
 if (typeof globalThis.ResizeObserver === 'undefined') {

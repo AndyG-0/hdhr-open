@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from app.auth import (
     SESSION_COOKIE_NAME,
     clear_session_cookie,
-    get_current_device,
     get_current_user,
     hash_pin,
     hash_token,
@@ -93,9 +92,7 @@ async def list_profiles():
 
 
 @router.post("")
-async def create_profile(
-    payload: CreateUserRequest, response: Response, device: dict[str, Any] = Depends(get_current_device)
-):
+async def create_profile(payload: CreateUserRequest, response: Response):
     pin_hash = pin_salt = None
     pin_iterations = None
     if payload.pin:
@@ -106,16 +103,14 @@ async def create_profile(
     await asyncio.to_thread(create_user, user_id, payload.name, payload.avatar, pin_hash, pin_salt, pin_iterations, now)
 
     session_id = new_token()
-    await asyncio.to_thread(create_session, session_id, user_id, device["id"], now, session_expiry())
+    await asyncio.to_thread(create_session, session_id, user_id, now, session_expiry())
     set_session_cookie(response, session_id)
 
     return user_shape({"id": user_id, "name": payload.name, "avatar": payload.avatar, "role": "member"})
 
 
 @router.post("/{user_id}/login")
-async def login(
-    user_id: str, payload: LoginRequest, response: Response, device: dict[str, Any] = Depends(get_current_device)
-):
+async def login(user_id: str, payload: LoginRequest, response: Response):
     user = await asyncio.to_thread(get_user, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail=f"Unknown profile '{user_id}'")
@@ -133,15 +128,13 @@ async def login(
     # Login (profile switch) is the natural, frequent moment to reap sessions
     # that expired since they were created — nothing else ever purges them.
     await asyncio.to_thread(delete_expired_sessions, now)
-    await asyncio.to_thread(create_session, session_id, user["id"], device["id"], now, session_expiry())
+    await asyncio.to_thread(create_session, session_id, user["id"], now, session_expiry())
     set_session_cookie(response, session_id)
 
     result = user_shape(user)
     if payload.token_name:
         token = new_token()
-        await asyncio.to_thread(
-            create_auth_token, uuid4().hex, user["id"], device["id"], hash_token(token), payload.token_name, now
-        )
+        await asyncio.to_thread(create_auth_token, uuid4().hex, user["id"], hash_token(token), payload.token_name, now)
         # The raw token is returned exactly once, here — only its hash is
         # ever persisted, the same convention as a PIN.
         result["token"] = token
@@ -193,7 +186,6 @@ def _token_shape(token: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": token["id"],
         "name": token["name"],
-        "device_id": token["device_id"],
         "created_at": token["created_at"],
         "last_used_at": token["last_used_at"],
     }

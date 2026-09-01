@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
-from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.api.users import PIN_PATTERN, user_shape
-from app.auth import get_current_device, hash_pin, new_token, session_expiry, set_session_cookie
+from app.auth import hash_pin, new_token, session_expiry, set_session_cookie
 from app.storage.db import create_session, create_user, list_users
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -28,9 +27,7 @@ async def setup_status():
 
 
 @router.post("/admin")
-async def create_admin(
-    payload: CreateAdminRequest, response: Response, device: dict[str, Any] = Depends(get_current_device)
-):
+async def create_admin(payload: CreateAdminRequest, response: Response):
     # The only thing standing between this and a standing "grant myself
     # admin" backdoor — once any profile exists, onboarding is over.
     if await asyncio.to_thread(list_users):
@@ -48,7 +45,7 @@ async def create_admin(
     )
 
     session_id = new_token()
-    await asyncio.to_thread(create_session, session_id, user_id, device["id"], now, session_expiry())
+    await asyncio.to_thread(create_session, session_id, user_id, now, session_expiry())
     set_session_cookie(response, session_id)
 
     return user_shape({"id": user_id, "name": payload.name, "avatar": payload.avatar, "role": "admin"})

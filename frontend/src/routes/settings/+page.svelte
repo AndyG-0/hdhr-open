@@ -11,7 +11,6 @@
 	import TmdbSection from '$lib/components/settings/TmdbSection.svelte';
 	import HouseholdMembersSection from '$lib/components/settings/HouseholdMembersSection.svelte';
 	import ProfileSection from '$lib/components/settings/ProfileSection.svelte';
-	import DevicesSection from '$lib/components/settings/DevicesSection.svelte';
 	import LanguageSection from '$lib/components/settings/LanguageSection.svelte';
 	import AppearanceSection from '$lib/components/settings/AppearanceSection.svelte';
 	import TimezoneSection from '$lib/components/settings/TimezoneSection.svelte';
@@ -274,8 +273,6 @@
 		<p class="group-subtitle">{$_('settings.your_settings.subtitle')}</p>
 
 		<ProfileSection />
-
-		<DevicesSection />
 
 		<LanguageSection />
 
