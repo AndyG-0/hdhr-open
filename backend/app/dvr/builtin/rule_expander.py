@@ -24,6 +24,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_LOOKAHEAD_SECONDS = 14 * 24 * 3600  # 14 days
 _WHITESPACE_RE = re.compile(r"\s+")
 
+# Fallback grace period for a "single" rule that never produced a
+# scheduled_recording at all (e.g. the target airing dropped out of the
+# guide before expansion ever matched it). series_match_key only records the
+# airing's start time, not its duration, so this has to be generous enough
+# to outlast any real program plus its end padding.
+_SINGLE_RULE_FALLBACK_GRACE_SECONDS = 6 * 3600
+
 
 def normalize_title(title: str) -> str:
     """Normalize a show title for robust EPG matching across feeds."""
@@ -119,6 +126,50 @@ def _match_airing(rule: dict[str, Any], program: dict[str, Any]) -> bool:
     return False
 
 
+def cleanup_expired_single_rules(
+    rules: list[dict[str, Any]], all_scheduled: list[dict[str, Any]], now: float
+) -> set[str]:
+    """Delete "single" (one-time) builtin rules once their airing is done.
+
+    A single rule exists to schedule exactly one recording; once that
+    recording has run its course (or, failing that, once the target airing
+    is old enough that it's clearly never going to be scheduled), the rule
+    no longer matches anything and keeping it around only clutters the
+    scheduled-recordings list. Series rules are left alone - they keep
+    matching new airings indefinitely.
+    """
+    statuses_by_rule: dict[str, list[str]] = {}
+    for s in all_scheduled:
+        rule_id = s.get("rule_id")
+        if rule_id:
+            statuses_by_rule.setdefault(rule_id, []).append(s.get("status"))
+
+    deleted: set[str] = set()
+    for rule in rules:
+        if rule.get("type") != "single":
+            continue
+        rule_id = rule["id"]
+        statuses = statuses_by_rule.get(rule_id)
+        if statuses is not None:
+            # Still has a pending (or currently recording) instance - not expired yet.
+            if any(status in ("scheduled", "in_progress") for status in statuses):
+                continue
+        else:
+            try:
+                target_ts = float(rule["series_match_key"]) if rule.get("series_match_key") else None
+            except ValueError:
+                target_ts = None
+            if target_ts is None or now < target_ts + _SINGLE_RULE_FALLBACK_GRACE_SECONDS:
+                continue
+
+        db.delete_recording_rule(rule_id)
+        db.delete_scheduled_recordings_for_rule(rule_id)
+        deleted.add(rule_id)
+        logger.info("Deleted expired single-airing recording rule [%s] '%s'", rule_id, rule.get("title"))
+
+    return deleted
+
+
 def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> list[dict[str, Any]]:
     """Synchronous rule expansion run against SQLite."""
     now = time.time()
@@ -127,6 +178,13 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
     rules = db.list_recording_rules(provider="builtin")
     if not rules:
         return []
+
+    existing_scheduled_raw = db.list_scheduled_recordings()
+    deleted_rule_ids = cleanup_expired_single_rules(rules, existing_scheduled_raw, now)
+    if deleted_rule_ids:
+        rules = [r for r in rules if r["id"] not in deleted_rule_ids]
+        if not rules:
+            return []
 
     channels_by_id, id_by_number, number_by_id = _channel_lookup_maps()
     all_channel_ids = list(channels_by_id.keys())
@@ -138,7 +196,6 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
     priority = resolve_guide_provider_priority()
     resolved_programs_by_channel = db.resolve_guide_programs(list(channels_by_id.values()), raw_programs, priority)
 
-    existing_scheduled_raw = db.list_scheduled_recordings()
     existing_scheduled = [
         s for s in existing_scheduled_raw if s.get("status") in ("scheduled", "in_progress", "completed")
     ]

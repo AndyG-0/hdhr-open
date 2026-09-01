@@ -4,8 +4,10 @@ import time
 import uuid
 
 from app.dvr.builtin.rule_expander import (
+    _SINGLE_RULE_FALLBACK_GRACE_SECONDS,
     _index_scheduled,
     _is_already_recorded_or_scheduled,
+    cleanup_expired_single_rules,
     expand_rules_sync,
     normalize_title,
 )
@@ -286,3 +288,133 @@ def test_expand_rules_skips_already_recorded_episodes(tmp_db):
     # S01E01 is skipped because it's not new and already completed; S01E02 is scheduled
     assert len(scheduled) == 1
     assert scheduled[0]["episode_title"] == "Episode Two"
+
+
+def _make_single_rule(rule_id: str, target_ts: float, **overrides) -> dict:
+    rule = {
+        "id": rule_id,
+        "provider": "builtin",
+        "type": "single",
+        "title": "Movie Night",
+        "series_match_key": str(int(target_ts)),
+        "channel_id": "7.1",
+    }
+    rule.update(overrides)
+    db.create_recording_rule(rule)
+    return rule
+
+
+def test_cleanup_deletes_single_rule_once_its_recording_is_done(tmp_db):
+    now = time.time()
+    rule = _make_single_rule("rule_single_done", now - 7200)
+    db.upsert_scheduled_recording(
+        {
+            "id": "sched_1",
+            "rule_id": rule["id"],
+            "channel_id": "ch1",
+            "title": "Movie Night",
+            "start_ts": now - 7200,
+            "end_ts": now - 3600,
+            "status": "completed",
+        }
+    )
+
+    deleted = cleanup_expired_single_rules([rule], db.list_scheduled_recordings(), now)
+
+    assert deleted == {rule["id"]}
+    assert db.get_recording_rule(rule["id"]) is None
+
+
+def test_cleanup_keeps_single_rule_with_pending_scheduled_recording(tmp_db):
+    now = time.time()
+    rule = _make_single_rule("rule_single_pending", now + 3600)
+    db.upsert_scheduled_recording(
+        {
+            "id": "sched_2",
+            "rule_id": rule["id"],
+            "channel_id": "ch1",
+            "title": "Movie Night",
+            "start_ts": now + 3600,
+            "end_ts": now + 7200,
+            "status": "scheduled",
+        }
+    )
+
+    deleted = cleanup_expired_single_rules([rule], db.list_scheduled_recordings(), now)
+
+    assert deleted == set()
+    assert db.get_recording_rule(rule["id"]) is not None
+
+
+def test_cleanup_leaves_series_rules_alone(tmp_db):
+    now = time.time()
+    rule = {
+        "id": "rule_series",
+        "provider": "builtin",
+        "type": "series",
+        "title": "Nightly News",
+        "series_match_key": "nightly news",
+        "channel_id": "4.1",
+    }
+    db.create_recording_rule(rule)
+    db.upsert_scheduled_recording(
+        {
+            "id": "sched_3",
+            "rule_id": rule["id"],
+            "channel_id": "ch1",
+            "title": "Nightly News",
+            "start_ts": now - 7200,
+            "end_ts": now - 3600,
+            "status": "completed",
+        }
+    )
+
+    deleted = cleanup_expired_single_rules([rule], db.list_scheduled_recordings(), now)
+
+    assert deleted == set()
+    assert db.get_recording_rule(rule["id"]) is not None
+
+
+def test_cleanup_deletes_single_rule_never_scheduled_after_grace_period(tmp_db):
+    now = time.time()
+    rule = _make_single_rule(
+        "rule_single_never_scheduled", now - _SINGLE_RULE_FALLBACK_GRACE_SECONDS - 1
+    )
+
+    deleted = cleanup_expired_single_rules([rule], [], now)
+
+    assert deleted == {rule["id"]}
+    assert db.get_recording_rule(rule["id"]) is None
+
+
+def test_cleanup_keeps_single_rule_never_scheduled_within_grace_period(tmp_db):
+    now = time.time()
+    rule = _make_single_rule("rule_single_recent", now - 60)
+
+    deleted = cleanup_expired_single_rules([rule], [], now)
+
+    assert deleted == set()
+    assert db.get_recording_rule(rule["id"]) is not None
+
+
+def test_expand_rules_sync_cleans_up_expired_single_rule(tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+
+    rule = _make_single_rule("rule_single_stale", now - 7200)
+    db.upsert_scheduled_recording(
+        {
+            "id": "sched_stale",
+            "rule_id": rule["id"],
+            "channel_id": channel_id,
+            "title": "Movie Night",
+            "start_ts": now - 7200,
+            "end_ts": now - 3600,
+            "status": "completed",
+        }
+    )
+
+    expand_rules_sync()
+
+    assert db.get_recording_rule(rule["id"]) is None
