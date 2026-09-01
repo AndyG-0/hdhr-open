@@ -69,3 +69,46 @@ def test_list_jobs_includes_definitions_with_no_runs_yet(client):
     assert response.status_code == 200
     body = {j["id"]: j for j in response.json()}
     assert body["never_run"]["recent_runs"] == []
+
+
+class _FakeScheduler:
+    def __init__(self, known_job_ids):
+        self._known_job_ids = set(known_job_ids)
+        self.modified: list[str] = []
+
+    def get_job(self, job_id):
+        return object() if job_id in self._known_job_ids else None
+
+    def modify_job(self, job_id, **kwargs):
+        self.modified.append(job_id)
+
+
+def test_run_job_now_triggers_a_known_scheduled_job(client, monkeypatch):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+    fake_scheduler = _FakeScheduler(known_job_ids={"scheduled_job"})
+    monkeypatch.setattr(admin_jobs_api, "scheduler", fake_scheduler)
+
+    response = client.post("/api/admin/jobs/scheduled_job/run")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "triggered"}
+    assert fake_scheduler.modified == ["scheduled_job"]
+
+
+def test_run_job_now_404s_for_an_unknown_job(client, monkeypatch):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+    fake_scheduler = _FakeScheduler(known_job_ids=set())
+    monkeypatch.setattr(admin_jobs_api, "scheduler", fake_scheduler)
+
+    response = client.post("/api/admin/jobs/nonexistent_job/run")
+
+    assert response.status_code == 404
+    assert fake_scheduler.modified == []
+
+
+def test_run_job_now_requires_a_session(client):
+    _seed_users()
+
+    assert client.post("/api/admin/jobs/scheduled_job/run").status_code == 401

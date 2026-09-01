@@ -93,6 +93,33 @@ def test_register_event_job_adds_definition_without_scheduling():
     assert definitions["event_job"].trigger == "event"
 
 
+def test_trigger_job_now_modifies_next_run_time_when_job_exists():
+    modified = {}
+
+    class FakeScheduler:
+        def get_job(self, job_id):
+            return object()
+
+        def modify_job(self, job_id, **kwargs):
+            modified["job_id"] = job_id
+            modified["kwargs"] = kwargs
+
+    assert jobs.trigger_job_now(FakeScheduler(), "scheduled_job") is True
+    assert modified["job_id"] == "scheduled_job"
+    assert "next_run_time" in modified["kwargs"]
+
+
+def test_trigger_job_now_returns_false_when_job_is_unknown():
+    class FakeScheduler:
+        def get_job(self, job_id):
+            return None
+
+        def modify_job(self, job_id, **kwargs):
+            raise AssertionError("modify_job should not be called for an unknown job")
+
+    assert jobs.trigger_job_now(FakeScheduler(), "nonexistent_job") is False
+
+
 @pytest.mark.asyncio
 async def test_run_tracked_in_background_records_history(tmp_db, monkeypatch):
     scheduled: list = []

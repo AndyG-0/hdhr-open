@@ -347,6 +347,23 @@ export interface HouseholdUser {
 	created_at: string;
 }
 
+export interface JobRun {
+	id: string;
+	job_id: string;
+	status: 'running' | 'success' | 'failed';
+	started_at: string;
+	finished_at: string | null;
+	error: string | null;
+}
+
+export interface AdminJob {
+	id: string;
+	name: string;
+	description: string;
+	trigger: 'interval' | 'event';
+	recent_runs: JobRun[];
+}
+
 // fetch() itself throws a TypeError before ever reaching a response — that's
 // the one reliable signal that the request never made it to the server (CORS
 // block, DNS failure, connection refused), as opposed to a server response
@@ -573,6 +590,8 @@ export const api = {
 	listHouseholdUsers: () => getJSON<HouseholdUser[]>('/api/admin/users'),
 	updateUserRole: (id: string, role: UserRole) => patchJSON<HouseholdUser>(`/api/admin/users/${id}/role`, { role }),
 	removeHouseholdUser: (id: string) => deleteJSON<{ status: string }>(`/api/admin/users/${id}`),
+	listJobs: () => getJSON<AdminJob[]>('/api/admin/jobs'),
+	triggerJob: (id: string) => postJSON<{ status: string }>(`/api/admin/jobs/${id}/run`),
 	getChannelSettings: () => getJSON<HDHomeRunChannelSetting[]>('/api/guide/channels/settings'),
 	updateChannelSetting: (
 		channelId: string,

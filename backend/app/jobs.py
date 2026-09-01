@@ -86,3 +86,18 @@ def run_tracked_in_background(job_id: str, coro: Awaitable[None]) -> None:
 
 def list_job_definitions() -> list[JobDefinition]:
     return list(_REGISTRY.values())
+
+
+def trigger_job_now(scheduler: AsyncIOScheduler, job_id: str) -> bool:
+    """Nudge an already-registered interval job to run at its next
+    scheduler wakeup instead of waiting for its normal interval. Goes
+    through the scheduler's own executor (rather than calling the job's
+    func directly) so `max_instances`/`coalesce` guards are respected.
+    Returns False for an unknown job id or an event-driven job (neither
+    is registered with the scheduler, so `get_job` returns None for
+    both)."""
+    job = scheduler.get_job(job_id)
+    if job is None:
+        return False
+    scheduler.modify_job(job_id, next_run_time=datetime.now(UTC))
+    return True

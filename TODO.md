@@ -248,13 +248,36 @@ Each client wires it up differently and incompletely — see below.
   `backend/tests/test_api_admin_jobs.py` (auth gating, run history in the
   response shape). Full backend suite green (508 passed).
 
-- [ ] **CC-5 follow-up — Scheduled Tasks admin UI page.** Build the admin
-  UI on top of the `/api/admin/jobs` API above. No separate admin route
-  exists in the frontend today — admin-only sections are folded into
-  `frontend/src/routes/settings/+page.svelte` behind `{#if
-  $user?.role === 'admin'}`, composed from
-  `frontend/src/lib/components/settings/*Section.svelte` — a
-  `JobsSection.svelte` there is the natural fit, not a new route.
+- [x] **CC-5 follow-up — Scheduled Tasks admin UI page.** Built on top of
+  the `/api/admin/jobs` API above, as a new
+  `frontend/src/lib/components/settings/JobsSection.svelte` composed into
+  `settings/+page.svelte` behind the existing `{#if $user?.role ===
+  'admin'}` block — same pattern as every other admin-only
+  `*Section.svelte` (e.g. `HouseholdMembersSection.svelte`), including its
+  own `loadOnceWhen(() => $user?.role === 'admin', ...)` gate. Lists every
+  registered job with its trigger badge (`Scheduled` vs `Event-driven`)
+  and its 10 most recent runs (status/started/duration, plus the error
+  text on a failed run); interval jobs get a "Run now" button, event jobs
+  don't (nothing to nudge — they're not on a scheduler trigger). Backend
+  gained the endpoint this button needed:
+  `POST /api/admin/jobs/{job_id}/run` (`backend/app/api/admin_jobs.py`)
+  calls new `jobs.trigger_job_now()`, which nudges the job's
+  `next_run_time` via the scheduler itself (not calling its func
+  directly) so `max_instances`/`coalesce` guards stay in effect; 404s for
+  an unknown or event-driven job id, since neither is registered with the
+  scheduler. `frontend/src/lib/api.ts` gained the matching `AdminJob`/
+  `JobRun` types and `listJobs`/`triggerJob` calls. Also reworked
+  `settings/+page.svelte`'s layout to CSS multi-column
+  (`column-width`/`column-span: all` on group titles and the full-width
+  `ChannelLineupSection`) so the extra section doesn't make the page
+  unreasonably tall. Tests: `backend/tests/test_jobs.py` and
+  `test_api_admin_jobs.py` (trigger success/404/auth-gating; full backend
+  suite 513/513 passing) and new
+  `frontend/.../settings/JobsSection.test.ts` (load/render, no-runs-yet,
+  interval-only "Run now", failed-run error text, trigger-and-reload,
+  load/trigger failure messaging — full `vitest run` shows no new
+  failures beyond two pre-existing, unrelated ones in `theme.test.ts`/
+  `routes/page.test.ts`).
 
 ## Native Client CI
 

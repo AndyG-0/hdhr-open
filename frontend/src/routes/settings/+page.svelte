@@ -20,6 +20,7 @@
 	import XmltvFeedSection from '$lib/components/settings/XmltvFeedSection.svelte';
 	import SchedulesDirectSection from '$lib/components/settings/SchedulesDirectSection.svelte';
 	import ChannelLineupSection from '$lib/components/settings/ChannelLineupSection.svelte';
+	import JobsSection from '$lib/components/settings/JobsSection.svelte';
 
 	let settings = $state<AppSettings | null>(null);
 	let error = $state<string | null>(null);
@@ -255,14 +256,16 @@
 				onSave={saveDvrPriority}
 			/>
 
+			<PlaybackSection initialSettings={hdhomerunNetworkSettings} />
+
+			<JobsSection />
+
 			<ChannelLineupSection
 				{xmltvFeedChannels}
 				{sdStations}
 				onFeedChannelsChanged={(fc) => (xmltvFeedChannels = fc)}
 				onStationsChanged={(st) => (sdStations = st)}
 			/>
-
-			<PlaybackSection initialSettings={hdhomerunNetworkSettings} />
 		</div>
 	{/if}
 
@@ -284,7 +287,8 @@
 	.settings-page {
 		padding: 2rem;
 		min-height: 100vh;
-		max-width: 30rem;
+		max-width: 90rem;
+		margin: 0 auto;
 	}
 
 	.back {
@@ -305,7 +309,8 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
-		margin-bottom: 1.5rem;
+		margin-bottom: 1.25rem;
+		break-inside: avoid;
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
 		border-radius: 0.75rem;
@@ -361,7 +366,14 @@
 	}
 
 	.settings-group {
+		column-width: 22rem;
+		column-gap: 1.25rem;
 		margin-bottom: 2rem;
+	}
+
+	.group-title,
+	.group-subtitle {
+		column-span: all;
 	}
 
 	.group-title {
@@ -373,6 +385,10 @@
 		margin: 0 0 1rem;
 		color: var(--color-text-muted);
 		font-size: 0.85rem;
+	}
+
+	:global(.channel-lineup-section) {
+		column-span: all;
 	}
 
 	:global(label) {

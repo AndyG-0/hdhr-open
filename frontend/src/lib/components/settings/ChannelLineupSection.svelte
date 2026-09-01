@@ -99,7 +99,7 @@
 	}
 </script>
 
-<section>
+<section class="channel-lineup-section">
 	<div class="section-header-row">
 		<div>
 			<h3>{$_('network_settings.channel_mapping_heading')}</h3>
@@ -246,6 +246,9 @@
 		flex-direction: column;
 		gap: 0.75rem;
 		margin-top: 0.5rem;
+		max-height: 40rem;
+		overflow-y: auto;
+		padding-right: 0.25rem;
 	}
 
 	.channel-setting-card {
