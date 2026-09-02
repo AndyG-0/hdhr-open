@@ -230,6 +230,18 @@ _LIVE_CAPTION_STDOUT_STALL_SECONDS = 60.0
 # cues. This tracks time since the last successfully parsed cue instead.
 _LIVE_CAPTION_CUE_SILENCE_SECONDS = 180.0
 _LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS = 5.0
+# ccextractor's --stdin `-s` (live/growing-file) mode reliably segfaults if
+# started while file_path has too little data on disk yet - confirmed down to
+# the byte range (<1.5MB crashes, >=2MB doesn't, tested both with a closed
+# pipe and one held open with no EOF, so it's not an artifact of hitting EOF
+# early). A capture is well under this size for the first second or two after
+# a viewer tunes in, and ensure_live_captions can be reached that early (the
+# player's own attach path polls captions immediately). Waiting here avoids
+# ever handing ccextractor a too-small input instead of discovering it via
+# the crash-loop breaker below, which would otherwise burn all its retries on
+# byte-0 re-reads of the same too-small prefix and disable captions for the
+# rest of the capture before the source ever had a real chance.
+_LIVE_CAPTION_MIN_START_BYTES = 4_000_000
 
 # Escalating backoff + circuit breaker: an attempt that dies this fast is
 # treated as a crash-loop signal rather than a legitimate stall/cue-silence
@@ -300,10 +312,39 @@ async def _run_live_caption_loop(
     persistently broken source."""
     output_path = _live_caption_path(recording_id)
     consecutive_quick_failures = 0
+
+    def _current_size() -> int:
+        try:
+            return file_path.stat().st_size
+        except OSError:
+            return 0
+
     try:
+        gate_start = time.monotonic()
+        if _current_size() < _LIVE_CAPTION_MIN_START_BYTES:
+            logger.info(
+                "Live captions for %s: waiting for capture to reach %d bytes before starting "
+                "ccextractor (currently %d bytes)",
+                recording_id,
+                _LIVE_CAPTION_MIN_START_BYTES,
+                _current_size(),
+            )
+        while is_source_alive() and _current_size() < _LIVE_CAPTION_MIN_START_BYTES:
+            await asyncio.sleep(_LIVE_CAPTION_POLL_SECONDS)
+        if time.monotonic() - gate_start > 0.1:
+            logger.info(
+                "Live captions for %s: done waiting after %.1fs (size now %d bytes, source_alive=%s)",
+                recording_id,
+                time.monotonic() - gate_start,
+                _current_size(),
+                is_source_alive(),
+            )
+        attempt_number = 0
         while is_source_alive():
+            attempt_number += 1
             _reset_live_caption_output(output_path)
             attempt_start = time.monotonic()
+            logger.info("Live captions for %s: starting attempt #%d", recording_id, attempt_number)
             should_restart = await _run_live_caption_process_once(
                 file_path, output_path, is_source_alive, capture_start_ts
             )
@@ -353,6 +394,12 @@ async def _run_live_caption_loop(
     except asyncio.CancelledError:
         raise
     finally:
+        logger.info(
+            "Live captions for %s: loop exiting (source_alive=%s, disabled=%s)",
+            recording_id,
+            is_source_alive(),
+            recording_id in _live_caption_disabled,
+        )
         _live_caption_tasks.pop(recording_id, None)
 
 
@@ -392,18 +439,28 @@ async def _run_live_caption_process_once(
     mode it'd use tailing a live tuner capture - rather than its default
     behavior of stopping as soon as it catches up to the current end of a
     file it thinks is complete. `--quiet` keeps stderr empty in the normal
-    case (see `_drain_stderr_logging`)."""
+    case (see `_drain_stderr_logging`). `-1` restricts decoding to CEA-608
+    field 1/channel 1 (the primary broadcast language). Without it,
+    ccextractor also decodes any CEA-708 (DTVCC) service present - which on
+    a dual-language broadcast is often a second language (e.g. Spanish SAP)
+    - and interleaves it into this same stdout stream alongside the primary
+    608 track, distinguishable (per ccextractor's own behavior) only by a
+    `<font>` tag it isn't guaranteed to add to every 708 cue. That let
+    secondary-language lines slip past `_parse_srt_block`'s `<font>` filter
+    and appear mixed in with the primary caption text."""
     argv = [
         "ccextractor",
         "--stdin",
         "-s",
         "999999999",
+        "-1",
         "-out=srt",
         "-stdout",
         "-o",
         "/dev/null",
         "--quiet",
     ]
+    attempt_start = time.monotonic()
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
@@ -419,6 +476,17 @@ async def _run_live_caption_process_once(
     assert process.stdout is not None
     assert process.stderr is not None
 
+    try:
+        current_size = file_path.stat().st_size
+    except OSError:
+        current_size = -1
+    logger.info(
+        "Live caption ccextractor attempt starting (pid=%s, file=%s, current size=%d bytes)",
+        getattr(process, "pid", None),
+        file_path,
+        current_size,
+    )
+
     pump_stop_event = asyncio.Event()
     pump_task = asyncio.create_task(
         pump_tail_follow(file_path, process.stdin, pump_stop_event, is_source_alive, start_offset_bytes=0)
@@ -427,13 +495,14 @@ async def _run_live_caption_process_once(
 
     stalled = False
     cue_stalled = False
+    cues_emitted = 0
 
     async def stdout_reader() -> None:
         # Never let an exception here go unretrieved - this task is only
         # ever awaited on the cancellation path, so anything raised here
         # instead of returned/logged would otherwise surface as a
         # "Task exception was never retrieved" leak with no diagnostics.
-        nonlocal stalled, cue_stalled
+        nonlocal stalled, cue_stalled, cues_emitted
         buffer = ""
         lag_samples: list[float] = []
         last_summary_monotonic = time.monotonic()
@@ -479,6 +548,12 @@ async def _run_live_caption_process_once(
                         stalled = True
                     return
                 if not chunk:
+                    logger.info(
+                        "Live caption ccextractor stdout closed (EOF) after %d cues emitted, "
+                        "%d bytes left unparsed in buffer",
+                        cues_emitted,
+                        len(buffer),
+                    )
                     return
                 # ccextractor's SRT output uses \r\n line endings, unlike
                 # ffmpeg's WebVTT - normalize before block-splitting on
@@ -488,11 +563,18 @@ async def _run_live_caption_process_once(
                     block, buffer = buffer.split("\n\n", 1)
                     cue = _parse_srt_block(block)
                     if cue is not None:
+                        cues_emitted += 1
                         last_cue_monotonic = time.monotonic()
                         _append_live_cues(output_path, [cue])
+                        lag = (time.time() - capture_start_ts) - cue[1] if capture_start_ts is not None else None
+                        logger.info(
+                            "Live caption cue #%d appended: cue_end=%.1fs lag=%s text=%r",
+                            cues_emitted,
+                            cue[1],
+                            f"{lag:.1f}s" if lag is not None else "n/a",
+                            cue[2][:60],
+                        )
                         if capture_start_ts is not None:
-                            lag = (time.time() - capture_start_ts) - cue[1]
-                            logger.debug("Live caption cue appended: cue_end=%.1fs lag=%.1fs", cue[1], lag)
                             _record_lag_sample(lag)
         except asyncio.CancelledError:
             raise
@@ -509,8 +591,18 @@ async def _run_live_caption_process_once(
             process.stdin.close()
 
     try:
-        await asyncio.wait({pump_task, reader_task}, return_when=asyncio.FIRST_COMPLETED)
+        done, _pending = await asyncio.wait({pump_task, reader_task}, return_when=asyncio.FIRST_COMPLETED)
+        logger.info(
+            "Live caption attempt: %s finished first",
+            "pump (source feed)" if pump_task in done else "ccextractor stdout reader",
+        )
     except asyncio.CancelledError:
+        logger.info(
+            "Live caption ccextractor attempt cancelled after %.1fs (cues_emitted=%d) - "
+            "caller is tearing down the capture",
+            time.monotonic() - attempt_start,
+            cues_emitted,
+        )
         reader_task.cancel()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await stop_pump_and_stdin()
@@ -544,6 +636,17 @@ async def _run_live_caption_process_once(
         )
     elif exit_code not in (0, None):
         logger.warning("Live caption ccextractor process exited with code %s", exit_code)
+
+    logger.info(
+        "Live caption ccextractor attempt ended after %.1fs: exit_code=%s stalled=%s cue_stalled=%s "
+        "cues_emitted=%d source_alive=%s",
+        time.monotonic() - attempt_start,
+        exit_code,
+        stalled,
+        cue_stalled,
+        cues_emitted,
+        is_source_alive(),
+    )
 
     return is_source_alive()
 
@@ -610,19 +713,22 @@ def _parse_vtt_cues(text: str) -> list[tuple[float, float, str]]:
 
 
 _SRT_CUE_RE = re.compile(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> (\d\d):(\d\d):(\d\d),(\d\d\d)")
-# ccextractor tags CEA-708 output with <font ...> even when writing plain
-# SRT, but only ever does this for the 708 track - the 608 track it emits
-# alongside it (when a source carries both) is always plain text. This is
-# how the two tracks are told apart, since ccextractor interleaves them in
-# the same stdout stream rather than exposing separate stream selection like
-# ffmpeg's `-map`.
+# `-1` on the ccextractor invocation already restricts decoding to CEA-608
+# field 1/channel 1, so a CEA-708 cue shouldn't reach this parser at all. This
+# `<font ...>` check is a defensive fallback, not the primary guard: it was
+# originally relied on as the *only* way to tell a 708 cue from a 608 one
+# (ccextractor decodes both by default, interleaved in one stdout stream),
+# but real broadcast output showed plenty of 708 lines with no `<font>`
+# wrapping at all, letting a second (e.g. Spanish SAP) caption track leak
+# through as if it were the primary 608 text.
 _SRT_FONT_TAG_RE = re.compile(r"</?font[^>]*>")
 
 
 def _parse_srt_block(block: str) -> tuple[float, float, str] | None:
     """Parse a single SRT cue block (no leading/trailing blank lines) from
     ccextractor's `-out=srt -stdout` output. Returns None for a CEA-708 cue
-    (see `_SRT_FONT_TAG_RE`) or a block missing a `-->` timing line."""
+    (see `_SRT_FONT_TAG_RE` - a defensive fallback, not the primary guard;
+    see its comment) or a block missing a `-->` timing line."""
     if "<font" in block:
         return None
     match = _SRT_CUE_RE.search(block)

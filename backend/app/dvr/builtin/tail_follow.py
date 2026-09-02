@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -58,11 +59,21 @@ async def pump_tail_follow(
         logger.warning("tail-follow: could not open %s: %s", file_path, exc)
         return
 
+    start_monotonic = time.monotonic()
+    total_written = 0
+    # Set right before whichever return actually fires below, then logged
+    # once in the finally block - every exit path (including the implicit
+    # one, the while condition going false because stop_event fired) needs
+    # to show up here, since a peer that stops reading mid-stream (see the
+    # BrokenPipeError case) is exactly the kind of thing that otherwise
+    # leaves zero trace of why a downstream decoder went quiet.
+    exit_reason = "stop_event set"
     try:
         size = await asyncio.to_thread(lambda: file_path.stat().st_size)
         offset = start_offset_bytes if start_offset_bytes is not None else size
         offset = max(0, min(offset, size))
         await asyncio.to_thread(fh.seek, offset)
+        logger.info("tail-follow: starting %s from byte offset %d (size at start %d)", file_path, offset, size)
 
         eof_polls = 0
         while not stop_event.is_set():
@@ -72,12 +83,15 @@ async def pump_tail_follow(
                 try:
                     writer.write(chunk)
                     await writer.drain()
-                except (ConnectionResetError, BrokenPipeError):
+                except (ConnectionResetError, BrokenPipeError) as exc:
+                    exit_reason = f"peer closed its end of the pipe ({type(exc).__name__})"
                     return
+                total_written += len(chunk)
                 continue
 
             # Real EOF for now - the writer may still be appending.
             if not is_source_alive():
+                exit_reason = "source no longer alive"
                 return
 
             eof_polls += 1
@@ -93,5 +107,12 @@ async def pump_tail_follow(
             except TimeoutError:
                 pass
     finally:
+        logger.info(
+            "tail-follow: stopping (%s) after writing %d bytes over %.1fs from %s",
+            exit_reason,
+            total_written,
+            time.monotonic() - start_monotonic,
+            file_path,
+        )
         with contextlib.suppress(Exception):
             await asyncio.to_thread(fh.close)

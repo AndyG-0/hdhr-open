@@ -12,6 +12,17 @@ const RESYNC_DRIFT_THRESHOLD_SECONDS = 1.5;
 // silently never render. Stretching such a cue's end to start from
 // whenever it actually arrives keeps it on screen for a bit instead.
 const LIVE_CUE_MIN_DISPLAY_SECONDS = 4;
+// Caps how far a burst of stale cues delivered in one poll can be staggered
+// into the future (see appendCaptionCues). A roll-up decoder that flushes a
+// cue per line increment (rather than once per completed line) can hand back
+// a huge backlog - e.g. every cue produced since capture start, on the very
+// first poll after enabling captions mid-show. Staggering all of them
+// LIVE_CUE_MIN_DISPLAY_SECONDS apart would queue the caption display minutes
+// into the future, reading as "captions stopped." Past this cap, further
+// backlog cues are left unstretched (inert history, visible only on
+// rewind) instead of extending the queue - real time catches back up to
+// nextStretchSlotAbsolute within this many seconds either way.
+const LIVE_CUE_MAX_CATCHUP_SECONDS = 20;
 
 interface CaptionControllerOptions {
 	getVideoElement: () => HTMLVideoElement | null;
@@ -73,6 +84,20 @@ export function createCaptionController(options: CaptionControllerOptions) {
 		const videoElement = options.getVideoElement();
 		const isInProgress = options.getIsInProgress();
 		const baseOffsetSeconds = options.getBaseOffsetSeconds();
+		if (allowStretch && isInProgress && videoElement) {
+			// Anchor this call's stagger window to *now*, not to wherever a
+			// previous, separate poll last left the cursor. Roll-up cues
+			// routinely arrive faster than LIVE_CUE_MIN_DISPLAY_SECONDS apart
+			// (observed as low as ~0.4s between consecutive cues) - without
+			// this reset, nextStretchSlotAbsolute drifts further ahead of
+			// real time on every single cue and never catches back up, so
+			// every cue after the first queues up behind a permanently
+			// growing backlog instead of displaying. Staggering is only
+			// needed to keep multiple cues *within this same batch* from
+			// overlapping, so it's safe to forget an older reservation
+			// whenever a new poll comes in.
+			nextStretchSlotAbsolute = baseOffsetSeconds + videoElement.currentTime;
+		}
 		for (const cue of cues) {
 			if (allowStretch && isInProgress && videoElement && cue.displayEnd === undefined) {
 				const naturalEnd = cue.end - baseOffsetSeconds;
@@ -82,9 +107,15 @@ export function createCaptionController(options: CaptionControllerOptions) {
 				if (naturalEnd <= videoElement.currentTime) {
 					const nowAbsolute = baseOffsetSeconds + videoElement.currentTime;
 					const slotStart = Math.max(cue.start, nextStretchSlotAbsolute, nowAbsolute);
-					cue.displayStart = slotStart;
-					cue.displayEnd = slotStart + LIVE_CUE_MIN_DISPLAY_SECONDS;
-					nextStretchSlotAbsolute = cue.displayEnd;
+					// See LIVE_CUE_MAX_CATCHUP_SECONDS: past the cap, stop handing
+					// out further slots - leave the rest of a large backlog burst
+					// as unstretched history instead of queuing it arbitrarily far
+					// into the future.
+					if (slotStart - nowAbsolute <= LIVE_CUE_MAX_CATCHUP_SECONDS) {
+						cue.displayStart = slotStart;
+						cue.displayEnd = slotStart + LIVE_CUE_MIN_DISPLAY_SECONDS;
+						nextStretchSlotAbsolute = cue.displayEnd;
+					}
 				}
 			}
 			const start = (cue.displayStart ?? cue.start) - baseOffsetSeconds;

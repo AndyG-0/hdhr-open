@@ -627,6 +627,124 @@ describe('HDHomeRunPlayer', () => {
 		vi.useRealTimers();
 	});
 
+	it('re-anchors each poll to now instead of drifting forward across separate polls', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttEmpty = 'WEBVTT\n\n';
+		// Both absolute cues (31-32s, 33-34s) are already stale relative to the
+		// currentTime set below, but unlike the same-poll staggering test above,
+		// each is delivered on its OWN separate poll - closer together than
+		// LIVE_CUE_MIN_DISPLAY_SECONDS (4s) apart, mirroring real roll-up cadence
+		// (observed as low as ~0.4-1s between consecutive cues in production).
+		const vtt1 = ['WEBVTT', '', '00:00:31.000 --> 00:00:32.000', 'First', ''].join('\n');
+		const vtt2 = [vtt1, '00:00:33.000 --> 00:00:34.000', 'Second', ''].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttEmpty })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt1 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt2 });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		expect(fakeTextTrack.cues).toHaveLength(0);
+
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+		Object.defineProperty(video, 'paused', { value: false, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
+		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(14);
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
+		// If the second cue's reservation carried over from the first poll's
+		// nextStretchSlotAbsolute (14), it would queue at [14, 18] and every
+		// later cue would drift further ahead of real time with each new poll,
+		// never catching back up - the permanent-freeze bug. Anchoring fresh to
+		// "now" on this separate poll instead puts it right alongside the
+		// first cue, at [10, 14].
+		expect(fakeTextTrack.cues[1].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(14);
+
+		vi.useRealTimers();
+	});
+
+	it('caps how far a large backlog burst of stale cues gets staggered into the future', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttEmpty = 'WEBVTT\n\n';
+		// A roll-up decoder that flushes a cue per line increment can hand
+		// back a large backlog on the very first poll after enabling
+		// captions mid-show (e.g. ccextractor's SRT output vs ffmpeg's
+		// coarser per-completed-line cues). All ten are tightly packed and
+		// well behind the currentTime set below, as if the whole backlog
+		// arrived in one poll.
+		const blocks = [];
+		for (let i = 0; i < 10; i++) {
+			const startS = (31 + i * 0.1).toFixed(3);
+			const endS = (31.1 + i * 0.1).toFixed(3);
+			blocks.push(`00:00:${startS} --> 00:00:${endS}`, `Cue${i}`, '');
+		}
+		const vttBacklog = ['WEBVTT', '', ...blocks].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttEmpty })
+			.mockResolvedValueOnce({ ok: true, text: async () => vttBacklog });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		expect(fakeTextTrack.cues).toHaveLength(0);
+
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+		Object.defineProperty(video, 'paused', { value: false, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		await vi.advanceTimersByTimeAsync(2_000);
+
+		// Every cue still lands in the track (history is preserved for
+		// rewind), but only the leading run within
+		// LIVE_CUE_MAX_CATCHUP_SECONDS (20s) of "now" (10s) gets staggered
+		// forward - cues 0-5 (slots 10,14,...,30, i.e. up to +20 past now).
+		// Past that, later backlog cues are left at their natural (already
+		// past) timestamps instead of queuing the catch-up arbitrarily far
+		// into the future - which is what previously made captions on a
+		// large backlog read as "stopped after the first one."
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(10));
+		const stretchedStarts = [10, 14, 18, 22, 26, 30];
+		for (let i = 0; i < stretchedStarts.length; i++) {
+			expect(fakeTextTrack.cues[i].startTime).toBeCloseTo(stretchedStarts[i]);
+			expect(fakeTextTrack.cues[i].endTime).toBeCloseTo(stretchedStarts[i] + 4);
+		}
+		// Cue 6 onward wasn't stretched - its natural start (1.6s = 31.6 - 30)
+		// is well before "now" (10s), nowhere near the stretched queue.
+		expect(fakeTextTrack.cues[6].startTime).toBeCloseTo(1.6);
+		expect(fakeTextTrack.cues[6].startTime).toBeLessThan(stretchedStarts[stretchedStarts.length - 1]);
+
+		vi.useRealTimers();
+	});
+
 	it('does not resurrect an already-expired cue when a resync rebuilds the track', async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		hdhomerunRecordingDetail

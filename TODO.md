@@ -325,6 +325,120 @@ Each client wires it up differently and incompletely — see below.
   `apple/HDHROpenKit/.../PlayerViewModel.swift`, built during CC-7 to match
   Android's CC-6 behavior.
 
+- [x] **CC-13 — Web: fix permanent live-caption freeze; Backend: fix a
+  second CC track leaking into the primary caption text.** Two bugs found
+  from a real user report ("shows the first caption, then stops") and
+  diagnosed from two real production logs (backend healthy throughout both:
+  no `ccextractor` restarts, no circuit-breaker trips, per-cue lag a steady
+  2.3-4.9s) plus the user's own dev-tools observation that `captionCues`
+  kept growing while the on-screen line never advanced — which pointed the
+  bug at client-side rendering, not the network/polling layer.
+  - **Root cause (web):** `caption-controller.ts`'s `appendCaptionCues`
+    "stretches" a live cue that arrives already past its natural end onto a
+    reserved display slot (`nextStretchSlotAbsolute`), advancing it by
+    `LIVE_CUE_MIN_DISPLAY_SECONDS` (4s) per cue. That cursor persisted
+    across *separate polls*, not just within one poll's batch — but real
+    cue cadence (~2.85s average, bursts as tight as 0.4-0.6s apart) is
+    faster than that 4s window, so the reserved slot drifted further ahead
+    of real time on every cue, got pinned near the 20s `LIVE_CUE_MAX_
+    CATCHUP_SECONDS` cap, and every cue after that queued behind an
+    unreachable backlog — a permanent freeze, not the self-correcting
+    bounded lag it initially looked like from static code reading alone.
+  - **Fix (web):** reset `nextStretchSlotAbsolute` to "now" at the top of
+    every `appendCaptionCues` call made with `allowStretch: true` (i.e.
+    every live poll), leaving the same-poll staggering behavior (for a
+    burst of several stale cues delivered together) untouched. New
+    regression test in `HDHomeRunPlayer.test.ts` (`'re-anchors each poll to
+    now instead of drifting forward across separate polls'`) delivers two
+    stale cues on two *separate* polls rather than one batch; confirmed to
+    fail pre-fix (second cue stuck 4s behind instead of alongside the
+    first) and pass with the fix. Full suite green (276/276).
+  - **Root cause (backend), found only after the freeze fix let captions
+    render continuously:** `_run_live_caption_ccextractor_process` in
+    `media_cache.py` never restricted which caption channel `ccextractor`
+    decodes. Per `ccextractor --help`'s own notes, its default behavior
+    extracts **both** CEA-608 and CEA-708 and interleaves them into one
+    stdout stream; `_parse_srt_block`'s `<font>`-tag check (meant to filter
+    out the 708 track) is a heuristic, not a real separator — confirmed
+    against a real local recording that many 708 lines carry no `<font>`
+    wrapping at all (output size roughly doubles without a channel
+    restriction, and only a fraction of the extra lines are tagged), so
+    second-track content slipped through disguised as primary captions.
+    Previously invisible because the freeze bug meant only the very first
+    cue ever rendered.
+  - **Fix (backend):** added `-1` to the `ccextractor` argv, restricting
+    decode to CEA-608 field 1/channel 1 (the primary broadcast language)
+    only, instead of relying on the `<font>`-tag heuristic. `test_media_
+    cache.py`'s caption suite green (42/42); comments on `_SRT_FONT_TAG_RE`
+    updated to describe it as a defensive fallback rather than the primary
+    guard.
+  - The local `MLB_Baseball_1788116400_661a1195.ts` recording used to
+    verify this has no genuine secondary-language (CC2/CC3) content — its
+    "second track" was CEA-708 duplicating the same English text, not
+    Spanish — so this fix is verified against the *leak* (content appearing
+    that shouldn't) but not against a real dual-language broadcast. See
+    CC-14 for the follow-up that actually needs one.
+
+- [ ] **CC-14 — Backend + Web: let the user pick a CC track when a
+  recording/live channel has more than one.** Follow-up to CC-13: now that
+  the primary track leak is fixed, some broadcasts (sports especially)
+  genuinely do carry a second CEA-608 channel (CC3, "usually Spanish" per
+  `ccextractor --help`) or a second CEA-708 service worth exposing, instead
+  of just discarding it. Scoped as backend + web only for the first pass,
+  matching how CC-8 and CC-1/CC-6→CC-7 landed backend/one-client first —
+  native parity (mirroring CC-10/CC-11/CC-12's per-platform follow-up
+  pattern) is a separate future ticket once this is verified on web.
+  - **Open question this needs a spike to answer, not a blind
+    implementation:** how to detect a second track exists without paying
+    full decode cost on every capture. Unlike audio tracks (enumerable
+    cheaply from stream probe metadata, already surfaced via
+    `recording-detail`'s `audio: []`), CEA-608/708 channel occupancy isn't
+    visible without actually decoding — `ffprobe`'s `ATSC A53 Part 4 Closed
+    Captions` side-data (see CC-8's spike) just says *some* CC data is
+    present, not which of CC1-4/708 services carry real content.
+  - **`-12` (combined-channel) ccextractor flag is not a safe shortcut as
+    tested**: piping the same local sample recording through `ccextractor
+    -stdin -12 -out=srt -stdout --quiet` produced ccextractor's own
+    crash-report banner ("Issues? Open a ticket...") straight onto stdout —
+    the exact stream `_parse_srt_block` parses — instead of clean SRT.
+    `-1` and `-2` run separately (each ccextractor's own already-proven
+    single-channel path from CC-8/CC-13) is the safer starting point;
+    `-2` against the same local sample produced zero cues, confirming that
+    recording has no real secondary-channel content and can't validate a
+    picker on its own — this needs either a live tuner capture of a
+    genuinely dual-language broadcast, or synthetic/crafted CC2 test data.
+  - **Recommended approach to spike first:** run the secondary-channel
+    `ccextractor -2` decode lazily/on-demand (started only when a client
+    asks for track availability or selects the second track) rather than
+    unconditionally for every capture, since running it always-on doubles
+    per-capture caption-decode CPU for the common single-track case — a
+    real cost on the Raspberry Pi arm64 target called out in CC-9, not yet
+    measured. If a lazy secondary decode produces no cues within a grace
+    period, the client should treat that track as unavailable rather than
+    showing a permanently blank caption option.
+  - **Backend, once the detection approach is settled**
+    (`backend/app/dvr/media_cache.py`): a second long-lived `ccextractor
+    -2` process per active capture (mirroring `_run_live_caption_
+    ccextractor_process`'s existing `-1` supervision/restart/circuit-
+    breaker logic), writing to its own sidecar file (e.g.
+    `{recording_id}.cc2.live.vtt`) rather than appending to the existing
+    `.live.vtt`. New API surface to expose which tracks exist and let a
+    client select one — likely a query param on
+    `GET /api/dvr/recording-captions.vtt` (e.g. `?track=2`) plus a track-
+    list field on `recording-detail`, mirroring the existing `audio: []`
+    array's shape.
+  - **Web** (`frontend/src/lib/caption-controller.ts`,
+    `HDHomeRunPlayer.svelte`): a track picker mirroring the existing
+    `currentAudioIndex` audio-track selector pattern — only shown when
+    `recording-detail` reports more than one caption track, switching
+    `pollLiveCaptions()`/`loadCaptions()`'s target URL and resetting
+    `captionCues`/the stretch cursor on switch.
+  - Tests: backend coverage in `test_media_cache.py` for the second
+    supervised process (mirroring the existing `-1` process's tests) and
+    track-selection query param; frontend coverage in
+    `HDHomeRunPlayer.test.ts` for the picker UI and track-switch reset
+    behavior.
+
 - [x] **CC-5 — Scheduled Tasks admin, backend primitives.** Backend
   job-registry + runner + status/history API landed; the admin UI page is
   deliberately deferred (see follow-up below) — this was scoped as its own

@@ -418,6 +418,7 @@ async def test_run_live_caption_process_once_logs_lag_when_capture_start_ts_give
 async def test_live_caption_loop_stops_cleanly_when_source_dies(monkeypatch, tmp_path):
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
 
     fake_process = _FakeCaptionProcess()
 
@@ -452,6 +453,7 @@ async def test_live_caption_loop_restarts_when_process_exits_early(monkeypatch, 
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_POLL_SECONDS", 0.01)
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
 
     processes: list[_FakeCaptionProcess] = []
 
@@ -492,6 +494,7 @@ async def test_live_caption_loop_restarts_when_process_exits_early(monkeypatch, 
 
 async def test_live_caption_loop_passes_capture_start_ts_through(monkeypatch, tmp_path):
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
     received: list[float | None] = []
 
     async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None):
@@ -511,6 +514,7 @@ async def test_live_caption_loop_passes_capture_start_ts_through(monkeypatch, tm
 async def test_live_caption_loop_logs_restart_cost(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
 
     call_count = 0
 
@@ -535,6 +539,7 @@ async def test_live_caption_loop_truncates_output_on_restart_avoiding_duplicates
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_POLL_SECONDS", 0.01)
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
 
     processes: list[_FakeCaptionProcess] = []
 
@@ -626,6 +631,7 @@ async def test_run_live_caption_process_once_cue_silence_watchdog_trips(monkeypa
 
 async def test_live_caption_loop_backoff_schedule_and_circuit_breaker(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
 
     sleeps: list[float] = []
 
@@ -688,6 +694,7 @@ def test_stop_live_captions_clears_disabled_flag():
 
 async def test_stop_live_captions_cancellation_terminates_process(monkeypatch, tmp_path):
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
 
     fake_process = _FakeCaptionProcess()
 
