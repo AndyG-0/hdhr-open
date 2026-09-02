@@ -3,8 +3,10 @@
 Two independent, unauthenticated local-network devices are involved: the
 tuner itself (channel lineup, per-tuner signal status) and, optionally, a
 separate HDHomeRun DVR recording-engine service elsewhere on the LAN
-(scheduled/in-progress recordings). Neither requires credentials, unlike
-Jellyfin — there's nothing to mask in settings.
+(scheduled/in-progress recordings). Neither requires credentials. An
+optional third connection — SSH to the DVR host, to disambiguate which
+client(s) are actually streaming through its RECORD engine — does take
+credentials, encrypted at rest like every other secret setting.
 
 Program-guide data comes from SiliconDust's cloud API
 (api.hdhomerun.com/api/guide.php), keyed by a `DeviceAuth` token from the
@@ -20,12 +22,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 import socket
 import struct
 import time
-from typing import Any
 import zlib
+from typing import Any
 
+import asyncssh
 import httpx
 
 from app.storage.cache import cache
@@ -64,6 +68,10 @@ def is_tuner_configured(settings: dict[str, Any]) -> bool:
 
 def is_dvr_configured(settings: dict[str, Any]) -> bool:
     return bool(settings.get("dvr_host"))
+
+
+def is_dvr_ssh_configured(settings: dict[str, Any]) -> bool:
+    return bool(settings.get("dvr_ssh_enabled") and settings.get("dvr_ssh_host") and settings.get("dvr_ssh_username"))
 
 
 def _normalize_host(host: str) -> str:
@@ -474,6 +482,121 @@ async def fetch_dvr_info(settings: dict[str, Any]) -> dict[str, Any]:
         "version": discover.get("Version"),
         "free_space_bytes": discover.get("FreeSpace"),
     }
+
+
+async def _dvr_ssh_connect(settings: dict[str, Any]) -> asyncssh.SSHClientConnection:
+    key = settings.get("dvr_ssh_key") or None
+    return await asyncssh.connect(
+        _normalize_host(settings["dvr_ssh_host"]),
+        port=int(settings.get("dvr_ssh_port") or 22),
+        username=settings.get("dvr_ssh_username") or None,
+        password=settings.get("dvr_ssh_password") or None,
+        client_keys=[asyncssh.import_private_key(key)] if key else None,
+        # A LAN-local DVR box the user has already identified by address —
+        # same trust posture as the tuner/DVR HTTP connections above, which
+        # have no cert verification either.
+        known_hosts=None,
+    )
+
+
+async def test_dvr_ssh_connection(settings: dict[str, Any]) -> str:
+    if not is_dvr_ssh_configured(settings):
+        raise HDHomeRunError("DVR SSH monitoring is not configured")
+    try:
+        conn = await asyncio.wait_for(_dvr_ssh_connect(settings), timeout=5.0)
+    except (OSError, asyncssh.Error, ValueError, TimeoutError) as exc:
+        raise HDHomeRunError(f"Could not SSH to {settings.get('dvr_ssh_host')}: {exc}") from exc
+    try:
+        await asyncio.wait_for(conn.run("true", check=True), timeout=5.0)
+    except (asyncssh.Error, TimeoutError) as exc:
+        raise HDHomeRunError(f"SSH connected but command failed: {exc}") from exc
+    finally:
+        conn.close()
+        with contextlib.suppress(Exception):
+            await conn.wait_closed()
+    return f"Connected to {settings.get('dvr_ssh_host')} via SSH"
+
+
+# Socket-inspection commands to try, in order, against the DVR host's
+# streaming port — ss (modern Linux), lsof (BSD/macOS-style NAS OSes), then
+# netstat (oldest/most portable fallback). Each is tried only if the
+# previous one wasn't found or errored, not merely because it reported zero
+# current connections (that's a legitimate "nobody's watching" result).
+_SSH_SOCKET_COMMANDS = (
+    "ss -tnp '( sport = :{port} )'",
+    "lsof -n -P -i :{port}",
+    "netstat -tnp | grep :{port}",
+)
+_SSH_CLIENTS_CACHE_TTL_SECONDS = 10  # live connection state, not the stable
+# DNS-hostname data resolve_hostname() caches for 300s — a longer TTL here
+# would show stale viewers after they've disconnected.
+
+
+def _parse_ssh_socket_clients(output: str, port: int) -> list[str]:
+    """Extract distinct peer IPs from ss/lsof/netstat output for connections
+    on `port`, tolerating the three tools' differing column layouts by just
+    reading off the two IP:PORT pairs present on each matching line."""
+    port_str = str(port)
+    ips: list[str] = []
+    for line in output.splitlines():
+        pairs = re.findall(r"(\d{1,3}(?:\.\d{1,3}){3}):(\d+)", line)
+        if len(pairs) != 2:
+            continue
+        (ip_a, port_a), (ip_b, port_b) = pairs
+        peer_ip = ip_b if port_a == port_str else ip_a if port_b == port_str else None
+        if peer_ip and peer_ip not in ips:
+            ips.append(peer_ip)
+    return ips
+
+
+async def fetch_dvr_ssh_clients(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """SSH into the DVR host and inspect who's connected to its RECORD-engine
+    streaming port, to attribute an otherwise-anonymous `dvr_proxy` tuner
+    client to the actual device(s) watching through it. Never raises —
+    every failure (unconfigured, unreachable, no usable inspection command)
+    degrades to an empty list so callers can fall back to the plain
+    "HDHomeRun RECORD (<ip>)" display.
+    """
+    if not is_dvr_ssh_configured(settings):
+        return []
+
+    port = settings.get("dvr_port") or 50000
+    cache_key = f"hdhomerun_dvr_ssh_clients:{settings.get('dvr_ssh_host')}:{port}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result: list[dict[str, Any]] = []
+    try:
+        conn = await asyncio.wait_for(_dvr_ssh_connect(settings), timeout=2.0)
+    except (OSError, asyncssh.Error, ValueError, TimeoutError):
+        logger.debug("Could not SSH to DVR host for client inspection", exc_info=True)
+        cache.set(cache_key, result, _SSH_CLIENTS_CACHE_TTL_SECONDS)
+        return result
+
+    try:
+        ips: list[str] = []
+        for command_template in _SSH_SOCKET_COMMANDS:
+            try:
+                proc = await asyncio.wait_for(
+                    conn.run(command_template.format(port=port), check=False), timeout=2.0
+                )
+            except (asyncssh.Error, TimeoutError):
+                continue
+            if proc.exit_status != 0:
+                continue
+            ips = _parse_ssh_socket_clients(proc.stdout or "", port)
+            break
+    finally:
+        conn.close()
+        with contextlib.suppress(Exception):
+            await conn.wait_closed()
+
+    for ip in ips:
+        result.append({"ip": ip, "hostname": await resolve_hostname(ip)})
+
+    cache.set(cache_key, result, _SSH_CLIENTS_CACHE_TTL_SECONDS)
+    return result
 
 
 def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:

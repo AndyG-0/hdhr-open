@@ -36,7 +36,7 @@ def save_app_settings(overrides: dict[str, str | None]) -> None:
                 _upsert(conn, "app_settings", {"key": key, "value": stored}, ("key",))
 
 
-NETWORK_INTEGRATION_SECRET_KEYS = ("password", "api_key")
+NETWORK_INTEGRATION_SECRET_KEYS = ("password", "api_key", "dvr_ssh_password", "dvr_ssh_key")
 
 
 def _encrypt_network_integration_settings(settings: dict[str, Any]) -> dict[str, Any]:

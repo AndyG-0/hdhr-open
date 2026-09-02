@@ -578,6 +578,8 @@ export const api = {
 		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-tuner-connection', settings),
 	testHDHomeRunDvrConnection: (settings: Record<string, unknown>) =>
 		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-dvr-connection', settings),
+	testHDHomeRunSshConnection: (settings: Record<string, unknown>) =>
+		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-ssh-connection', settings),
 	testSchedulesDirectConnection: (settings: Record<string, unknown>) =>
 		postJSON<SchedulesDirectTestResult>('/api/network-settings/schedules-direct/test-connection', settings),
 	getSchedulesDirectLineups: () => getJSON<SchedulesDirectLineup[]>('/api/network-settings/schedules-direct/lineups'),

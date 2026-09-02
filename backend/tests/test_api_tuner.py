@@ -177,6 +177,122 @@ def test_get_status_dvr_proxy_client(client, tmp_db, monkeypatch):
     assert "HDHomeRun RECORD engine" in data[0]["warning"]["message"]
 
 
+def test_get_status_dvr_proxy_client_with_ssh_clients(client, tmp_db, monkeypatch):
+    save_network_integration(
+        "hdhomerun",
+        "hdhomerun",
+        "HDHomeRun",
+        {
+            "tuner_host": "hdhomerun.local",
+            "tuner_port": 80,
+            "dvr_host": "192.168.1.200",
+            "dvr_port": 50000,
+            "dvr_ssh_enabled": True,
+            "dvr_ssh_host": "192.168.1.200",
+            "dvr_ssh_port": 22,
+            "dvr_ssh_username": "root",
+        },
+    )
+    monkeypatch.setattr(
+        tuner_api.hdhomerun_client,
+        "fetch_tuner_status",
+        AsyncMock(
+            return_value=[
+                {
+                    "index": 0,
+                    "resource": "tuner0",
+                    "in_use": True,
+                    "channel_number": "4.1",
+                    "channel_name": "WCMH-DT",
+                    "target_ip": "192.168.1.200",
+                    "signal_strength_percent": 95,
+                    "signal_quality_percent": 100,
+                    "symbol_quality_percent": 100,
+                    "network_rate_bps": 15000000,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        tuner_api.hdhomerun_client,
+        "resolve_hostname",
+        AsyncMock(return_value="nas-server.local"),
+    )
+    monkeypatch.setattr(
+        tuner_api.hdhomerun_client,
+        "fetch_dvr_ssh_clients",
+        AsyncMock(return_value=[{"ip": "192.168.1.50", "hostname": "living-room-appletv.local"}]),
+    )
+
+    response = client.get("/api/tuner/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["client"]["type"] == "dvr_proxy"
+    assert "living-room-appletv.local" in data[0]["client"]["details"]
+    assert data[0]["client"]["viewers"] == [{"user_name": "living-room-appletv.local", "client_ip": "192.168.1.50"}]
+    assert "living-room-appletv.local" in data[0]["warning"]["message"]
+
+
+def test_get_status_dvr_proxy_client_ssh_configured_but_no_clients_keeps_plain_fallback(client, tmp_db, monkeypatch):
+    save_network_integration(
+        "hdhomerun",
+        "hdhomerun",
+        "HDHomeRun",
+        {
+            "tuner_host": "hdhomerun.local",
+            "tuner_port": 80,
+            "dvr_host": "192.168.1.200",
+            "dvr_port": 50000,
+            "dvr_ssh_enabled": True,
+            "dvr_ssh_host": "192.168.1.200",
+            "dvr_ssh_port": 22,
+            "dvr_ssh_username": "root",
+        },
+    )
+    monkeypatch.setattr(
+        tuner_api.hdhomerun_client,
+        "fetch_tuner_status",
+        AsyncMock(
+            return_value=[
+                {
+                    "index": 0,
+                    "resource": "tuner0",
+                    "in_use": True,
+                    "channel_number": "4.1",
+                    "channel_name": "WCMH-DT",
+                    "target_ip": "192.168.1.200",
+                    "signal_strength_percent": 95,
+                    "signal_quality_percent": 100,
+                    "symbol_quality_percent": 100,
+                    "network_rate_bps": 15000000,
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        tuner_api.hdhomerun_client,
+        "resolve_hostname",
+        AsyncMock(return_value="nas-server.local"),
+    )
+    # SSH is configured but the fetch times out / finds nothing — must not
+    # regress the plain "HDHomeRun RECORD (<ip>)" fallback.
+    monkeypatch.setattr(
+        tuner_api.hdhomerun_client,
+        "fetch_dvr_ssh_clients",
+        AsyncMock(return_value=[]),
+    )
+
+    response = client.get("/api/tuner/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0]["client"]["type"] == "dvr_proxy"
+    assert "HDHomeRun RECORD" in data[0]["client"]["name"]
+    assert "192.168.1.200" in data[0]["client"]["name"]
+    assert data[0]["client"]["viewers"] == []
+    assert "HDHomeRun RECORD engine" in data[0]["warning"]["message"]
+
+
 def test_get_status_scheduled_recording(client, tmp_db, monkeypatch):
     _configure_tuner(tmp_db)
     monkeypatch.setattr(

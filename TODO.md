@@ -841,30 +841,51 @@ through the RECORD engine (port 50000) rather than tuning the hardware directly.
 This causes the physical tuner unit to report the NAS's IP as its `TargetIP`,
 masking the actual client device (e.g. iPhone, Apple TV) using the tuner.
 
-- [ ] **TUNER-1 — Remote HDHomeRun RECORD engine SSH client monitoring & stream disambiguation.**
+- [x] **TUNER-1 — Remote HDHomeRun RECORD engine SSH client monitoring & stream disambiguation.**
   Enable HDHR Open to inspect active downstream clients connected to the official
-  `hdhomerun_record` service on a remote NAS/server via SSH and correlate them to physical tuners:
-  - **SSH Configuration in Network Settings** (`backend/app/integrations/hdhomerun_client.py`,
-    `backend/app/api/network_settings.py`, `frontend/src/lib/components/settings/HDHomeRunNetworkSection.svelte`):
-    Add optional SSH connection fields to the `hdhomerun` network integration (`dvr_ssh_enabled`,
-    `dvr_ssh_host`, `dvr_ssh_port`, `dvr_ssh_username`, `dvr_ssh_key`, `dvr_ssh_password`)
-    with a "Test SSH Connection" action in the admin UI.
-  - **Remote Socket & Process Inspection** (`backend/app/integrations/hdhomerun_ssh.py` or
-    `hdhomerun_client.py`):
-    Execute non-blocking async socket inspection on the NAS (`ss -tnp '( sport = :50000 )'`
-    with fallbacks to `lsof -n -P -i :50000` / `netstat -tnp | grep :50000`) with a 2-second
-    timeout and a 10-second cache TTL to extract active remote client IPs and process PIDs.
-  - **Tuner Stream Disambiguation** (`backend/app/api/tuner.py`):
-    - *Single stream*: 1:1 match between active physical tuner and the connected client IP,
-      resolving the client's friendly reverse-DNS hostname.
-    - *Scheduled recording + Live TV*: Correlate active recording channels against
-      `recorded_files.json` to identify scheduled recordings, and attribute remaining
-      tuners to active live buffer client connections.
-    - *Multiple concurrent live streams*: Inspect open file descriptors (`lsof -n -P -p <pid> -F n`)
-      for buffer file descriptors, or present aggregated client lists (`Client: iPhone, Apple TV via RECORD Engine`).
-    - *Graceful fallback*: Seamlessly falls back to `HDHomeRun RECORD (<NAS IP>)` when SSH is
-      unconfigured or fails.
-  - **Tests**: Unit tests in `backend/tests/test_api_tuner.py` and `backend/tests/test_hdhomerun_client.py`
-    with mocked SSH command outputs across Linux (`ss`), BSD/macOS (`lsof`), and fallback (`netstat`) formats.
+  `hdhomerun_record` service on a remote NAS/server via SSH and correlate them to physical tuners.
+  - **SSH Configuration in Network Settings**: added optional SSH fields (`dvr_ssh_enabled`,
+    `dvr_ssh_host`, `dvr_ssh_port`, `dvr_ssh_username`, `dvr_ssh_key`, `dvr_ssh_password`) to the
+    `hdhomerun` network integration's defaults, masked at rest via `NETWORK_INTEGRATION_SECRET_KEYS`
+    (`settings.py`), plus a `POST /hdhomerun/test-ssh-connection` endpoint and a gated "SSH
+    monitoring (optional)" section in `HDHomeRunNetworkSection.svelte` with a Test Connection button,
+    following the existing tuner/DVR test-connection and write-only-secret UI precedents exactly.
+  - **Judgment call**: used `asyncssh` (new dependency, `>=2.21.1`) rather than shelling out to a
+    system `ssh` binary, per the plan's own call, to match this codebase's async-first pattern
+    (`httpx`, raw `asyncio` sockets elsewhere in `hdhomerun_client.py`).
+  - **Remote Socket Inspection** (`hdhomerun_client.py`): `fetch_dvr_ssh_clients` opens a short-lived
+    `asyncssh` connection and tries `ss -tnp '( sport = :PORT )'` → `lsof -n -P -i :PORT` →
+    `netstat -tnp | grep :PORT` in order, falling through only on a non-zero exit status (a
+    zero-exit command that finds no active connections is treated as a final, legitimate answer,
+    not a reason to try the next tool). A single generic regex parser
+    (`_parse_ssh_socket_clients`) extracts the peer IP from all three tools' differing output
+    shapes by picking whichever of the two `IP:PORT` pairs on a line isn't the target port, rather
+    than parsing each tool's columns separately. Results are cached 10s via the shared `TTLCache`
+    (`storage/cache.py`), separate from the existing 300s DNS-resolution cache reused for
+    reverse-hostname lookups.
+  - **Tuner Stream Disambiguation** (`tuner.py`): `_enrich_tuner_status`'s `is_dvr_server` branch
+    now attributes SSH-discovered client IP(s)/hostname(s) to the tuner's `client`/`warning` display
+    when SSH is configured and returns results (`Client: iPhone, Apple TV via HDHomeRun RECORD
+    engine (<ip>)`). Implemented only the single/aggregated-client-list disambiguation the plan
+    scoped as achievable without hardware; did not implement the `recorded_files.json`
+    scheduled-recording correlation or per-PID `lsof -F n` buffer-descriptor inspection the plan
+    described as further refinement — those need a real multi-stream DVR to design against
+    meaningfully and are natural follow-ups if this proves useful in practice.
+  - **Graceful fallback, verified by test, not just by inspection**: falls back to the pre-existing
+    plain `HDHomeRun RECORD (<NAS IP>)` display whenever SSH is unconfigured, the connection fails,
+    or the client fetch returns nothing —
+    `test_get_status_dvr_proxy_client_ssh_configured_but_no_clients_keeps_plain_fallback` asserts
+    the original name/warning/empty-viewers persist even with SSH configured, so this is additive
+    and doesn't regress the existing behavior.
+  - **Tests**: 9 new cases in `test_hdhomerun_client.py` (ss/lsof/netstat formats, fallback
+    ordering, connection-error swallowing, `test_dvr_ssh_connection` success/misconfigured/
+    unreachable) and 2 in `test_api_tuner.py` (SSH clients present, SSH configured but none found),
+    all mocking `asyncssh.connect`. Full backend suite: 539 passed. Frontend: new
+    `HDHomeRunNetworkSection.test.ts` cases for the gated SSH fields, blank-secret-omission on
+    save, and the Test Connection button; full frontend suite 278 passed, `svelte-check` clean.
+  - **Verification ceiling**: no real SSH-accessible HDHomeRun RECORD server/NAS was available in
+    this environment, so `ss`/`lsof`/`netstat` output parsing, fallback ordering, and the live
+    `asyncssh` connection path are verified only against mocked SSH output/errors, not real
+    hardware — same caveat CC-8/CC-9 flagged for real-tuner testing.
 
 

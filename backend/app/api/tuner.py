@@ -87,10 +87,26 @@ async def _enrich_tuner_status(
                 target_ip and dvr_host and (target_ip == dvr_host or (hostname and dvr_host in hostname))
             )
 
+            dvr_ssh_viewers: list[dict[str, Any]] = []
             if is_dvr_server:
                 display_name = f"HDHomeRun RECORD ({target_ip})"
                 details = f"Official HDHomeRun RECORD engine on {target_ip} (proxies streams for official apps on iPhone, Apple TV, Android, etc.)"
                 warning_message = f"Tuner {tuner_copy['index']} is streaming through the official HDHomeRun RECORD engine on {target_ip}. Terminating will disconnect official app viewers or stop an active recording."
+
+                if settings and hdhomerun_client.is_dvr_ssh_configured(settings):
+                    ssh_clients = await hdhomerun_client.fetch_dvr_ssh_clients(settings)
+                    if ssh_clients:
+                        client_names = [c["hostname"] or c["ip"] for c in ssh_clients]
+                        dvr_ssh_viewers = [
+                            {"user_name": name, "client_ip": c["ip"]}
+                            for name, c in zip(client_names, ssh_clients, strict=True)
+                        ]
+                        details = f"Client: {', '.join(client_names)} via HDHomeRun RECORD engine ({target_ip})"
+                        warning_message = (
+                            f"Tuner {tuner_copy['index']} is streaming to {', '.join(client_names)} through the "
+                            f"HDHomeRun RECORD engine on {target_ip}. Terminating will disconnect these viewers or "
+                            "stop an active recording."
+                        )
             elif target_ip:
                 display_name = f"{target_ip} ({hostname})" if hostname else target_ip
                 details = f"External stream to {display_name}"
@@ -109,7 +125,7 @@ async def _enrich_tuner_status(
                 "recording_id": None,
                 "scheduled_id": None,
                 "is_recording": False,
-                "viewers": [],
+                "viewers": dvr_ssh_viewers,
             }
             tuner_copy["warning"] = {
                 "severity": "warning",

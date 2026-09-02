@@ -15,11 +15,21 @@
 	let hdhomerunTunerPortInput = $state(80);
 	let hdhomerunDvrHostInput = $state('');
 	let hdhomerunDvrPortInput = $state(50000);
+	let hdhomerunSshEnabledInput = $state(false);
+	let hdhomerunSshHostInput = $state('');
+	let hdhomerunSshPortInput = $state(22);
+	let hdhomerunSshUsernameInput = $state('');
+	let hdhomerunSshKeyInput = $state('');
+	let hdhomerunSshPasswordInput = $state('');
+	let hdhomerunSshHasKey = $state(false);
+	let hdhomerunSshHasPassword = $state(false);
 	const hdhomerunState = new SaveState();
 	let hdhomerunTestingTuner = $state(false);
 	let hdhomerunTunerTestResult = $state<NetworkTestConnectionResult | null>(null);
 	let hdhomerunTestingDvr = $state(false);
 	let hdhomerunDvrTestResult = $state<NetworkTestConnectionResult | null>(null);
+	let hdhomerunTestingSsh = $state(false);
+	let hdhomerunSshTestResult = $state<NetworkTestConnectionResult | null>(null);
 
 	loadOnceWhen(
 		() => initialSettings !== null,
@@ -28,16 +38,31 @@
 			hdhomerunTunerPortInput = (initialSettings!.tuner_port as number) ?? 80;
 			hdhomerunDvrHostInput = (initialSettings!.dvr_host as string) ?? '';
 			hdhomerunDvrPortInput = (initialSettings!.dvr_port as number) ?? 50000;
+			hdhomerunSshEnabledInput = (initialSettings!.dvr_ssh_enabled as boolean) ?? false;
+			hdhomerunSshHostInput = (initialSettings!.dvr_ssh_host as string) ?? '';
+			hdhomerunSshPortInput = (initialSettings!.dvr_ssh_port as number) ?? 22;
+			hdhomerunSshUsernameInput = (initialSettings!.dvr_ssh_username as string) ?? '';
+			hdhomerunSshHasKey = Boolean(initialSettings!.has_dvr_ssh_key);
+			hdhomerunSshHasPassword = Boolean(initialSettings!.has_dvr_ssh_password);
 		},
 	);
 
 	function hdhomerunFormSettings(): Record<string, unknown> {
-		return {
+		const settings: Record<string, unknown> = {
 			tuner_host: hdhomerunTunerHostInput,
 			tuner_port: hdhomerunTunerPortInput,
 			dvr_host: hdhomerunDvrHostInput,
 			dvr_port: hdhomerunDvrPortInput,
+			dvr_ssh_enabled: hdhomerunSshEnabledInput,
+			dvr_ssh_host: hdhomerunSshHostInput,
+			dvr_ssh_port: hdhomerunSshPortInput,
+			dvr_ssh_username: hdhomerunSshUsernameInput,
 		};
+		// Secrets are write-only — only send a new value when the user actually
+		// typed one, so an empty field on save doesn't clear a saved credential.
+		if (hdhomerunSshKeyInput) settings.dvr_ssh_key = hdhomerunSshKeyInput;
+		if (hdhomerunSshPasswordInput) settings.dvr_ssh_password = hdhomerunSshPasswordInput;
+		return settings;
 	}
 
 	async function testHdhomerunTuner() {
@@ -64,10 +89,26 @@
 		}
 	}
 
+	async function testHdhomerunSsh() {
+		hdhomerunTestingSsh = true;
+		hdhomerunSshTestResult = null;
+		try {
+			hdhomerunSshTestResult = await api.testHDHomeRunSshConnection(hdhomerunFormSettings());
+		} catch {
+			hdhomerunSshTestResult = { ok: false, detail: null, error: get(_)('common.backend_unreachable') };
+		} finally {
+			hdhomerunTestingSsh = false;
+		}
+	}
+
 	async function saveHdhomerun() {
 		await hdhomerunState.run(
 			async () => {
-				await api.updateNetworkIntegration('hdhomerun', hdhomerunFormSettings());
+				const res = await api.updateNetworkIntegration('hdhomerun', hdhomerunFormSettings());
+				hdhomerunSshHasKey = Boolean(res.settings.has_dvr_ssh_key);
+				hdhomerunSshHasPassword = Boolean(res.settings.has_dvr_ssh_password);
+				hdhomerunSshKeyInput = '';
+				hdhomerunSshPasswordInput = '';
 			},
 			get(_)('network_settings.save_error'),
 			{ setSaved: false },
@@ -130,6 +171,57 @@
 			{/if}
 		{/if}
 	</div>
+
+	<h4>
+		{$_('hdhomerun.detail.ssh_heading')} <span class="optional">{$_('hdhomerun.detail.optional')}</span>
+	</h4>
+	<label>
+		<input type="checkbox" bind:checked={hdhomerunSshEnabledInput} />
+		{$_('hdhomerun.detail.ssh_enabled_label')}
+	</label>
+	{#if hdhomerunSshEnabledInput}
+		<label>
+			{$_('hdhomerun.detail.host_label')}
+			<input type="text" bind:value={hdhomerunSshHostInput} placeholder="dvr.local" />
+		</label>
+		<label>
+			{$_('hdhomerun.detail.port_label')}
+			<input type="number" min="1" max="65535" bind:value={hdhomerunSshPortInput} />
+		</label>
+		<label>
+			{$_('hdhomerun.detail.ssh_username_label')}
+			<input type="text" bind:value={hdhomerunSshUsernameInput} />
+		</label>
+		<label>
+			{$_('hdhomerun.detail.ssh_key_label')}
+			<textarea bind:value={hdhomerunSshKeyInput} placeholder={hdhomerunSshHasKey ? '(unchanged)' : ''} rows="3"
+			></textarea>
+		</label>
+		<label>
+			{$_('hdhomerun.detail.ssh_password_label')}
+			<input
+				type="password"
+				bind:value={hdhomerunSshPasswordInput}
+				placeholder={hdhomerunSshHasPassword ? '(unchanged)' : ''}
+			/>
+		</label>
+		<div class="test-row">
+			<button class="test" disabled={hdhomerunTestingSsh} onclick={testHdhomerunSsh}>
+				{hdhomerunTestingSsh ? $_('common.testing') : $_('common.test_connection')}
+			</button>
+			{#if hdhomerunSshTestResult}
+				{#if hdhomerunSshTestResult.ok}
+					<span class="test-result ok"
+						>{$_('network_settings.test_ok', { values: { detail: hdhomerunSshTestResult.detail } })}</span
+					>
+				{:else}
+					<span class="test-result fail"
+						>{$_('network_settings.test_fail', { values: { error: hdhomerunSshTestResult.error } })}</span
+					>
+				{/if}
+			{/if}
+		</div>
+	{/if}
 
 	{#if hdhomerunState.error}
 		<p class="hint error">{hdhomerunState.error}</p>

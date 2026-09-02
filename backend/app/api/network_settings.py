@@ -35,6 +35,12 @@ KNOWN_INTEGRATION_TYPES: dict[str, dict[str, Any]] = {
             "tuner_port": 80,
             "dvr_host": "",
             "dvr_port": 50000,
+            "dvr_ssh_enabled": False,
+            "dvr_ssh_host": "",
+            "dvr_ssh_port": 22,
+            "dvr_ssh_username": "",
+            "dvr_ssh_key": "",
+            "dvr_ssh_password": "",
         },
     },
     "schedules_direct": {
@@ -119,6 +125,17 @@ async def test_hdhomerun_dvr_connection(payload: dict[str, Any], admin: dict[str
     candidate = {**(existing["settings"] if existing else {}), **payload}
     try:
         name = await hdhomerun_client.test_dvr_connection(candidate)
+    except hdhomerun_client.HDHomeRunError as exc:
+        return {"ok": False, "detail": None, "error": str(exc)}
+    return {"ok": True, "detail": name, "error": None}
+
+
+@router.post("/hdhomerun/test-ssh-connection")
+async def test_hdhomerun_ssh_connection(payload: dict[str, Any], admin: dict[str, Any] = Depends(get_current_admin)):
+    existing = await asyncio.to_thread(get_network_integration, "hdhomerun")
+    candidate = {**(existing["settings"] if existing else {}), **payload}
+    try:
+        name = await hdhomerun_client.test_dvr_ssh_connection(candidate)
     except hdhomerun_client.HDHomeRunError as exc:
         return {"ok": False, "detail": None, "error": str(exc)}
     return {"ok": True, "detail": name, "error": None}

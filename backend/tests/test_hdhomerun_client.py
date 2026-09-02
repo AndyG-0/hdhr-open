@@ -389,6 +389,141 @@ async def test_resolve_hostname_returns_none_for_empty():
     assert await hdhomerun_client.resolve_hostname("127.0.0.1") is None
 
 
+SSH_SETTINGS = {
+    **DVR_SETTINGS,
+    "dvr_ssh_enabled": True,
+    "dvr_ssh_host": "dvr.local",
+    "dvr_ssh_port": 22,
+    "dvr_ssh_username": "root",
+    "dvr_ssh_key": "",
+    "dvr_ssh_password": "hunter2",
+}
+
+
+def test_is_dvr_ssh_configured():
+    assert hdhomerun_client.is_dvr_ssh_configured(SSH_SETTINGS) is True
+    assert hdhomerun_client.is_dvr_ssh_configured({**SSH_SETTINGS, "dvr_ssh_enabled": False}) is False
+    assert hdhomerun_client.is_dvr_ssh_configured({**SSH_SETTINGS, "dvr_ssh_host": ""}) is False
+
+
+async def test_fetch_dvr_ssh_clients_not_configured_skips_ssh(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    connect_mock = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", connect_mock)
+
+    clients = await hdhomerun_client.fetch_dvr_ssh_clients(DVR_SETTINGS)
+    assert clients == []
+    connect_mock.assert_not_called()
+
+
+async def test_fetch_dvr_ssh_clients_ss_format(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    ss_output = (
+        "State  Recv-Q Send-Q Local Address:Port   Peer Address:Port  Process\n"
+        "ESTAB  0      0      192.168.1.200:50000  192.168.1.50:54321 "
+        'users:(("hdhomerun_record",pid=1234,fd=10))\n'
+    )
+    conn = AsyncMock()
+    conn.run = AsyncMock(return_value=MagicMock(exit_status=0, stdout=ss_output))
+    conn.close = MagicMock()
+    conn.wait_closed = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", AsyncMock(return_value=conn))
+    monkeypatch.setattr(hdhomerun_client, "resolve_hostname", AsyncMock(return_value="roku.local"))
+
+    clients = await hdhomerun_client.fetch_dvr_ssh_clients(SSH_SETTINGS)
+    assert clients == [{"ip": "192.168.1.50", "hostname": "roku.local"}]
+    assert conn.run.call_count == 1  # ss succeeded — no fallback to lsof/netstat
+    cache.delete("hdhomerun_dvr_ssh_clients:dvr.local:50000")
+
+
+async def test_fetch_dvr_ssh_clients_falls_back_to_lsof(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    lsof_output = (
+        "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME\n"
+        "hdhomerun 1234 root   10u  IPv4 123456      0t0  TCP "
+        "192.168.1.200:50000->192.168.1.51:54322 (ESTABLISHED)\n"
+    )
+    conn = AsyncMock()
+    conn.run = AsyncMock(
+        side_effect=[
+            MagicMock(exit_status=127, stdout=""),  # ss: command not found
+            MagicMock(exit_status=0, stdout=lsof_output),
+        ]
+    )
+    conn.close = MagicMock()
+    conn.wait_closed = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", AsyncMock(return_value=conn))
+    monkeypatch.setattr(hdhomerun_client, "resolve_hostname", AsyncMock(return_value=None))
+
+    clients = await hdhomerun_client.fetch_dvr_ssh_clients(SSH_SETTINGS)
+    assert clients == [{"ip": "192.168.1.51", "hostname": None}]
+    assert conn.run.call_count == 2
+    cache.delete("hdhomerun_dvr_ssh_clients:dvr.local:50000")
+
+
+async def test_fetch_dvr_ssh_clients_falls_back_to_netstat(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    netstat_output = "tcp  0  0  192.168.1.200:50000  192.168.1.52:54323  ESTABLISHED 1234/hdhomerun_record\n"
+    conn = AsyncMock()
+    conn.run = AsyncMock(
+        side_effect=[
+            MagicMock(exit_status=127, stdout=""),  # ss: not found
+            MagicMock(exit_status=127, stdout=""),  # lsof: not found
+            MagicMock(exit_status=0, stdout=netstat_output),
+        ]
+    )
+    conn.close = MagicMock()
+    conn.wait_closed = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", AsyncMock(return_value=conn))
+    monkeypatch.setattr(hdhomerun_client, "resolve_hostname", AsyncMock(return_value=None))
+
+    clients = await hdhomerun_client.fetch_dvr_ssh_clients(SSH_SETTINGS)
+    assert clients == [{"ip": "192.168.1.52", "hostname": None}]
+    assert conn.run.call_count == 3
+    cache.delete("hdhomerun_dvr_ssh_clients:dvr.local:50000")
+
+
+async def test_fetch_dvr_ssh_clients_swallows_connection_error(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", AsyncMock(side_effect=OSError("unreachable")))
+
+    clients = await hdhomerun_client.fetch_dvr_ssh_clients(SSH_SETTINGS)
+    assert clients == []
+    cache.delete("hdhomerun_dvr_ssh_clients:dvr.local:50000")
+
+
+async def test_test_dvr_ssh_connection_success(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    conn = AsyncMock()
+    conn.run = AsyncMock(return_value=MagicMock(exit_status=0))
+    conn.close = MagicMock()
+    conn.wait_closed = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", AsyncMock(return_value=conn))
+
+    result = await hdhomerun_client.test_dvr_ssh_connection(SSH_SETTINGS)
+    assert "dvr.local" in result
+
+
+async def test_test_dvr_ssh_connection_requires_configuration():
+    with pytest.raises(hdhomerun_client.HDHomeRunError):
+        await hdhomerun_client.test_dvr_ssh_connection(DVR_SETTINGS)
+
+
+async def test_test_dvr_ssh_connection_raises_on_unreachable_host(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setattr(hdhomerun_client.asyncssh, "connect", AsyncMock(side_effect=OSError("no route to host")))
+
+    with pytest.raises(hdhomerun_client.HDHomeRunError):
+        await hdhomerun_client.test_dvr_ssh_connection(SSH_SETTINGS)
+
+
 async def test_resolve_hostname_resolves_and_caches(monkeypatch):
     import socket
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("my-device.local", [], [ip]))
