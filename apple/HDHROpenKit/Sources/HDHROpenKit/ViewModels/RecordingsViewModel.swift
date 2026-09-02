@@ -94,4 +94,28 @@ public final class RecordingsViewModel: ObservableObject {
     public func deleteRule(ruleId: String) async throws {
         self.recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
     }
+
+    public func addRecordingRule(payload: AddRecordingRulePayload) async throws {
+        self.recordingRules = try await apiClient.addRecordingRule(payload: payload)
+    }
+
+    /// Creates a standalone standing rule from scratch (no backing airing) —
+    /// used by rules-management screens' "Add Keyword Rule" flow. Mirrors
+    /// the web client's `HDHomeRunKeywordRuleDialog`: keyword/contains rules
+    /// are builtin-DVR-only, enforced server-side regardless of `server`.
+    public func createKeywordRule(title: String, options: RecordingRuleOptions) async throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "auto",
+            channel: options.channel,
+            title: title,
+            titleMatchMode: options.titleMatchMode,
+            keywordQuery: options.keywordQuery,
+            recentOnly: options.recentOnly,
+            startPadding: options.startPadding,
+            endPadding: options.endPadding,
+            maxEpisodesToKeep: options.maxEpisodesToKeep,
+            server: options.server
+        )
+        try await addRecordingRule(payload: payload)
+    }
 }

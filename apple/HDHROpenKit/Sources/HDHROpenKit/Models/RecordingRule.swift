@@ -84,6 +84,9 @@ public struct RecordingRuleOptions: Sendable {
     public var title: String?
     public var titleMatchMode: String?
     public var keywordQuery: String?
+    /// Channel scope override — pipe-delimited for multi-channel rules
+    /// (e.g. "4.1|5.1"). Nil means "use the airing's own channel".
+    public var channel: String?
     public var startPadding: Int?
     public var endPadding: Int?
     public var recentOnly: Bool?
@@ -94,6 +97,7 @@ public struct RecordingRuleOptions: Sendable {
         title: String? = nil,
         titleMatchMode: String? = nil,
         keywordQuery: String? = nil,
+        channel: String? = nil,
         startPadding: Int? = nil,
         endPadding: Int? = nil,
         recentOnly: Bool? = nil,
@@ -103,6 +107,7 @@ public struct RecordingRuleOptions: Sendable {
         self.title = title
         self.titleMatchMode = titleMatchMode
         self.keywordQuery = keywordQuery
+        self.channel = channel
         self.startPadding = startPadding
         self.endPadding = endPadding
         self.recentOnly = recentOnly

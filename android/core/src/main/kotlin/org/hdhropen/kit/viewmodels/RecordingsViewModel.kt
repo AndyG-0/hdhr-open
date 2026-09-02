@@ -8,9 +8,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.hdhropen.kit.models.AddRecordingRulePayload
 import org.hdhropen.kit.models.HDHomeRunDvrInfo
 import org.hdhropen.kit.models.HDHomeRunRecording
 import org.hdhropen.kit.models.HDHomeRunRecordingRule
+import org.hdhropen.kit.models.RecordingRuleOptions
 import org.hdhropen.kit.networking.APIClient
 import org.hdhropen.kit.utilities.Log
 
@@ -116,5 +118,29 @@ class RecordingsViewModel(
 
     suspend fun deleteRule(ruleId: String) {
         _recordingRules.value = apiClient.deleteRecordingRule(ruleId)
+    }
+
+    suspend fun addRecordingRule(payload: AddRecordingRulePayload) {
+        _recordingRules.value = apiClient.addRecordingRule(payload)
+    }
+
+    // Creates a standalone standing rule from scratch (no backing airing) —
+    // used by rules-management screens' "Add Keyword Rule" flow. Mirrors
+    // the web client's `HDHomeRunKeywordRuleDialog`: keyword/contains rules
+    // are builtin-DVR-only, enforced server-side regardless of `server`.
+    suspend fun createKeywordRule(title: String, options: RecordingRuleOptions) {
+        val payload = AddRecordingRulePayload(
+            seriesId = "auto",
+            channel = options.channel,
+            title = title,
+            titleMatchMode = options.titleMatchMode,
+            keywordQuery = options.keywordQuery,
+            recentOnly = options.recentOnly,
+            startPadding = options.startPadding,
+            endPadding = options.endPadding,
+            maxEpisodesToKeep = options.maxEpisodesToKeep,
+            server = options.server
+        )
+        addRecordingRule(payload)
     }
 }

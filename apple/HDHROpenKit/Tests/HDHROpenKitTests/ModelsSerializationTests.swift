@@ -135,4 +135,69 @@ final class ModelsSerializationTests: XCTestCase {
         XCTAssertEqual(rule.maxEpisodesToKeep, 5)
         XCTAssertEqual(rule.provider, "builtin")
     }
+
+    func testEncodeAddRecordingRulePayloadExactTitle() throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "auto",
+            title: "Evening News",
+            titleMatchMode: "exact"
+        )
+        let json = try encodeToDictionary(payload)
+        XCTAssertEqual(json["title"] as? String, "Evening News")
+        XCTAssertEqual(json["title_match_mode"] as? String, "exact")
+    }
+
+    func testEncodeAddRecordingRulePayloadContainsTitle() throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "auto",
+            title: "Football",
+            titleMatchMode: "contains"
+        )
+        let json = try encodeToDictionary(payload)
+        XCTAssertEqual(json["title_match_mode"] as? String, "contains")
+    }
+
+    func testEncodeAddRecordingRulePayloadKeywordQuery() throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "auto",
+            keywordQuery: "Ohio State, Michigan",
+            server: "builtin"
+        )
+        let json = try encodeToDictionary(payload)
+        XCTAssertEqual(json["keyword_query"] as? String, "Ohio State, Michigan")
+        XCTAssertEqual(json["server"] as? String, "builtin")
+    }
+
+    func testEncodeAddRecordingRulePayloadMultiChannelScope() throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "auto",
+            channel: "4.1|5.1",
+            title: "Local News"
+        )
+        let json = try encodeToDictionary(payload)
+        XCTAssertEqual(json["channel"] as? String, "4.1|5.1")
+    }
+
+    func testEncodeAddRecordingRulePayloadRetentionLimit() throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "series_1",
+            maxEpisodesToKeep: 3
+        )
+        let json = try encodeToDictionary(payload)
+        XCTAssertEqual(json["max_episodes_to_keep"] as? Int, 3)
+    }
+
+    func testEncodeAddRecordingRulePayloadServerTarget() throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: "series_1",
+            server: "hdhomerun"
+        )
+        let json = try encodeToDictionary(payload)
+        XCTAssertEqual(json["server"] as? String, "hdhomerun")
+    }
+
+    private func encodeToDictionary(_ payload: AddRecordingRulePayload) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(payload)
+        return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+    }
 }

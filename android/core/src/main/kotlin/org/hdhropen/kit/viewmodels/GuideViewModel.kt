@@ -145,9 +145,12 @@ class GuideViewModel(
         options: RecordingRuleOptions? = null
     ) {
         val payload = AddRecordingRulePayload(
-            seriesId = seriesId ?: "auto",
+            seriesId = if (seriesId.isNullOrEmpty()) "auto" else seriesId,
             dateTime = start,
-            channel = channelNumber,
+            channel = options?.channel ?: channelNumber,
+            title = options?.title,
+            titleMatchMode = options?.titleMatchMode,
+            keywordQuery = options?.keywordQuery,
             recentOnly = options?.recentOnly,
             startPadding = options?.startPadding,
             endPadding = options?.endPadding,
@@ -164,8 +167,11 @@ class GuideViewModel(
         options: RecordingRuleOptions? = null
     ) {
         val payload = AddRecordingRulePayload(
-            seriesId = seriesId,
-            channel = channelNumber,
+            seriesId = seriesId.ifEmpty { "auto" },
+            channel = options?.channel ?: channelNumber,
+            title = options?.title,
+            titleMatchMode = options?.titleMatchMode,
+            keywordQuery = options?.keywordQuery,
             recentOnly = options?.recentOnly ?: false,
             startPadding = options?.startPadding,
             endPadding = options?.endPadding,

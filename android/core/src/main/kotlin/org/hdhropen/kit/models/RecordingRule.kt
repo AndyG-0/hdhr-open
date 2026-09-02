@@ -45,6 +45,9 @@ data class RecordingRuleOptions(
     val title: String? = null,
     val titleMatchMode: String? = null,
     val keywordQuery: String? = null,
+    // Channel scope override — pipe-delimited for multi-channel rules
+    // (e.g. "4.1|5.1"). Null means "use the airing's own channel".
+    val channel: String? = null,
     val startPadding: Int? = null,
     val endPadding: Int? = null,
     val recentOnly: Boolean? = null,

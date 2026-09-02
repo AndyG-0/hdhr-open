@@ -113,9 +113,12 @@ public final class GuideViewModel: ObservableObject {
         options: RecordingRuleOptions? = nil
     ) async throws {
         let payload = AddRecordingRulePayload(
-            seriesId: seriesId ?? "auto",
+            seriesId: (seriesId?.isEmpty ?? true) ? "auto" : seriesId!,
             dateTime: start,
-            channel: channelNumber,
+            channel: options?.channel ?? channelNumber,
+            title: options?.title,
+            titleMatchMode: options?.titleMatchMode,
+            keywordQuery: options?.keywordQuery,
             recentOnly: options?.recentOnly,
             startPadding: options?.startPadding,
             endPadding: options?.endPadding,
@@ -132,8 +135,11 @@ public final class GuideViewModel: ObservableObject {
         options: RecordingRuleOptions? = nil
     ) async throws {
         let payload = AddRecordingRulePayload(
-            seriesId: seriesId,
-            channel: channelNumber,
+            seriesId: seriesId.isEmpty ? "auto" : seriesId,
+            channel: options?.channel ?? channelNumber,
+            title: options?.title,
+            titleMatchMode: options?.titleMatchMode,
+            keywordQuery: options?.keywordQuery,
             recentOnly: options?.recentOnly ?? false,
             startPadding: options?.startPadding,
             endPadding: options?.endPadding,
