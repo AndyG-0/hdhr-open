@@ -1,5 +1,117 @@
 # Build context is the repo root (not backend/) — see docker-compose.yml's
 # `build.context`.
+
+# --- ccextractor builder stage ---------------------------------------------
+#
+# CC-8/CC-9: live caption extraction (media_cache.py's
+# _run_live_caption_ccextractor_process) shells out to `ccextractor` for its
+# near-zero-latency real-time stream decode (see TODO.md CC-8) — ffmpeg's own
+# movie/subcc decode path, used only for finished-recording caption
+# generation, stays on the `ffmpeg` installed below and needs none of this.
+#
+# ccextractor isn't in Debian bookworm's apt repos (only bullseye/oldstable
+# and sid/unstable) and ships no official arm64 Linux binary (Raspberry Pi is
+# a real target here, see the va-driver-all comment below), so it's built
+# from source here — a near-verbatim port of ccextractor's own
+# BUILD_TYPE=minimal recipe (docker/Dockerfile in
+# github.com/CCExtractor/ccextractor, fetched and read directly rather than
+# guessed at), pinned to release v0.96.6 rather than `master` for
+# reproducibility. `minimal` means no OCR/hardsubx (burned-in subtitle OCR)
+# support, since this only ever needs stream-mode CEA-608/708 byte decode —
+# it still vendors several thirdparty libs as source (zlib/libpng/freetype/
+# utf8proc) rather than linking system packages, same as the reference
+# recipe; only libgpac is linked as a shared lib. Deviating from that
+# reference file is how this stage rots quietly, so keep it in sync if
+# ccextractor's own build system changes.
+FROM debian:bookworm-slim AS ccextractor-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git curl ca-certificates gcc g++ cmake make pkg-config bash \
+        zlib1g-dev libpng-dev libjpeg-dev libssl-dev libfreetype-dev \
+        libxml2-dev libcurl4-gnutls-dev clang libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+WORKDIR /root
+RUN git clone --depth 1 --branch v0.96.6 https://github.com/CCExtractor/ccextractor.git
+
+# GPAC v2.4.0, built as a shared lib only — ccextractor links against
+# libgpac for container demuxing.
+RUN git clone --depth 1 --branch v2.4.0 https://github.com/gpac/gpac
+WORKDIR /root/gpac
+RUN ./configure && make -j"$(nproc)" lib && make install-lib && ldconfig
+WORKDIR /root
+RUN rm -rf /root/gpac
+
+WORKDIR /root/ccextractor/linux
+
+# Generates version-info headers ccextractor.c expects (VERSION_FILE_PRESENT
+# below) — skipping this step produces a binary that fails to compile.
+RUN ./pre-build.sh
+
+RUN cd ../src/rust && CARGO_TARGET_DIR=../../linux/rust cargo build --release
+RUN cp rust/release/libccx_rust.a ./libccx_rust.a
+
+# Exact BUILD_TYPE=minimal flags/include/source-list/linker args from
+# ccextractor's docker/Dockerfile — no OCR/hardsubx, so no tesseract/
+# leptonica/ffmpeg-dev build deps are needed at all.
+RUN BLD_FLAGS="-std=gnu99 -Wno-write-strings -Wno-pointer-sign -D_FILE_OFFSET_BITS=64 -DVERSION_FILE_PRESENT -DFT2_BUILD_LIBRARY -DGPAC_DISABLE_VTT -DGPAC_DISABLE_OD_DUMP -DGPAC_DISABLE_REMOTERY -DNO_GZIP -DGPAC_64_BITS" && \
+    BLD_INCLUDE="-I../src -I../src/lib_ccx/ -I /usr/include/gpac/ -I../src/thirdparty/libpng -I../src/thirdparty/zlib -I../src/lib_ccx/zvbi -I../src/thirdparty/lib_hash -I../src/thirdparty -I../src/thirdparty/freetype/include" && \
+    BLD_LINKER="-lm -Wl,--allow-multiple-definition -lpthread -ldl -lgpac ./libccx_rust.a" && \
+    SRC_LIBPNG="$(find ../src/thirdparty/libpng/ -name '*.c')" && \
+    SRC_ZLIB="$(find ../src/thirdparty/zlib/ -name '*.c')" && \
+    SRC_CCX="$(find ../src/lib_ccx/ -name '*.c')" && \
+    SRC_GPAC="$(find /usr/include/gpac/ -name '*.c' 2>/dev/null || true)" && \
+    SRC_HASH="$(find ../src/thirdparty/lib_hash/ -name '*.c')" && \
+    SRC_UTF8PROC="../src/thirdparty/utf8proc/utf8proc.c" && \
+    SRC_FREETYPE="../src/thirdparty/freetype/autofit/autofit.c \
+        ../src/thirdparty/freetype/base/ftbase.c \
+        ../src/thirdparty/freetype/base/ftbbox.c \
+        ../src/thirdparty/freetype/base/ftbdf.c \
+        ../src/thirdparty/freetype/base/ftbitmap.c \
+        ../src/thirdparty/freetype/base/ftcid.c \
+        ../src/thirdparty/freetype/base/ftfntfmt.c \
+        ../src/thirdparty/freetype/base/ftfstype.c \
+        ../src/thirdparty/freetype/base/ftgasp.c \
+        ../src/thirdparty/freetype/base/ftglyph.c \
+        ../src/thirdparty/freetype/base/ftgxval.c \
+        ../src/thirdparty/freetype/base/ftinit.c \
+        ../src/thirdparty/freetype/base/ftlcdfil.c \
+        ../src/thirdparty/freetype/base/ftmm.c \
+        ../src/thirdparty/freetype/base/ftotval.c \
+        ../src/thirdparty/freetype/base/ftpatent.c \
+        ../src/thirdparty/freetype/base/ftpfr.c \
+        ../src/thirdparty/freetype/base/ftstroke.c \
+        ../src/thirdparty/freetype/base/ftsynth.c \
+        ../src/thirdparty/freetype/base/ftsystem.c \
+        ../src/thirdparty/freetype/base/fttype1.c \
+        ../src/thirdparty/freetype/base/ftwinfnt.c \
+        ../src/thirdparty/freetype/bdf/bdf.c \
+        ../src/thirdparty/freetype/bzip2/ftbzip2.c \
+        ../src/thirdparty/freetype/cache/ftcache.c \
+        ../src/thirdparty/freetype/cff/cff.c \
+        ../src/thirdparty/freetype/cid/type1cid.c \
+        ../src/thirdparty/freetype/gzip/ftgzip.c \
+        ../src/thirdparty/freetype/lzw/ftlzw.c \
+        ../src/thirdparty/freetype/pcf/pcf.c \
+        ../src/thirdparty/freetype/pfr/pfr.c \
+        ../src/thirdparty/freetype/psaux/psaux.c \
+        ../src/thirdparty/freetype/pshinter/pshinter.c \
+        ../src/thirdparty/freetype/psnames/psnames.c \
+        ../src/thirdparty/freetype/raster/raster.c \
+        ../src/thirdparty/freetype/sfnt/sfnt.c \
+        ../src/thirdparty/freetype/smooth/smooth.c \
+        ../src/thirdparty/freetype/truetype/truetype.c \
+        ../src/thirdparty/freetype/type1/type1.c \
+        ../src/thirdparty/freetype/type42/type42.c \
+        ../src/thirdparty/freetype/winfonts/winfnt.c" && \
+    BLD_SOURCES="../src/ccextractor.c $SRC_CCX $SRC_GPAC $SRC_ZLIB $SRC_LIBPNG $SRC_HASH $SRC_UTF8PROC $SRC_FREETYPE" && \
+    gcc $BLD_FLAGS $BLD_INCLUDE -o ccextractor $BLD_SOURCES $BLD_LINKER
+
+# --- runtime image -----------------------------------------------------------
 FROM python:3.12-slim
 
 # Required for the "server_transcode" playback mode, which shells out to a
@@ -22,6 +134,18 @@ FROM python:3.12-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg va-driver-all vainfo \
     && rm -rf /var/lib/apt/lists/*
+
+# ccextractor's own runtime shared-lib deps for a BUILD_TYPE=minimal build
+# (docker/Dockerfile's `final` stage) — libgpac itself comes from the
+# builder stage below since it's not an apt package.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpng16-16 libjpeg62-turbo zlib1g libssl3 libcurl4 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ccextractor-builder /usr/local/lib/libgpac.so* /usr/local/lib/
+RUN ldconfig
+COPY --from=ccextractor-builder /root/ccextractor/linux/ccextractor /usr/local/bin/ccextractor
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 

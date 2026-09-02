@@ -231,13 +231,12 @@ Each client wires it up differently and incompletely — see below.
     since a one-shot decode of a complete file has no latency requirement.
     Tests in `backend/tests/test_media_cache.py` updated to push
     SRT-formatted fake stdout; full suite (527 tests) passes.
-  - **Not yet deployable — see CC-9.** `ccextractor` isn't on the production
-    base image and can't simply be added to the existing `apt-get` line in
-    `backend/Dockerfile`; until CC-9 lands, a real deployed container will
-    have no `ccextractor` on `PATH`, and the circuit breaker
-    (`_LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES`) will quietly disable
-    live captions for every capture after ~6 minutes of failed process
-    spawns.
+  - **Now deployable — see CC-9,** which packaged `ccextractor` into
+    `backend/Dockerfile`'s production base image (previously it wasn't
+    there and the circuit breaker,
+    `_LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES`, would have quietly
+    disabled live captions for every capture after ~6 minutes of failed
+    process spawns).
   - Scoped as backend + web client only, matching how CC-1/CC-6 (Android)
     shipped before CC-7 ported to Apple — Android/iOS/tvOS parity is a
     separate follow-up (see CC-10/CC-11/CC-12 below for the specific piece
@@ -274,33 +273,55 @@ Each client wires it up differently and incompletely — see below.
     during that session's real-tuner testing was a separate correctness
     bug, not a latency contributor — don't re-open it here.
 
-- [ ] **CC-9 — Backend: package `ccextractor` into `backend/Dockerfile`
+- [x] **CC-9 — Backend: package `ccextractor` into `backend/Dockerfile`
   (blocks CC-8 from actually running in production).** `ccextractor` isn't
-  in Debian bookworm's apt repos at all (only bullseye/oldoldstable and
-  sid/unstable — confirmed via packages.debian.org), so it can't just be
-  added to the existing `apt-get install` line alongside `ffmpeg`/
-  `va-driver-all`. It also has no official prebuilt arm64/aarch64 Linux
-  binary (only x86_64 AppImage/.deb/tar.gz and Windows — confirmed via the
-  GitHub Releases API), which matters here because `backend/Dockerfile`
-  explicitly supports arm64 (Raspberry Pi) as a production target. The fix
-  is a from-source multi-stage build following ccextractor's own reference
-  recipe (`docker/Dockerfile` in the ccextractor repo): apt build deps (git,
-  curl, ca-certificates, gcc, g++, cmake, make, pkg-config, bash,
-  zlib1g-dev, libpng-dev, libjpeg-dev, libssl-dev, libfreetype-dev,
-  libxml2-dev, libcurl4-gnutls-dev, clang, libclang-dev), a Rust toolchain
-  via rustup, GPAC v2.4.0 built from source, ccextractor's Rust component
-  via cargo, then its hand-crafted final `gcc` link step — use
-  `BUILD_TYPE=minimal` (no OCR/hardsubx needed; only stream-mode CEA-608/708
-  byte decode is used here, not burned-in-subtitle OCR). Runtime shared-lib
-  deps per that same recipe even for `minimal`: `libpng16-16`,
-  `libjpeg62-turbo`, `zlib1g`, `libssl3`, `libcurl4`. **Not attempted this
-  session** — no working local container build environment was available
-  (podman machine not connected: `Cannot connect to Podman...`), and this
-  needs to actually build and run on both amd64 and arm64 before it can be
-  trusted, not be written blind. Until this lands, CC-8's code change is
-  unreachable in a real deployed container — the circuit breaker will
-  quietly disable live captions after ~6 minutes of failed `ccextractor`
-  process spawns on every capture.
+  in Debian bookworm's apt repos (only bullseye/oldoldstable and
+  sid/unstable), and has no official prebuilt arm64/aarch64 Linux binary
+  (only x86_64 AppImage/.deb/tar.gz and Windows) — `backend/Dockerfile`
+  explicitly supports arm64 (Raspberry Pi) as a production target, so this
+  needed a from-source multi-stage build. Added a `ccextractor-builder`
+  stage to `backend/Dockerfile`, pinned to release tag `v0.96.6` (not
+  `master`, for reproducibility) rather than the Debian package, following
+  ccextractor's own reference recipe (`docker/Dockerfile` in the
+  ccextractor repo): apt build deps, Rust via rustup, GPAC v2.4.0 built
+  from source, ccextractor's Rust component via cargo, then its hand-
+  crafted final `gcc` link step with `BUILD_TYPE=minimal` (no OCR/hardsubx
+  — only stream-mode CEA-608/708 byte decode is used here). The runtime
+  stage copies the compiled `ccextractor` binary and `libgpac.so*` in,
+  alongside the matching runtime shared-lib deps (`libpng16-16`,
+  `libjpeg62-turbo`, `zlib1g`, `libssl3`, `libcurl4`), before the existing
+  `USER hdhropen` switch.
+  - **Verified on both target architectures.** Built the `ccextractor-
+    builder` stage standalone for both `linux/arm64` (native on this
+    Apple Silicon host) and `linux/amd64` (via podman machine's qemu
+    emulation), then ran the compiled binary against a real chunk of
+    `backend/recordings/MLB_Baseball_1788116400_661a1195.ts` (the same
+    file CC-8's own spike validated against) on each — both correctly
+    decode real CEA-608 caption text to SRT, not ccextractor's crash-
+    report banner (the exact failure mode CC-14's research caught once
+    with the `-12` flag). `--version` on the amd64 build reports internal
+    version string `0.96.5`, but its reported Git commit
+    (`185631dcb0217b4ad09d43009cb69f0593996a5d`) matches the `v0.96.6` tag
+    exactly, confirmed via `git ls-remote --tags` — the built binary is
+    genuinely v0.96.6; ccextractor's own embedded version string just
+    lags one release behind their git tags (an upstream quirk, not a
+    build issue here).
+  - **Known gap, unrelated to this change: the *full* image build
+    currently fails.** `podman build -f backend/Dockerfile .` (no
+    `--target`) fails at the pre-existing `COPY --from=ghcr.io/astral-sh/
+    uv:latest` line with a 403 Forbidden pulling that base image from
+    ghcr.io — reproduced directly via `podman pull ghcr.io/astral-sh/
+    uv:latest`. That `COPY` line predates this session's changes and is
+    an environment/registry-access issue (anonymous pull rate-limiting or
+    similar), not something introduced by the ccextractor stage. Building
+    just the new `ccextractor-builder` target (`--target
+    ccextractor-builder`) sidesteps it entirely, which is how both
+    verifications above were done. Whoever builds the full production
+    image next may need registry auth (`podman login ghcr.io`) or to
+    retry once any rate limit clears.
+  - Still true, unchanged from CC-8: final verification against a
+    genuinely live, growing capture over real broadcast hours still needs
+    a real tuner, not a static recording file.
 
 - [ ] **CC-10 — Web: simplify live-caption lag-compensation logic once
   CC-8/CC-9 are verified on real hardware.** `caption-controller.ts` and
