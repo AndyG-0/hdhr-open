@@ -17,15 +17,27 @@ not here.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+import socket
+import struct
 import time
 from typing import Any
+import zlib
 
 import httpx
 
 from app.storage.cache import cache
 
 logger = logging.getLogger(__name__)
+
+HDHOMERUN_TYPE_GETSET_REQ = 0x0004
+HDHOMERUN_TYPE_GETSET_RPY = 0x0005
+HDHOMERUN_TAG_GETSET_NAME = 0x03
+HDHOMERUN_TAG_GETSET_VALUE = 0x04
+HDHOMERUN_TAG_ERROR_MESSAGE = 0x05
+HDHOMERUN_CONTROL_PORT = 65001
 
 _GUIDE_URL = "https://api.hdhomerun.com/api/guide.php"
 _RULES_URL = "https://api.hdhomerun.com/api/recording_rules"
@@ -148,11 +160,16 @@ def _tuner_status_dict(entry: dict[str, Any], index: int) -> dict[str, Any]:
     # Field names vary by firmware/model and aren't fully documented — read
     # everything defensively so an unexpected shape degrades to missing
     # fields rather than raising.
+    target_ip = entry.get("TargetIP")
+    if target_ip == "none":
+        target_ip = None
     return {
         "index": index,
-        "in_use": bool(entry.get("VctNumber") or entry.get("TargetIP")),
+        "resource": entry.get("Resource") or f"tuner{index}",
+        "in_use": bool(entry.get("VctNumber") or target_ip),
         "channel_number": entry.get("VctNumber"),
         "channel_name": entry.get("VctName"),
+        "target_ip": target_ip,
         "signal_strength_percent": entry.get("SignalStrengthPercent"),
         "signal_quality_percent": entry.get("SignalQualityPercent"),
         "symbol_quality_percent": entry.get("SymbolQualityPercent"),
@@ -169,6 +186,157 @@ async def fetch_tuner_status(settings: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         return []
     return [_tuner_status_dict(entry, index) for index, entry in enumerate(data)]
+
+
+def _encode_tlv(tag: int, value: bytes) -> bytes:
+    length = len(value)
+    if length < 0x80:
+        len_bytes = bytes([length])
+    else:
+        len_bytes = bytes([0x80 | (length & 0x7F), length >> 7])
+    return bytes([tag]) + len_bytes + value
+
+
+def _parse_tlv_dict(payload: bytes) -> dict[int, bytes]:
+    result: dict[int, bytes] = {}
+    idx = 0
+    while idx < len(payload):
+        tag = payload[idx]
+        idx += 1
+        if idx >= len(payload):
+            break
+        length = payload[idx]
+        idx += 1
+        if length & 0x80:
+            if idx >= len(payload):
+                break
+            length = (length & 0x7F) | (payload[idx] << 7)
+            idx += 1
+        if idx + length > len(payload):
+            break
+        value = payload[idx : idx + length]
+        idx += length
+        result[tag] = value
+    return result
+
+
+def _build_getset_req_packet(name: str, value: str | None = None) -> bytes:
+    payload = _encode_tlv(HDHOMERUN_TAG_GETSET_NAME, name.encode("ascii") + b"\x00")
+    if value is not None:
+        payload += _encode_tlv(HDHOMERUN_TAG_GETSET_VALUE, value.encode("ascii") + b"\x00")
+    header = struct.pack(">HH", HDHOMERUN_TYPE_GETSET_REQ, len(payload))
+    packet_without_crc = header + payload
+    crc = zlib.crc32(packet_without_crc) & 0xFFFFFFFF
+    return packet_without_crc + struct.pack("<I", crc)
+
+
+async def set_tuner_variable(
+    settings: dict[str, Any], variable: str, value: str, timeout: float = 3.0
+) -> bool:
+    """Send a native GETSET command to the HDHomeRun hardware over TCP port 65001,
+    with fallback to hdhomerun_config CLI if available."""
+    if not is_tuner_configured(settings):
+        return False
+    host = _normalize_host(settings["tuner_host"])
+    port = HDHOMERUN_CONTROL_PORT
+    req_pkt = _build_getset_req_packet(variable, value)
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        try:
+            writer.write(req_pkt)
+            await writer.drain()
+            header = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
+            pkt_type, payload_len = struct.unpack(">HH", header)
+            payload = await asyncio.wait_for(reader.readexactly(payload_len), timeout=timeout)
+            _crc_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
+            if pkt_type == HDHOMERUN_TYPE_GETSET_RPY:
+                tlvs = _parse_tlv_dict(payload)
+                if HDHOMERUN_TAG_ERROR_MESSAGE in tlvs:
+                    err_msg = tlvs[HDHOMERUN_TAG_ERROR_MESSAGE].decode("ascii", errors="replace").rstrip("\x00")
+                    logger.warning("HDHomeRun command (%s = %s) rejected by %s: %s", variable, value, host, err_msg)
+                    return False
+                val_msg = tlvs.get(HDHOMERUN_TAG_GETSET_VALUE, b"").decode("ascii", errors="replace").rstrip("\x00")
+                logger.info("Successfully set HDHomeRun variable %s = %s on %s (reply: %s)", variable, value, host, val_msg)
+                return True
+        finally:
+            writer.close()
+            with contextlib.suppress(Exception):
+                await writer.wait_closed()
+    except Exception as exc:
+        logger.debug("Native control command (%s = %s) to %s:%s failed: %s", variable, value, host, port, exc)
+
+    # Fallback to hdhomerun_config CLI if installed
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "hdhomerun_config",
+            host,
+            "set",
+            variable,
+            value,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        if proc.returncode == 0:
+            logger.info("Successfully set HDHomeRun variable %s = %s via hdhomerun_config on %s", variable, value, host)
+            return True
+    except (FileNotFoundError, OSError, TimeoutError):
+        pass
+
+    return False
+
+
+async def release_hardware_tuner(settings: dict[str, Any], tuner_index: int) -> bool:
+    """Clear lock, channel, and target on a physical HDHomeRun tuner unit, releasing any lock or stream."""
+    # 1. Force-release any lockkey held by a client/DVR engine
+    lock_ok = await set_tuner_variable(settings, f"/tuner{tuner_index}/lockkey", "force")
+    # 2. Stop network streaming target
+    target_ok = await set_tuner_variable(settings, f"/tuner{tuner_index}/target", "none")
+    # 3. Clear physical channel frequency
+    channel_ok = await set_tuner_variable(settings, f"/tuner{tuner_index}/channel", "none")
+    # 4. Clear virtual channel number
+    vchannel_ok = await set_tuner_variable(settings, f"/tuner{tuner_index}/vchannel", "none")
+    return lock_ok or target_ok or channel_ok or vchannel_ok
+
+
+_DNS_CACHE: dict[str, tuple[str | None, float]] = {}
+_DNS_CACHE_TTL = 300.0  # 5 minutes
+
+
+async def resolve_hostname(ip: str | None) -> str | None:
+    """Asynchronously resolve IP address to hostname with a 1-second timeout and caching."""
+    if not ip or ip in ("127.0.0.1", "::1", "none"):
+        return None
+
+    clean_ip = ip
+    if "://" in clean_ip:
+        clean_ip = clean_ip.split("://", 1)[1]
+    if ":" in clean_ip and not clean_ip.startswith("["):
+        clean_ip = clean_ip.split(":", 1)[0]
+    clean_ip = clean_ip.strip("[]")
+
+    now = time.time()
+    cached = _DNS_CACHE.get(clean_ip)
+    if cached and now < cached[1]:
+        return cached[0]
+
+    def _lookup() -> str | None:
+        try:
+            name, _, _ = socket.gethostbyaddr(clean_ip)
+            return name
+        except (socket.herror, socket.gaierror, OSError):
+            return None
+
+    try:
+        hostname = await asyncio.wait_for(asyncio.to_thread(_lookup), timeout=1.0)
+    except Exception:
+        hostname = None
+
+    _DNS_CACHE[clean_ip] = (hostname, now + _DNS_CACHE_TTL)
+    return hostname
 
 
 def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[str, Any]:

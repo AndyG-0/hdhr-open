@@ -12,6 +12,7 @@ const {
 	addHDHomeRunRecordingRule,
 	getTunerInfo,
 	getTunerStatus,
+	terminateTuner,
 	hdhomerunRecordingStreamUrl,
 	hdhomerunPlaybackUrl,
 	hdhomerunPlaylistUrl,
@@ -30,6 +31,7 @@ const {
 	addHDHomeRunRecordingRule: vi.fn(),
 	getTunerInfo: vi.fn(),
 	getTunerStatus: vi.fn(),
+	terminateTuner: vi.fn(),
 	hdhomerunRecordingStreamUrl: vi.fn((playUrl: string) => `https://example.com/recording-stream?url=${playUrl}`),
 	hdhomerunPlaybackUrl: vi.fn((url: string) => `https://example.com/proxy?src=${url}`),
 	hdhomerunPlaylistUrl: vi.fn((ch: string) => `https://example.com/playlist/${ch}`),
@@ -75,6 +77,7 @@ vi.mock('$lib/api', () => ({
 		addHDHomeRunRecordingRule,
 		getTunerInfo,
 		getTunerStatus,
+		terminateTuner,
 		hdhomerunRecordingStreamUrl,
 		hdhomerunPlaybackUrl,
 		hdhomerunPlaylistUrl,
@@ -358,6 +361,22 @@ describe('recordings +page.svelte', () => {
 				in_use: true,
 				channel_number: '4.1',
 				channel_name: 'KDFW',
+				target_ip: '192.168.1.150',
+				client: {
+					type: 'external',
+					name: '192.168.1.150',
+					ip: '192.168.1.150',
+					hostname: 'plex.local',
+					details: 'External stream to 192.168.1.150',
+					recording_id: null,
+					scheduled_id: null,
+					is_recording: false,
+					viewers: [],
+				},
+				warning: {
+					severity: 'warning',
+					message: 'Tuner 0 is streaming to external client 192.168.1.150. Terminating will clear the tuner lock.',
+				},
 				signal_strength_percent: 95,
 				signal_quality_percent: 100,
 				symbol_quality_percent: 100,
@@ -368,6 +387,9 @@ describe('recordings +page.svelte', () => {
 				in_use: false,
 				channel_number: null,
 				channel_name: null,
+				target_ip: null,
+				client: null,
+				warning: null,
 				signal_strength_percent: null,
 				signal_quality_percent: null,
 				symbol_quality_percent: null,
@@ -383,9 +405,82 @@ describe('recordings +page.svelte', () => {
 		expect(within(popover).getByText('Tuner 0')).toBeInTheDocument();
 		expect(within(popover).getByText('4.1')).toBeInTheDocument();
 		expect(within(popover).getByText('KDFW')).toBeInTheDocument();
+		expect(within(popover).getByText('External: 192.168.1.150')).toBeInTheDocument();
 		expect(within(popover).getByText('Signal 95%')).toBeInTheDocument();
+		expect(within(popover).getByText('Terminate')).toBeInTheDocument();
 		expect(within(popover).getByText('Tuner 1')).toBeInTheDocument();
 		expect(within(popover).getByText('Idle')).toBeInTheDocument();
+	});
+
+	it('allows terminating an active tuner after confirmation', async () => {
+		getTunerInfo.mockResolvedValue({
+			friendly_name: 'HDHomeRun Connect',
+			model_number: 'HDHR5-2US',
+			firmware_version: '20231218',
+			tuner_count: 2,
+		});
+		getTunerStatus.mockResolvedValue([
+			{
+				index: 0,
+				in_use: true,
+				channel_number: '4.1',
+				channel_name: 'KDFW',
+				target_ip: '192.168.1.150',
+				client: {
+					type: 'external',
+					name: '192.168.1.150',
+					ip: '192.168.1.150',
+					hostname: null,
+					details: 'External stream to 192.168.1.150',
+					recording_id: null,
+					scheduled_id: null,
+					is_recording: false,
+					viewers: [],
+				},
+				warning: {
+					severity: 'warning',
+					message: 'Tuner 0 is streaming to external client 192.168.1.150. Terminating will clear the tuner lock.',
+				},
+				signal_strength_percent: 95,
+				signal_quality_percent: 100,
+				symbol_quality_percent: 100,
+				network_rate_bps: 19_000_000,
+			},
+		]);
+		terminateTuner.mockResolvedValue({
+			ok: true,
+			message: 'Tuner 0 released successfully.',
+			tuners: [
+				{
+					index: 0,
+					in_use: false,
+					channel_number: null,
+					channel_name: null,
+					target_ip: null,
+					client: null,
+					warning: null,
+					signal_strength_percent: null,
+					signal_quality_percent: null,
+					symbol_quality_percent: null,
+					network_rate_bps: null,
+				},
+			],
+		});
+
+		render(Page);
+
+		const popover = await screen.findByRole('tooltip');
+		const terminateBtn = within(popover).getByText('Terminate');
+		await fireEvent.click(terminateBtn);
+
+		const modal = screen.getByRole('dialog');
+		expect(within(modal).getByText('Terminate Tuner 0 Usage?')).toBeInTheDocument();
+		expect(within(modal).getByText(/Tuner 0 is streaming to external client/)).toBeInTheDocument();
+
+		const confirmBtn = within(modal).getByText('Terminate Stream');
+		await fireEvent.click(confirmBtn);
+
+		expect(terminateTuner).toHaveBeenCalledWith(0);
 	});
 
 	it('renders server badges and filters recordings and rules by server', async () => {

@@ -60,6 +60,9 @@ class _WatchSession:
     recording_id: str
     channel_number: str
     last_heartbeat_at: float
+    user_id: str | None = None
+    user_name: str | None = None
+    client_ip: str | None = None
 
 
 _sessions: dict[str, _WatchSession] = {}
@@ -71,6 +74,16 @@ _sessions: dict[str, _WatchSession] = {}
 # await into capture_pipeline/tuner_allocator/stop_watch, which would
 # deadlock against a caller already holding it (the lock isn't reentrant).
 _lock = asyncio.Lock()
+
+
+async def get_watch_sessions_for_recording(recording_id: str) -> list[_WatchSession]:
+    async with _lock:
+        return [s for s in _sessions.values() if s.recording_id == recording_id]
+
+
+async def get_all_watch_sessions() -> list[_WatchSession]:
+    async with _lock:
+        return list(_sessions.values())
 
 
 async def _build_capture_for_channel(channel_number: str, settings: dict[str, Any], now: float) -> ActiveCapture | None:
@@ -125,7 +138,13 @@ async def _build_capture_for_channel(channel_number: str, settings: dict[str, An
     )
 
 
-async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str, str] | None:
+async def start_watch(
+    channel_number: str,
+    settings: dict[str, Any],
+    user_id: str | None = None,
+    user_name: str | None = None,
+    client_ip: str | None = None,
+) -> dict[str, str] | None:
     """Start (or attach to) a live-watch session for channel_number. Returns
     {"recording_id", "session_id"}, or None if no tuner is available and no
     capture already exists for this channel - callers should fall back to
@@ -150,7 +169,9 @@ async def start_watch(channel_number: str, settings: dict[str, Any]) -> dict[str
 
     await capture_pipeline.add_viewer(capture.recording_id, session_id)
     async with _lock:
-        _sessions[session_id] = _WatchSession(session_id, capture.recording_id, channel_number, now)
+        _sessions[session_id] = _WatchSession(
+            session_id, capture.recording_id, channel_number, now, user_id=user_id, user_name=user_name, client_ip=client_ip
+        )
     return {"recording_id": capture.recording_id, "session_id": session_id}
 
 

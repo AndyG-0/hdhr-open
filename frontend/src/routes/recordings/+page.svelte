@@ -31,6 +31,8 @@
 	let playbackMode = $state('server_transcode');
 	let tunerInfo = $state<HDHomeRunTunerInfo | null>(null);
 	let tuners = $state<HDHomeRunTuner[]>([]);
+	let tunerToTerminate = $state<HDHomeRunTuner | null>(null);
+	let terminatingTunerIndex = $state<number | null>(null);
 	let serverFilter = $state<'all' | 'builtin' | 'hdhomerun'>('all');
 	let showKeywordRuleDialog = $state(false);
 	let typeFilter = $state<'all' | 'shows' | 'movies' | 'sports'>('all');
@@ -166,6 +168,29 @@
 	$effect(() => {
 		loadAll();
 	});
+
+	function handleTerminateTuner(tuner: HDHomeRunTuner) {
+		tunerToTerminate = tuner;
+	}
+
+	async function confirmTerminateTuner() {
+		if (!tunerToTerminate) return;
+		const idx = tunerToTerminate.index;
+		terminatingTunerIndex = idx;
+		try {
+			const res = await api.terminateTuner(idx);
+			if (res.tuners) {
+				tuners = res.tuners;
+			} else {
+				tuners = await api.getTunerStatus();
+			}
+			tunerToTerminate = null;
+		} catch (err: any) {
+			error = err?.message || 'Failed to terminate tuner';
+		} finally {
+			terminatingTunerIndex = null;
+		}
+	}
 
 	function formatBytes(bytes: number | null): string {
 		if (bytes === null) return get(_)('common.unknown');
@@ -384,6 +409,20 @@
 																class="tuner-in-use-tag">{$_('hdhomerun.detail.tuner_in_use')}</span
 															>{/if}
 													</span>
+													{#if tuner.client}
+														<span
+															class="tuner-client-badge"
+															class:external={tuner.client.type === 'external'}
+															class:recording={tuner.client.is_recording}
+															title={tuner.client.details}
+														>
+															{#if tuner.client.type === 'external'}
+																{$_('hdhomerun.detail.tuner_client_external', { values: { ip: tuner.client.name } })}
+															{:else}
+																{$_('hdhomerun.detail.tuner_client_label', { values: { name: tuner.client.name } })}
+															{/if}
+														</span>
+													{/if}
 													{#if tuner.signal_strength_percent != null}
 														<span class="tuner-signal">
 															{$_('hdhomerun.detail.tuner_signal', {
@@ -391,6 +430,17 @@
 															})}
 														</span>
 													{/if}
+													<button
+														type="button"
+														class="tuner-terminate-btn"
+														aria-label={$_('hdhomerun.detail.tuner_terminate_button')}
+														onclick={(e) => {
+															e.stopPropagation();
+															handleTerminateTuner(tuner);
+														}}
+													>
+														{$_('hdhomerun.detail.tuner_terminate_button')}
+													</button>
 												{:else}
 													<span class="tuner-idle">{$_('hdhomerun.detail.tuner_idle')}</span>
 												{/if}
@@ -713,6 +763,59 @@
 	/>
 {/if}
 
+{#if tunerToTerminate}
+	<div
+		class="tuner-modal-backdrop"
+		onclick={() => (tunerToTerminate = null)}
+		onkeydown={(e) => e.key === 'Escape' && (tunerToTerminate = null)}
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+	>
+		<!-- svelte-ignore a11y_click_events_have_key_events -->
+		<div
+			class="tuner-modal-card"
+			onclick={(e) => e.stopPropagation()}
+			role="presentation"
+		>
+			<h3 class="tuner-modal-title">
+				{$_('hdhomerun.detail.tuner_terminate_modal_title', { values: { index: tunerToTerminate.index } })}
+			</h3>
+			<div class="tuner-modal-body">
+				{#if tunerToTerminate.warning}
+					<div class="tuner-warning-callout" class:danger={tunerToTerminate.warning.severity === 'danger'}>
+						<p>{tunerToTerminate.warning.message}</p>
+					</div>
+				{:else}
+					<p>Are you sure you want to terminate this active tuner stream?</p>
+				{/if}
+			</div>
+			<div class="tuner-modal-actions">
+				<button
+					type="button"
+					class="button-secondary"
+					disabled={terminatingTunerIndex !== null}
+					onclick={() => (tunerToTerminate = null)}
+				>
+					{$_('hdhomerun.detail.tuner_terminate_modal_cancel')}
+				</button>
+				<button
+					type="button"
+					class="button-danger"
+					disabled={terminatingTunerIndex !== null}
+					onclick={confirmTerminateTuner}
+				>
+					{#if terminatingTunerIndex !== null}
+						{$_('hdhomerun.detail.tuner_terminating')}
+					{:else}
+						{$_('hdhomerun.detail.tuner_terminate_modal_confirm')}
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.recordings-page {
 		display: flex;
@@ -882,6 +985,134 @@
 	.tuner-idle {
 		color: var(--color-text-muted);
 		font-style: italic;
+	}
+
+	.tuner-client-badge {
+		font-size: 0.72rem;
+		padding: 0.1rem 0.35rem;
+		border-radius: 0.25rem;
+		background: var(--color-surface-variant, rgba(255, 255, 255, 0.08));
+		color: var(--color-text);
+		border: 1px solid var(--color-border);
+		max-width: 10rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.tuner-client-badge.external {
+		color: #e5a00d;
+		border-color: rgba(229, 160, 13, 0.3);
+		background: rgba(229, 160, 13, 0.1);
+	}
+
+	.tuner-client-badge.recording {
+		color: #e05a5a;
+		border-color: rgba(224, 90, 90, 0.3);
+		background: rgba(224, 90, 90, 0.1);
+	}
+
+	.tuner-terminate-btn {
+		font-size: 0.72rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 0.25rem;
+		background: rgba(224, 90, 90, 0.15);
+		color: #e05a5a;
+		border: 1px solid rgba(224, 90, 90, 0.3);
+		cursor: pointer;
+		transition:
+			background 0.15s ease,
+			color 0.15s ease;
+	}
+
+	.tuner-terminate-btn:hover {
+		background: #e05a5a;
+		color: #fff;
+	}
+
+	.tuner-modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.65);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		padding: 1rem;
+	}
+
+	.tuner-modal-card {
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: 0.75rem;
+		max-width: 28rem;
+		width: 100%;
+		padding: 1.25rem;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.tuner-modal-title {
+		margin: 0;
+		font-size: 1.15rem;
+		font-weight: 600;
+		color: var(--color-text);
+	}
+
+	.tuner-modal-body {
+		font-size: 0.9rem;
+		color: var(--color-text);
+		line-height: 1.4;
+	}
+
+	.tuner-warning-callout {
+		padding: 0.75rem;
+		border-radius: 0.5rem;
+		background: rgba(229, 160, 13, 0.12);
+		border: 1px solid rgba(229, 160, 13, 0.35);
+		color: var(--color-text);
+	}
+
+	.tuner-warning-callout.danger {
+		background: rgba(224, 90, 90, 0.12);
+		border-color: rgba(224, 90, 90, 0.35);
+	}
+
+	.tuner-warning-callout p {
+		margin: 0;
+	}
+
+	.tuner-modal-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+	}
+
+	.tuner-modal-actions .button-secondary {
+		padding: 0.45rem 0.9rem;
+		border-radius: 0.375rem;
+		background: transparent;
+		border: 1px solid var(--color-border);
+		color: var(--color-text);
+		cursor: pointer;
+	}
+
+	.tuner-modal-actions .button-danger {
+		padding: 0.45rem 0.9rem;
+		border-radius: 0.375rem;
+		background: #e05a5a;
+		border: 1px solid #e05a5a;
+		color: #fff;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.tuner-modal-actions .button-danger:disabled,
+	.tuner-modal-actions .button-secondary:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.tuner-status-empty {

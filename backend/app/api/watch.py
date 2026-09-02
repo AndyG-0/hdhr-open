@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.api._hdhomerun_settings import get_hdhomerun_settings
@@ -25,12 +25,26 @@ router = APIRouter(prefix="/api/watch", tags=["watch"], dependencies=[Depends(ge
 
 
 @router.post("/{channel_number}/start")
-async def start_watch(channel_number: str):
+async def start_watch(
+    channel_number: str,
+    request: Request,
+    user: dict[str, Any] = Depends(get_current_user),
+):
     settings = await get_hdhomerun_settings()
     if not hdhomerun_client.is_tuner_configured(settings):
         raise HTTPException(status_code=404, detail="Tuner not configured")
 
-    result = await watch.start_watch(channel_number, settings)
+    client_ip = request.client.host if request.client else None
+    user_id = user.get("id")
+    user_name = user.get("display_name") or user.get("username") or user.get("id")
+
+    result = await watch.start_watch(
+        channel_number,
+        settings,
+        user_id=user_id,
+        user_name=user_name,
+        client_ip=client_ip,
+    )
     if result is None:
         # No free tuner - caller falls back to plain live streaming.
         return {"recording_id": None, "session_id": None}

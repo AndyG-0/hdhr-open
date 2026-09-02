@@ -1,11 +1,54 @@
 import Foundation
 
+public struct TunerViewerInfo: Codable, Sendable {
+    public let userName: String
+    public let clientIp: String?
+
+    enum CodingKeys: String, CodingKey {
+        case userName = "user_name"
+        case clientIp = "client_ip"
+    }
+}
+
+public struct TunerClientInfo: Codable, Sendable {
+    public let type: String
+    public let name: String
+    public let ip: String?
+    public let hostname: String?
+    public let details: String
+    public let recordingId: String?
+    public let scheduledId: String?
+    public let isRecording: Bool
+    public let viewers: [TunerViewerInfo]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case name
+        case ip
+        case hostname
+        case details
+        case recordingId = "recording_id"
+        case scheduledId = "scheduled_id"
+        case isRecording = "is_recording"
+        case viewers
+    }
+}
+
+public struct TunerWarningInfo: Codable, Sendable {
+    public let severity: String
+    public let message: String
+}
+
 public struct HDHomeRunTuner: Identifiable, Codable, Sendable {
     public var id: Int { index }
     public let index: Int
+    public let resource: String?
     public let inUse: Bool
     public let channelNumber: String?
     public let channelName: String?
+    public let targetIp: String?
+    public let client: TunerClientInfo?
+    public let warning: TunerWarningInfo?
     public let signalStrengthPercent: Int?
     public let signalQualityPercent: Int?
     public let symbolQualityPercent: Int?
@@ -13,9 +56,13 @@ public struct HDHomeRunTuner: Identifiable, Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case index
+        case resource
         case inUse = "in_use"
         case channelNumber = "channel_number"
         case channelName = "channel_name"
+        case targetIp = "target_ip"
+        case client
+        case warning
         case signalStrengthPercent = "signal_strength_percent"
         case signalQualityPercent = "signal_quality_percent"
         case symbolQualityPercent = "symbol_quality_percent"

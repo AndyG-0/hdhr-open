@@ -103,6 +103,12 @@ public struct TVTunerStatusView: View {
                             .background(Color.blue.opacity(0.3))
                             .cornerRadius(6)
                     }
+
+                    if let client = tuner.client {
+                        Text("Client: \(client.name.isEmpty ? (client.ip ?? "Unknown") : client.name)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
                 } else {
                     Text("Idle / Available")
                         .font(.subheadline)

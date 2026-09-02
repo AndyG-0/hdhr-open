@@ -180,42 +180,150 @@ Each client wires it up differently and incompletely — see below.
   (doesn't wedge a later `start_watch` call) when it fails to acquire still
   need on-device verification.
 
-- [ ] **CC-8 — Backend: research further live-caption latency reduction
-  (needs scoping).** Not started — this is a research item, not a
-  ready-to-implement fix. Real-tuner testing after CC-3 shipped (2026-08-30)
-  measured live-caption lag at **3-7s** behind dialogue — much better than
-  the pre-CC-3 10-20s (that figure was inflated by the hang/restart bug
-  CC-3 fixed, not a true latency measurement), but still perceptible and
-  reported as "not quite synced" for both web and Android. Context and
-  constraints carried over from CC-3's investigation, so a future session
-  doesn't have to re-derive them:
-  - **Root cause, confirmed:** ffmpeg's WebVTT muxer can't flush a cue
-    until the CEA-608/708 roll-up decoder's internal buffer advances (i.e.
-    until the *next* line of dialogue starts pushing the current one up) —
-    this is how `media_cache.py`'s `movie`/`subcc` lavfi filter chain works
-    today (`_run_live_caption_process_once`,
-    `_generate_captions_vtt_uncached`). It's inherent to roll-up mode
-    captioning in general, not specific to ffmpeg — real broadcast CC
-    decoders (cable boxes, TVs) show comparable lag on roll-up captions, so
-    part of this research is confirming how much of the 3-7s is actually
-    reducible versus a property of the caption format itself.
-  - **Why this needs research, not just a fix:** closing the gap further
-    likely means not using ffmpeg's built-in CC decoder at all — e.g. a
-    custom real-time CEA-608/708 decoder (parsing caption byte pairs
-    directly off the transport stream) that emits partial/in-progress
-    roll-up lines instead of waiting for a complete flush, or evaluating
-    whether a different tool (e.g. `ccextractor`, which has its own
-    real-time modes) has lower end-to-end latency than ffmpeg's `movie`
-    filter approach. Either direction is a substantially bigger effort
-    than CC-3's resiliency work and needs its own scoping/design pass
-    before implementation.
-  - **Testing constraint:** like CC-3, this cannot be meaningfully
-    evaluated without a live tuner — the lag is a property of real
-    broadcast caption timing, not something the existing fake-process test
-    scaffolding in `test_media_cache.py` can reproduce.
+- [x] **CC-8 — Backend: swap live captions to `ccextractor`'s real-time
+  stream mode; custom decoder not needed.** Research + a feasibility spike
+  (2026-08-31, see `backend/scripts/cc8_realtime_caption_spike.py`) found a
+  much better fix than expected. Prior sessions couldn't test this without a
+  live tuner; that constraint is gone — `backend/recordings/MLB_Baseball_1788116400_661a1195.ts`
+  is a real local recording with genuine embedded CEA-608 captions, good
+  enough to measure actual flush latency end-to-end.
+  - **Root cause, confirmed and reproduced locally:** ffmpeg's
+    `movie`/`subcc` lavfi chain (`_run_live_caption_process_once`,
+    `_generate_captions_vtt_uncached`) can't flush a WebVTT cue until the
+    roll-up buffer advances — i.e. until the *next* line of dialogue starts
+    pushing the current one up. Confirmed byte-for-byte against the local
+    recording and, more importantly, measured with the actual pipeline
+    **paced to real time** (`ffmpeg -re`, not just replayed as fast as
+    possible): reading ffmpeg's output incrementally and timestamping the
+    wall-clock moment each cue is actually written to the pipe (not the
+    timestamp embedded in the cue text) gives the number that matters for a
+    live client. Result over 49 matched lines: **avg 1.96s of avoidable
+    lag, up to 7.7s** on longer pauses between lines — this is on top of
+    normal roll-up-format lag, and it's the part that's fixable.
+  - **`ccextractor`'s live/growing-file mode (`-s`) already fixes almost
+    all of it — no custom decoder needed.** Piping the same recording into
+    `ccextractor --stdin -s <timeout> -out=srt -stdout`, real-time-paced
+    the same way, and measuring with the same methodology: **avg delta
+    ~0.0s vs. a byte-level real-time reference decoder** (min -0.41s, max
+    +1.05s — noise-level), vs. ffmpeg's 1.96s avg / 7.7s worst-case over the
+    same window. `ccextractor` reads the raw CEA-608/708 byte pairs and
+    emits a completed line the instant its own carriage-return code is
+    seen, rather than waiting for the *next* line — exactly the behavior a
+    custom decoder (see below) would have had to be built to get. This was
+    the single biggest surprise of this research: the "large effort, custom
+    decoder" option turned out to be unnecessary.
+  - **Implemented (2026-09-01):** `_run_live_caption_process_once` in
+    `media_cache.py` now spawns `ccextractor --stdin -s 999999999 -out=srt
+    -stdout -o /dev/null --quiet` instead of ffmpeg, fed via the same
+    `pump_tail_follow` → stdin source as before. New `_parse_srt_block`
+    parses ccextractor's SRT output (including the `\r\n` line-ending
+    normalization and `<font>`-tag-based CEA-708-track filtering the spike
+    needed), reusing `_strip_cc_control_artifacts` for cleanup. Output is
+    still written as WebVTT via the unchanged `_append_live_cues`, so
+    `live_captions_path`'s `.live.vtt` file and everything downstream of it
+    (every client) is unaffected by this swap — no client-side changes were
+    needed for the decode-source change itself. `--quiet` (verified: empties
+    stderr entirely without hiding real errors, unlike `--no-progress-bar`
+    alone which leaves ccextractor's banner/config dump/stats-summary in
+    place) keeps `_drain_stderr_logging`'s "anything here is worth
+    surfacing" invariant intact. The finished-recording path
+    (`_generate_captions_vtt_uncached`) is unchanged — it stays on ffmpeg,
+    since a one-shot decode of a complete file has no latency requirement.
+    Tests in `backend/tests/test_media_cache.py` updated to push
+    SRT-formatted fake stdout; full suite (527 tests) passes.
+  - **Not yet deployable — see CC-9.** `ccextractor` isn't on the production
+    base image and can't simply be added to the existing `apt-get` line in
+    `backend/Dockerfile`; until CC-9 lands, a real deployed container will
+    have no `ccextractor` on `PATH`, and the circuit breaker
+    (`_LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES`) will quietly disable
+    live captions for every capture after ~6 minutes of failed process
+    spawns.
+  - Scoped as backend + web client only, matching how CC-1/CC-6 (Android)
+    shipped before CC-7 ported to Apple — Android/iOS/tvOS parity is a
+    separate follow-up (see CC-10/CC-11/CC-12 below for the specific piece
+    that now matters: simplifying client-side lag-compensation logic that's
+    no longer doing as much work).
+  - **Custom real-time CEA-608 decoder (reading raw ATSC A53 frame
+    side-data directly, bypassing ffmpeg entirely) — no longer recommended
+    as the primary path**, now that `ccextractor` measures at parity with
+    it. Every video frame in the test recording carries this side-data
+    (confirmed via `ffprobe -show_frames -show_entries side_data_list`,
+    type `ATSC A53 Part 4 Closed Captions`) and PyAV can read it
+    frame-by-frame, so the option is still technically available if
+    `ccextractor` turns out to have gaps (CC3/708-only content, extended
+    character sets, licensing) — but building and maintaining a decoder
+    from scratch isn't justified when an existing, actively-maintained tool
+    already gets the same result.
+  - **Push-based delivery (SSE instead of client polling)** is still worth
+    doing regardless of which decode path is used — it trims the client's
+    *own* added delay (currently up to ~1-1.5s from polling intervals) on
+    top of whatever the backend now delivers — but it's a separate,
+    smaller change, not a substitute for the decode-side fix above.
+  - Once live captions no longer arrive late in batches, the client-side
+    compensation logic built specifically to cope with that can likely be
+    simplified — see CC-10/CC-11/CC-12 below, one per client. Out of scope
+    for this backend change itself, and shouldn't be attempted before the
+    backend swap is verified against a real tuner (next bullet).
+  - **Testing constraint, updated:** local recording testing (above) is
+    sufficient to validate the *decode/latency* approach without a tuner.
+    Final verification of the shipped implementation — particularly
+    `ccextractor`'s behavior against a genuinely live, still-growing file
+    over hours of real broadcast (not a static recording) — still needs a
+    real tuner, consistent with every prior CC-3/CC-8 note.
   - Related, already fixed (see CC-3): the `\h` control-artifact leak found
-    during this same real-tuner session was a separate correctness bug,
-    not a latency contributor — don't re-open it here.
+    during that session's real-tuner testing was a separate correctness
+    bug, not a latency contributor — don't re-open it here.
+
+- [ ] **CC-9 — Backend: package `ccextractor` into `backend/Dockerfile`
+  (blocks CC-8 from actually running in production).** `ccextractor` isn't
+  in Debian bookworm's apt repos at all (only bullseye/oldoldstable and
+  sid/unstable — confirmed via packages.debian.org), so it can't just be
+  added to the existing `apt-get install` line alongside `ffmpeg`/
+  `va-driver-all`. It also has no official prebuilt arm64/aarch64 Linux
+  binary (only x86_64 AppImage/.deb/tar.gz and Windows — confirmed via the
+  GitHub Releases API), which matters here because `backend/Dockerfile`
+  explicitly supports arm64 (Raspberry Pi) as a production target. The fix
+  is a from-source multi-stage build following ccextractor's own reference
+  recipe (`docker/Dockerfile` in the ccextractor repo): apt build deps (git,
+  curl, ca-certificates, gcc, g++, cmake, make, pkg-config, bash,
+  zlib1g-dev, libpng-dev, libjpeg-dev, libssl-dev, libfreetype-dev,
+  libxml2-dev, libcurl4-gnutls-dev, clang, libclang-dev), a Rust toolchain
+  via rustup, GPAC v2.4.0 built from source, ccextractor's Rust component
+  via cargo, then its hand-crafted final `gcc` link step — use
+  `BUILD_TYPE=minimal` (no OCR/hardsubx needed; only stream-mode CEA-608/708
+  byte decode is used here, not burned-in-subtitle OCR). Runtime shared-lib
+  deps per that same recipe even for `minimal`: `libpng16-16`,
+  `libjpeg62-turbo`, `zlib1g`, `libssl3`, `libcurl4`. **Not attempted this
+  session** — no working local container build environment was available
+  (podman machine not connected: `Cannot connect to Podman...`), and this
+  needs to actually build and run on both amd64 and arm64 before it can be
+  trusted, not be written blind. Until this lands, CC-8's code change is
+  unreachable in a real deployed container — the circuit breaker will
+  quietly disable live captions after ~6 minutes of failed `ccextractor`
+  process spawns on every capture.
+
+- [ ] **CC-10 — Web: simplify live-caption lag-compensation logic once
+  CC-8/CC-9 are verified on real hardware.** `caption-controller.ts` and
+  `HDHomeRunPlayer.svelte` currently stretch/align live cues
+  (`LIVE_CUE_MIN_DISPLAY_SECONDS`, `alignLiveCues`, `baseOffsetSeconds` drift
+  correction) specifically to paper over cues arriving several seconds late
+  in batches. CC-8's ccextractor swap should make that arrival pattern
+  mostly go away — once verified against a real tuner (CC-8's testing
+  constraint), revisit whether this logic can be trimmed down or removed.
+  Don't start this before that real-tuner verification, since the whole
+  premise depends on it.
+
+- [ ] **CC-11 — Android: simplify live-caption lag-compensation logic once
+  CC-8/CC-9 are verified on real hardware.** Same follow-up as CC-10, for
+  Android's equivalent logic (`LIVE_CUE_STRETCH_SECONDS`, `alignLiveCues`,
+  `stretchedCueDisplay` in `PlayerViewModel.kt`), built during CC-1/CC-6 to
+  cope with the same late-batch-arrival pattern CC-8 addresses server-side.
+
+- [ ] **CC-12 — iOS/tvOS: simplify live-caption lag-compensation logic once
+  CC-8/CC-9 are verified on real hardware.** Same follow-up as CC-10/CC-11,
+  for the Swift port of the same logic in
+  `apple/HDHROpenKit/.../PlayerViewModel.swift`, built during CC-7 to match
+  Android's CC-6 behavior.
 
 - [x] **CC-5 — Scheduled Tasks admin, backend primitives.** Backend
   job-registry + runner + status/history API landed; the admin UI page is
@@ -371,3 +479,134 @@ Decided artifact venue: **GitHub Releases**.
   job archiving + exporting a signed `.ipa` alongside the existing `apple`
   CI test job, publishing to GitHub Releases the same way BUILD-1's
   Android release workflow would. Docs only, no code changes.
+
+## Native Client Recording & Rule Parity
+
+Recent web client features introduced keyword / contains-match recording rules,
+title-based series matching without requiring a series ID, multi-channel selection,
+rich recording options (start/end padding, new-only filtering, retention limits,
+server selection), standalone keyword rule creation, in-player recording menus,
+and detailed rules management. Core serialization and rule matchers in `HDHROpenKit`
+and Android `:core` have been updated, but the UI layers, ViewModels, and recording
+flows in iOS, tvOS, and Android still need to be brought to full parity.
+
+- [ ] **REC-1 — Shared Native ViewModels & Networking API Parity (iOS/tvOS & Android core).**
+  Bring `apple/HDHROpenKit` and `android/core` view models and API client helpers
+  to parity with the web client's recording capabilities:
+  - `GuideViewModel` (`GuideViewModel.swift`, `GuideViewModel.kt`): update
+    `recordEpisode` and `recordSeries` signatures and payload construction to
+    support the complete set of `RecordingRuleOptions`: `title`, `titleMatchMode`
+    (`"exact"` vs `"contains"`), `keywordQuery`, `channel` override (supporting
+    pipe-delimited channel numbers for multi-channel rules like `"4.1|5.1"`),
+    `startPadding`, `endPadding`, `recentOnly`, `maxEpisodesToKeep`, and `server`.
+    Allow `recordSeries` to generate title-based series rules when `seriesId` is
+    absent or empty by defaulting `seriesId` to `"auto"`.
+  - `RecordingsViewModel` (`RecordingsViewModel.swift`, `RecordingsViewModel.kt`):
+    currently only exposes `deleteRule` — add `addRecordingRule(payload:)` /
+    `createKeywordRule(options:)` so the recordings/rules view can create
+    standalone rules directly without going through guide entries.
+  - Tests: add test coverage in `apple/HDHROpenKit/Tests/HDHROpenKitTests/` and
+    `android/core/src/test/` asserting that `AddRecordingRulePayload` and
+    `RecordingRuleOptions` serialize all rule combinations correctly (exact title,
+    contains title, keyword query, multi-channel scope, retention limits, and server targets).
+
+- [ ] **REC-2 — iOS: Recording Options Sheet, Keyword Rules, and Rules Management.**
+  Bring the iOS client (`apple/HDHROpeniOS`) to full recording feature parity:
+  - Add `iOSRecordingOptionsSheet.swift` (or expandable options in `iOSProgramDetailSheet.swift`)
+    matching `HDHomeRunRecordingOptionsDialog.svelte`:
+    - Mode toggle: Single Episode vs Series / Standing Rule.
+    - Title match mode selector: Exact Title vs Contains / Substring.
+    - Keyword filter query text field with a quick "+ Use subtitle as keyword" chip.
+    - Channel scope selector: "Current Channel (X)", "Any Channel", or a custom
+      channel selection checklist from the loaded channel lineup.
+    - Start padding and end padding steppers (in minutes, converted to seconds).
+    - "New episodes only" toggle switch.
+    - Retention policy: "Unlimited" vs "Keep Last N Episodes" with numeric stepper
+      (disabled when targeting the official HDHomeRun DVR server).
+    - DVR Server picker: Default vs Built-in vs HDHomeRun (with note that keyword/contains
+      rules target Built-in DVR only).
+  - Add Scheduled Rules management to `iOSRecordingsView.swift`: currently `iOSRecordingsView`
+    only lists recorded files and has no rules view. Add a toolbar button to open a
+    new `iOSRecordingRulesSheet.swift` listing all scheduled rules with their badges
+    (Series vs Episode vs Keyword, Contains mode, Channel scope, Retention count,
+    Padding), swipe-to-delete, and an "Add Keyword Rule" button presenting
+    `iOSKeywordRuleSheet.swift` (mirroring `HDHomeRunKeywordRuleDialog.svelte`).
+  - Update `iOSProgramDetailSheet.swift`: allow "Record Series" even if `airing.seriesId`
+    is nil (using title matching), and add a "Recording Options..." button opening the options sheet.
+
+- [ ] **REC-3 — tvOS: Recording Options & Rich Rules Management for 10-Foot UI.**
+  Bring the Apple TV client (`apple/HDHROpenTV`) to parity while adapting for 10-foot D-pad navigation:
+  - Update `TVProgramDetailModal.swift`: remove the requirement that `airing.seriesId` must be
+    non-empty to show "Record Series" (fallback to title-based series recording), and add an
+    "Options..." button that presents `TVRecordingOptionsModal.swift` (padding steppers,
+    retention limit, channel scope, new-only switch, keyword query).
+  - Enhance `TVRecordingRulesView.swift`: update rule item cards to display rich metadata
+    badges: Keyword query tags, Contains match mode indicators, Channel filters, Max episodes
+    to keep, and Padding. Add an "Add Keyword Rule" action button if remote text input is
+    configured, or structured rule creation from existing guide channels.
+
+- [ ] **REC-4 — Android: Recording Options Bottom Sheet & Standalone Keyword Rules Dialog.**
+  Bring the Android Compose client (`android/app`) to full recording feature parity:
+  - Update `ProgramDetailBottomSheet.kt`: enable "Record Series" even when `airing.seriesId`
+    is null (using title-based series matching), and add an "Options" button opening a new
+    `RecordingOptionsBottomSheet.kt` (or expanding the sheet) featuring:
+    - Channel scope selector (Current channel, Any channel, or multi-channel dialog picker).
+    - Title match mode toggle (Exact vs Contains) and Keyword query input field with
+      an interactive suggestion chip (`+ Use subtitle as keyword`).
+    - Start / End padding steppers (in minutes).
+    - "New episodes only" switch.
+    - Retention count selector (Unlimited vs Keep Last N).
+    - DVR Server selection (Built-in vs HDHomeRun) with Built-in requirement indicator for keyword rules.
+  - Enhance `RecordingRulesDialog.kt`: render keyword query badges, contains mode chips,
+    channel scope tags, retention counts, and padding details on each rule card.
+  - Add `KeywordRuleDialog.kt` invoked from `RecordingsScreen.kt` or `RecordingRulesDialog.kt`
+    to allow creating standalone standing rules with title, keywords, channel filters,
+    padding, and retention limits from scratch (matching `HDHomeRunKeywordRuleDialog.svelte`).
+
+- [ ] **REC-5 — Native In-Player Recording Controls Parity (iOS, tvOS, Android).**
+  Provide rich recording controls directly from the video player overlay across all native apps,
+  matching the web player's `HDHomeRunPlayerRecordMenu.svelte`:
+  - Android (`PlayerScreen.kt`): currently has no in-player recording button or menu. Add a
+    recording action button in the player overlay controls that opens a bottom sheet or menu
+    with quick actions: "Record Episode", "Record Series", "Recording Options..." (opening
+    `RecordingOptionsBottomSheet`), or stream promotion for live watch sessions.
+  - iOS (`iOSPlayerView.swift`) & tvOS (`TVPlaybackControlsView.swift`): the player record
+    button currently only executes single-click live watch session promotion. Expand it into
+    a menu (or long-press / options popup on tvOS) offering "Record Episode", "Record Series",
+    "Recording Options...", and "Cancel Recording" alongside watch session promotion.
+
+## Tuner & Network Intelligence
+
+When the official HDHomeRun app (iOS, iPadOS, tvOS, Android) streams Live TV on a
+network with an active HDHomeRun RECORD server / NAS, it buffers the live stream
+through the RECORD engine (port 50000) rather than tuning the hardware directly.
+This causes the physical tuner unit to report the NAS's IP as its `TargetIP`,
+masking the actual client device (e.g. iPhone, Apple TV) using the tuner.
+
+- [ ] **TUNER-1 — Remote HDHomeRun RECORD engine SSH client monitoring & stream disambiguation.**
+  Enable HDHR Open to inspect active downstream clients connected to the official
+  `hdhomerun_record` service on a remote NAS/server via SSH and correlate them to physical tuners:
+  - **SSH Configuration in Network Settings** (`backend/app/integrations/hdhomerun_client.py`,
+    `backend/app/api/network_settings.py`, `frontend/src/lib/components/settings/HDHomeRunNetworkSection.svelte`):
+    Add optional SSH connection fields to the `hdhomerun` network integration (`dvr_ssh_enabled`,
+    `dvr_ssh_host`, `dvr_ssh_port`, `dvr_ssh_username`, `dvr_ssh_key`, `dvr_ssh_password`)
+    with a "Test SSH Connection" action in the admin UI.
+  - **Remote Socket & Process Inspection** (`backend/app/integrations/hdhomerun_ssh.py` or
+    `hdhomerun_client.py`):
+    Execute non-blocking async socket inspection on the NAS (`ss -tnp '( sport = :50000 )'`
+    with fallbacks to `lsof -n -P -i :50000` / `netstat -tnp | grep :50000`) with a 2-second
+    timeout and a 10-second cache TTL to extract active remote client IPs and process PIDs.
+  - **Tuner Stream Disambiguation** (`backend/app/api/tuner.py`):
+    - *Single stream*: 1:1 match between active physical tuner and the connected client IP,
+      resolving the client's friendly reverse-DNS hostname.
+    - *Scheduled recording + Live TV*: Correlate active recording channels against
+      `recorded_files.json` to identify scheduled recordings, and attribute remaining
+      tuners to active live buffer client connections.
+    - *Multiple concurrent live streams*: Inspect open file descriptors (`lsof -n -P -p <pid> -F n`)
+      for buffer file descriptors, or present aggregated client lists (`Client: iPhone, Apple TV via RECORD Engine`).
+    - *Graceful fallback*: Seamlessly falls back to `HDHomeRun RECORD (<NAS IP>)` when SSH is
+      unconfigured or fails.
+  - **Tests**: Unit tests in `backend/tests/test_api_tuner.py` and `backend/tests/test_hdhomerun_client.py`
+    with mocked SSH command outputs across Linux (`ss`), BSD/macOS (`lsof`), and fallback (`netstat`) formats.
+
+

@@ -92,11 +92,37 @@ export interface HDHomeRunChannel {
 	next: HDHomeRunGuideEntry | null;
 }
 
+export interface TunerViewerInfo {
+	user_name: string;
+	client_ip: string | null;
+}
+
+export interface TunerClientInfo {
+	type: 'scheduled_recording' | 'live_watch' | 'external' | 'direct_stream' | 'idle';
+	name: string;
+	ip: string | null;
+	hostname: string | null;
+	details: string;
+	recording_id: string | null;
+	scheduled_id: string | null;
+	is_recording: boolean;
+	viewers: TunerViewerInfo[];
+}
+
+export interface TunerWarningInfo {
+	severity: 'warning' | 'danger' | 'info';
+	message: string;
+}
+
 export interface HDHomeRunTuner {
 	index: number;
+	resource?: string;
 	in_use: boolean;
 	channel_number: string | null;
 	channel_name: string | null;
+	target_ip?: string | null;
+	client?: TunerClientInfo | null;
+	warning?: TunerWarningInfo | null;
 	signal_strength_percent: number | null;
 	signal_quality_percent: number | null;
 	symbol_quality_percent: number | null;
@@ -542,6 +568,8 @@ export const api = {
 	listRecordingRules: () => getJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules'),
 	getTunerStatus: () => getJSON<HDHomeRunTuner[]>('/api/tuner/status'),
 	getTunerInfo: () => getJSON<HDHomeRunTunerInfo>('/api/tuner/info'),
+	terminateTuner: (index: number) =>
+		postJSON<{ ok: boolean; message: string; tuners: HDHomeRunTuner[] }>(`/api/tuner/${index}/terminate`),
 	listNetworkIntegrations: () => getJSON<NetworkIntegration[]>('/api/network-settings'),
 	getNetworkIntegration: (type: string) => getJSON<NetworkIntegration>(`/api/network-settings/${type}`),
 	updateNetworkIntegration: (type: string, settings: Record<string, unknown>) =>

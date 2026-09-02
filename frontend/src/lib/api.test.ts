@@ -567,5 +567,18 @@ describe('api', () => {
 		});
 		expect(result).toEqual({ status: 'ok', message: 'Started' });
 	});
+
+	it('terminateTuner POSTs to the tuner termination endpoint', async () => {
+		const response = { ok: true, message: 'Tuner 0 released', tuners: [] };
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => response }));
+
+		const result = await api.terminateTuner(0);
+
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/tuner/0/terminate', {
+			method: 'POST',
+			credentials: 'include',
+		});
+		expect(result).toEqual(response);
+	});
 });
 

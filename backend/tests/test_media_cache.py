@@ -294,6 +294,29 @@ def test_strip_cc_control_artifacts_preserves_multiline_text():
     assert media_cache._strip_cc_control_artifacts(text) == "Line one\nLine two"
 
 
+def test_parse_srt_block_parses_single_cue():
+    block = "1\n00:00:05,000 --> 00:00:07,000\nHi"
+    assert media_cache._parse_srt_block(block) == (5.0, 7.0, "Hi")
+
+
+def test_parse_srt_block_returns_none_for_missing_timing():
+    assert media_cache._parse_srt_block("just text, no arrow here") is None
+
+
+def test_parse_srt_block_skips_cea_708_font_tagged_track():
+    # ccextractor emits CEA-708 alongside CEA-608 (when both exist in the
+    # source) as font-tagged SRT blocks - only the plain 608 track is wanted
+    # for live captions, so a font-tagged block is dropped entirely rather
+    # than parsed with tags stripped.
+    block = '1\n00:00:05,000 --> 00:00:07,000\n<font color="#aaaaaa">Hi</font>'
+    assert media_cache._parse_srt_block(block) is None
+
+
+def test_parse_srt_block_parses_multiline_cue():
+    block = "1\n00:00:05,000 --> 00:00:07,000\nFirst line\nSecond line"
+    assert media_cache._parse_srt_block(block) == (5.0, 7.0, "First line\nSecond line")
+
+
 async def test_ensure_live_captions_is_idempotent(monkeypatch):
     started = []
 
@@ -342,11 +365,11 @@ async def test_run_live_caption_process_once_parses_cues_incrementally_across_re
 
     # Push a cue split across two stdout reads - the first half has no
     # complete "\n\n"-delimited block yet, so nothing should be written out.
-    fake_process.stdout.push(b"WEBVTT\n\n00:00:05.000 --> 00:00:07")
+    fake_process.stdout.push(b"1\n00:00:05,000 --> 00:00:07")
     await asyncio.sleep(0.02)
     assert not output_path.exists() or "Hi" not in output_path.read_text()
 
-    fake_process.stdout.push(b".000\nHi\n\n")
+    fake_process.stdout.push(b",000\nHi\n\n")
     await asyncio.sleep(0.02)
     assert "Hi" in output_path.read_text()
 
@@ -383,7 +406,7 @@ async def test_run_live_caption_process_once_logs_lag_when_capture_start_ts_give
     )
     await pump_started.wait()
 
-    fake_process.stdout.push(b"WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nHi\n\n")
+    fake_process.stdout.push(b"1\n00:00:00,000 --> 00:00:02,000\nHi\n\n")
     await asyncio.sleep(0.02)
 
     fake_process.stdout.close()
@@ -538,7 +561,7 @@ async def test_live_caption_loop_truncates_output_on_restart_avoiding_duplicates
 
     while not processes:
         await asyncio.sleep(0.005)
-    processes[0].stdout.push(b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFirst\n\n")
+    processes[0].stdout.push(b"1\n00:00:01,000 --> 00:00:02,000\nFirst\n\n")
     await asyncio.sleep(0.02)
     # Simulate a crash: the process dies and gets relaunched from byte 0.
     processes[0].stdout.close()
@@ -548,7 +571,7 @@ async def test_live_caption_loop_truncates_output_on_restart_avoiding_duplicates
         await asyncio.sleep(0.005)
     # The restarted process redecodes from the start and reproduces the same
     # cue - the output should not end up with it twice.
-    processes[1].stdout.push(b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFirst\n\n")
+    processes[1].stdout.push(b"1\n00:00:01,000 --> 00:00:02,000\nFirst\n\n")
     await asyncio.sleep(0.02)
 
     alive = False
@@ -592,7 +615,7 @@ async def test_run_live_caption_process_once_cue_silence_watchdog_trips(monkeypa
     await pump_started.wait()
 
     # Bytes keep flowing but never complete a cue block.
-    fake_process.stdout.push(b"WEBVTT\npartial-no-terminator")
+    fake_process.stdout.push(b"1\npartial-no-terminator")
 
     should_restart = await asyncio.wait_for(task, timeout=2.0)
 

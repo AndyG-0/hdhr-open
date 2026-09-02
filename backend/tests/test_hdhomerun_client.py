@@ -109,9 +109,11 @@ async def test_fetch_tuner_status_maps_defensively_when_fields_missing():
     assert statuses == [
         {
             "index": 0,
+            "resource": "tuner0",
             "in_use": False,
             "channel_number": None,
             "channel_name": None,
+            "target_ip": None,
             "signal_strength_percent": None,
             "signal_quality_percent": None,
             "symbol_quality_percent": None,
@@ -335,4 +337,65 @@ async def test_fetch_dvr_recordings_handles_relative_storage_and_episodes_urls()
     assert len(recordings) == 1
     assert recordings[0]["title"] == "Series Episode 1"
     assert recordings[0]["play_url"] == "/recorded/101_1"
+
+
+def test_build_getset_req_packet():
+    packet = hdhomerun_client._build_getset_req_packet("/tuner0/target", "none")
+    assert len(packet) > 8
+    # Packet starts with big-endian type 0x0004
+    assert packet[:2] == b"\x00\x04"
+
+
+async def test_set_tuner_variable_requires_configured_tuner():
+    ok = await hdhomerun_client.set_tuner_variable({"tuner_host": ""}, "/tuner0/target", "none")
+    assert ok is False
+
+
+async def test_set_tuner_variable_success_with_mock_socket(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    reader = AsyncMock()
+    reader.readexactly = AsyncMock(side_effect=[
+        b"\x00\x05\x00\x00",  # Header: TYPE_GETSET_RPY, payload_len=0
+        b"",                  # Payload
+        b"\x00\x00\x00\x00",  # CRC
+    ])
+    writer = MagicMock()
+    writer.write = MagicMock()
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
+
+    monkeypatch.setattr(asyncio, "open_connection", AsyncMock(return_value=(reader, writer)))
+
+    ok = await hdhomerun_client.set_tuner_variable(TUNER_SETTINGS, "/tuner0/target", "none")
+    assert ok is True
+
+
+async def test_release_hardware_tuner_calls_channel_and_target(monkeypatch):
+    from unittest.mock import AsyncMock
+    mock_set = AsyncMock(return_value=True)
+    monkeypatch.setattr(hdhomerun_client, "set_tuner_variable", mock_set)
+
+    ok = await hdhomerun_client.release_hardware_tuner(TUNER_SETTINGS, 0)
+    assert ok is True
+    assert mock_set.call_count == 4
+
+
+async def test_resolve_hostname_returns_none_for_empty():
+    assert await hdhomerun_client.resolve_hostname(None) is None
+    assert await hdhomerun_client.resolve_hostname("") is None
+    assert await hdhomerun_client.resolve_hostname("127.0.0.1") is None
+
+
+async def test_resolve_hostname_resolves_and_caches(monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("my-device.local", [], [ip]))
+
+    hostname = await hdhomerun_client.resolve_hostname("192.168.1.99")
+    assert hostname == "my-device.local"
+    # Second call uses cache
+    assert await hdhomerun_client.resolve_hostname("192.168.1.99") == "my-device.local"
+
 

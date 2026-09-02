@@ -174,37 +174,51 @@ async def _generate_captions_vtt_uncached(url: str, cache_path: Path) -> Path | 
 # generate_captions_vtt (above) decodes a whole, finished file in one
 # continuous pass and is reliable specifically because of that continuity -
 # the CEA-608/708 decoder inside ffmpeg's `movie` filter builds up roll-up-
-# mode/PAC state as it goes and never has to guess.
+# mode/PAC state as it goes and never has to guess. That's fine for a
+# finished recording (no latency requirement), so it stays on ffmpeg.
 #
-# An earlier version of this ran a periodic windowed loop instead - spawning
-# a brand-new ffmpeg process every few seconds, each one seeking cold into
-# the middle of the growing file. Every fresh process started with no prior
-# decoder state, which produced garbled/repeated text, dropped captions at
-# window boundaries, and added latency from the segment cadence itself. This
-# version instead runs a *single* long-lived ffmpeg process per active
-# capture, started once from byte 0 with no seeking, fed the growing file
-# continuously via pump_tail_follow (the same mechanism used for live
-# recording playback), with its WebVTT stdout parsed incrementally as cues
-# complete. If that process dies or hangs, it's restarted from byte 0 again
-# (the only way to regain decoder continuity) and the output file is
-# truncated and regenerated to match, rather than trying to dedup two
-# separate decode passes against each other.
+# An earlier version of the *live* path also ran a periodic windowed loop -
+# spawning a brand-new ffmpeg process every few seconds, each one seeking
+# cold into the middle of the growing file. Every fresh process started with
+# no prior decoder state, which produced garbled/repeated text, dropped
+# captions at window boundaries, and added latency from the segment cadence
+# itself. The version after that ran a *single* long-lived ffmpeg process per
+# active capture instead, started once from byte 0 with no seeking, fed the
+# growing file continuously via pump_tail_follow. That fixed the
+# garbling/dropping, but measured 3-7s+ (sometimes 10s+) of end-to-end cue
+# lag: ffmpeg's `movie`/`subcc` lavfi chain can't flush a WebVTT cue until
+# the roll-up buffer advances, i.e. until the *next* line of dialogue starts
+# pushing the current one up.
 #
-# The remaining 10-15s+ (sometimes 20s+) end-to-end cue lag is not a bug or a
-# buffering knob - it's inherent to CEA-608/708 roll-up decode + WebVTT muxer
-# semantics: a cue isn't flushed until the roll-up buffer advances. This has
-# been confirmed and should not be re-investigated absent a live tuner to test
-# against; see TODO.md's CC-3 entry. What follows is resiliency/observability
-# hardening around that fixed latency, not an attempt to reduce it.
+# CC-8 (2026-08-31, see backend/scripts/cc8_realtime_caption_spike.py)
+# measured this precisely against a real local recording, paced to real time
+# so the numbers reflect actual live latency: ffmpeg's avoidable flush lag
+# averaged 1.96s (up to 7.7s on longer pauses between lines) on top of
+# roll-up-format-inherent lag. `ccextractor`'s live/growing-file stream mode
+# (`-s`) reads the raw CEA-608/708 byte pairs directly and flushes a line the
+# instant its own carriage-return control code arrives, rather than waiting
+# on ffmpeg's `subcc` muxer to notice the next line - measured avg delta
+# ~0.0s (noise-level) against a byte-level real-time reference decoder over
+# the same window. So this now runs a single long-lived `ccextractor`
+# process per active capture instead of ffmpeg, same pump_tail_follow feed,
+# same restart-from-byte-0-on-death/hang supervision below - only the decode
+# step changed. Output is still written as WebVTT (`_append_live_cues`), so
+# nothing downstream of this file (clients, `live_captions_path`) needed to
+# change for this swap.
+#
+# The residual lag inherent to CEA-608/708 roll-up encoding itself (a line
+# isn't final, even at the broadcaster's encoder, until the next one starts)
+# is not fixable from the decode side at all - that part really is a fixed
+# floor, unlike the ffmpeg-specific flush delay above which was reducible.
 
 _LIVE_CAPTION_POLL_SECONDS = 2.0  # backoff between a dead/hung process and the next restart attempt
 # Watchdog: a legitimately quiet caption stream (no dialogue) is normal and
 # must not trigger a restart, so this only fires on total stdout silence,
-# not "no cues" - if ffmpeg is genuinely still decoding, it stays responsive.
-# A live source hiccup (tuner reconnect, signal dropout) can also stall the
-# underlying capture file's growth for tens of seconds without
+# not "no cues" - if ccextractor is genuinely still decoding, it stays
+# responsive. A live source hiccup (tuner reconnect, signal dropout) can also
+# stall the underlying capture file's growth for tens of seconds without
 # pump_tail_follow giving up (it tolerates that indefinitely) - that alone
-# would look identical to a hung ffmpeg process here, so this needs enough
+# would look identical to a hung ccextractor process here, so this needs enough
 # margin to not mistake one for the other. The cost of raising it is only a
 # slower detection of a genuine hang, while the cost of it firing falsely is
 # a full, possibly multi-minute re-decode from byte 0.
@@ -277,7 +291,7 @@ async def _run_live_caption_loop(
     is_source_alive: Callable[[], bool],
     capture_start_ts: float | None = None,
 ) -> None:
-    """Supervise the single long-lived captioning ffmpeg process for
+    """Supervise the single long-lived captioning ccextractor process for
     recording_id for the lifetime of the capture, restarting it (from byte 0
     again, with output truncated and regenerated) if it dies or hangs while
     the source is still alive. Backs off exponentially on consecutive quick
@@ -343,13 +357,15 @@ async def _run_live_caption_loop(
 
 
 async def _drain_stderr_logging(stream: asyncio.StreamReader) -> None:
-    """Drain the caption ffmpeg process's stderr, logging anything it says.
+    """Drain the caption ccextractor process's stderr, logging anything it says.
 
-    `-loglevel error` keeps this quiet in the normal case, so anything that
-    arrives here is worth surfacing - it's the only visibility into *why* a
-    given channel's captions come back empty (unsupported codec, no CC data,
-    a probe failure on the pipe, etc.) instead of just silently producing
-    nothing.
+    `--quiet` keeps this empty in the normal case (verified: it suppresses
+    ccextractor's version banner, config dump, and per-run stats summary
+    without hiding real errors, unlike `--no-progress-bar` alone which still
+    leaves all of that in place), so anything that arrives here is worth
+    surfacing - it's the only visibility into *why* a given channel's
+    captions come back empty (unsupported input, no CC data, a probe failure
+    on the pipe, etc.) instead of just silently producing nothing.
     """
     with contextlib.suppress(Exception):
         while True:
@@ -358,7 +374,7 @@ async def _drain_stderr_logging(stream: asyncio.StreamReader) -> None:
                 return
             text = chunk.decode("utf-8", errors="replace").strip()
             if text:
-                logger.warning("Live caption ffmpeg stderr: %s", text)
+                logger.warning("Live caption ccextractor stderr: %s", text)
 
 
 async def _run_live_caption_process_once(
@@ -367,25 +383,26 @@ async def _run_live_caption_process_once(
     is_source_alive: Callable[[], bool],
     capture_start_ts: float | None = None,
 ) -> bool:
-    """Run one continuous captioning ffmpeg process, decoding file_path from
-    byte 0 with no seeking, until the source dies, the process exits, or
+    """Run one continuous captioning ccextractor process, decoding file_path
+    from byte 0 with no seeking, until the source dies, the process exits, or
     stdout goes silent for too long while the source is still alive (a hung
-    process). Returns True if the caller should spawn a fresh attempt."""
-    escaped_pipe = _escape_movie_filter_url("pipe:0")
+    process). Returns True if the caller should spawn a fresh attempt.
+
+    `-s <huge>` puts ccextractor in live/growing-file stream mode - the same
+    mode it'd use tailing a live tuner capture - rather than its default
+    behavior of stopping as soon as it catches up to the current end of a
+    file it thinks is complete. `--quiet` keeps stderr empty in the normal
+    case (see `_drain_stderr_logging`)."""
     argv = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "warning",
-        "-f",
-        "lavfi",
-        "-i",
-        f"movie='{escaped_pipe}':seek_point=0[out+subcc]",
-        "-map",
-        "0:s:0",
-        "-f",
-        "webvtt",
-        "pipe:1",
+        "ccextractor",
+        "--stdin",
+        "-s",
+        "999999999",
+        "-out=srt",
+        "-stdout",
+        "-o",
+        "/dev/null",
+        "--quiet",
     ]
     try:
         process = await asyncio.create_subprocess_exec(
@@ -395,7 +412,7 @@ async def _run_live_caption_process_once(
             stderr=asyncio.subprocess.PIPE,
         )
     except OSError:
-        logger.warning("Could not start live caption ffmpeg process")
+        logger.warning("Could not start live caption ccextractor process")
         return is_source_alive()
 
     assert process.stdin is not None
@@ -463,10 +480,13 @@ async def _run_live_caption_process_once(
                     return
                 if not chunk:
                     return
-                buffer += chunk.decode("utf-8", errors="replace")
+                # ccextractor's SRT output uses \r\n line endings, unlike
+                # ffmpeg's WebVTT - normalize before block-splitting on
+                # "\n\n" or a block boundary never matches.
+                buffer += chunk.decode("utf-8", errors="replace").replace("\r\n", "\n")
                 while "\n\n" in buffer:
                     block, buffer = buffer.split("\n\n", 1)
-                    cue = _parse_vtt_block(block)
+                    cue = _parse_srt_block(block)
                     if cue is not None:
                         last_cue_monotonic = time.monotonic()
                         _append_live_cues(output_path, [cue])
@@ -477,7 +497,7 @@ async def _run_live_caption_process_once(
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.warning("Live caption ffmpeg stdout reader failed", exc_info=True)
+            logger.warning("Live caption ccextractor stdout reader failed", exc_info=True)
 
     reader_task = asyncio.create_task(stdout_reader())
 
@@ -500,8 +520,8 @@ async def _run_live_caption_process_once(
         drain_task.cancel()
         raise
 
-    # Whichever side finished first (source died, or ffmpeg exited/stalled on
-    # its own), stop the other side and let ffmpeg wind down before reaping it.
+    # Whichever side finished first (source died, or ccextractor exited/stalled
+    # on its own), stop the other side and let it wind down before reaping it.
     await stop_pump_and_stdin()
     if not reader_task.done():
         with contextlib.suppress(TimeoutError):
@@ -515,15 +535,15 @@ async def _run_live_caption_process_once(
 
     if stalled:
         logger.warning(
-            "Live caption ffmpeg process stalled with no output for %.0fs", _LIVE_CAPTION_STDOUT_STALL_SECONDS
+            "Live caption ccextractor process stalled with no output for %.0fs", _LIVE_CAPTION_STDOUT_STALL_SECONDS
         )
     elif cue_stalled:
         logger.warning(
-            "Live caption ffmpeg process produced bytes but completed no cue for %.0fs - treating as hung",
+            "Live caption ccextractor process produced bytes but completed no cue for %.0fs - treating as hung",
             _LIVE_CAPTION_CUE_SILENCE_SECONDS,
         )
     elif exit_code not in (0, None):
-        logger.warning("Live caption ffmpeg process exited with code %s", exit_code)
+        logger.warning("Live caption ccextractor process exited with code %s", exit_code)
 
     return is_source_alive()
 
@@ -587,6 +607,36 @@ def _parse_vtt_cues(text: str) -> list[tuple[float, float, str]]:
         if cue is not None:
             cues.append(cue)
     return cues
+
+
+_SRT_CUE_RE = re.compile(r"(\d\d):(\d\d):(\d\d),(\d\d\d) --> (\d\d):(\d\d):(\d\d),(\d\d\d)")
+# ccextractor tags CEA-708 output with <font ...> even when writing plain
+# SRT, but only ever does this for the 708 track - the 608 track it emits
+# alongside it (when a source carries both) is always plain text. This is
+# how the two tracks are told apart, since ccextractor interleaves them in
+# the same stdout stream rather than exposing separate stream selection like
+# ffmpeg's `-map`.
+_SRT_FONT_TAG_RE = re.compile(r"</?font[^>]*>")
+
+
+def _parse_srt_block(block: str) -> tuple[float, float, str] | None:
+    """Parse a single SRT cue block (no leading/trailing blank lines) from
+    ccextractor's `-out=srt -stdout` output. Returns None for a CEA-708 cue
+    (see `_SRT_FONT_TAG_RE`) or a block missing a `-->` timing line."""
+    if "<font" in block:
+        return None
+    match = _SRT_CUE_RE.search(block)
+    if match is None:
+        return None
+    h1, m1, s1, ms1, h2, m2, s2, ms2 = match.groups()
+    start = int(h1) * 3600 + int(m1) * 60 + int(s1) + int(ms1) / 1000
+    end = int(h2) * 3600 + int(m2) * 60 + int(s2) + int(ms2) / 1000
+    text_lines = [
+        line for line in block.split("\n") if line.strip() and "-->" not in line and not line.strip().isdigit()
+    ]
+    if not text_lines:
+        return None
+    return (start, end, _strip_cc_control_artifacts("\n".join(text_lines)))
 
 
 def _append_live_cues(output_path: Path, cues: list[tuple[float, float, str]]) -> None:

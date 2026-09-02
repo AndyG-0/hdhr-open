@@ -178,6 +178,14 @@ private fun TunerCard(tuner: HDHomeRunTuner) {
                     )
                 }
 
+                tuner.client?.let { client ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Client: ${client.name.ifEmpty { client.ip ?: "Unknown" }}",
+                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Metric: Signal Strength

@@ -4,14 +4,49 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class TunerViewerInfo(
+    @SerialName("user_name")
+    val userName: String = "",
+    @SerialName("client_ip")
+    val clientIp: String? = null
+)
+
+@Serializable
+data class TunerClientInfo(
+    val type: String = "idle",
+    val name: String = "",
+    val ip: String? = null,
+    val hostname: String? = null,
+    val details: String = "",
+    @SerialName("recording_id")
+    val recordingId: String? = null,
+    @SerialName("scheduled_id")
+    val scheduledId: String? = null,
+    @SerialName("is_recording")
+    val isRecording: Boolean = false,
+    val viewers: List<TunerViewerInfo> = emptyList()
+)
+
+@Serializable
+data class TunerWarningInfo(
+    val severity: String = "info",
+    val message: String = ""
+)
+
+@Serializable
 data class HDHomeRunTuner(
     val index: Int,
+    val resource: String? = null,
     @SerialName("in_use")
     val inUse: Boolean = false,
     @SerialName("channel_number")
     val channelNumber: String? = null,
     @SerialName("channel_name")
     val channelName: String? = null,
+    @SerialName("target_ip")
+    val targetIp: String? = null,
+    val client: TunerClientInfo? = null,
+    val warning: TunerWarningInfo? = null,
     @SerialName("signal_strength_percent")
     val signalStrengthPercent: Int? = null,
     @SerialName("signal_quality_percent")

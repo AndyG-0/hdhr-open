@@ -63,6 +63,12 @@ public struct iOSTunerStatusView: View {
                                         .foregroundColor(.secondary)
                                 }
 
+                                if let client = tuner.client {
+                                    Text("Client: \(client.name.isEmpty ? (client.ip ?? "Unknown") : client.name)")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
                                 HStack(spacing: 16) {
                                     miniMeter(label: "Signal", value: tuner.signalStrengthPercent ?? 0)
                                     miniMeter(label: "Quality", value: tuner.signalQualityPercent ?? 0)
