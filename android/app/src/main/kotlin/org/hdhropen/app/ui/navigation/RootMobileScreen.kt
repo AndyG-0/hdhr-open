@@ -87,10 +87,12 @@ fun RootMobileScreen(appEnvironment: AppEnvironment) {
                     when (selectedTab) {
                         AppTab.GUIDE -> GuideScreen(
                             guideViewModel = appEnvironment.guideViewModel,
+                            recordingsViewModel = appEnvironment.recordingsViewModel,
                             playerViewModel = playerViewModel
                         )
                         AppTab.RECORDINGS -> RecordingsScreen(
                             recordingsViewModel = appEnvironment.recordingsViewModel,
+                            guideViewModel = appEnvironment.guideViewModel,
                             playerViewModel = playerViewModel
                         )
                         AppTab.TUNERS -> TunerStatusScreen(

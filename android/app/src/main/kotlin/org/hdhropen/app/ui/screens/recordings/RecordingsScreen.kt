@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -19,8 +20,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.launch
 import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.HDHomeRunRecording
+import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.hdhropen.kit.viewmodels.RecordingCategoryFilter
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
@@ -29,6 +32,7 @@ import org.hdhropen.kit.viewmodels.RecordingsViewModel
 @Composable
 fun RecordingsScreen(
     recordingsViewModel: RecordingsViewModel,
+    guideViewModel: GuideViewModel,
     playerViewModel: PlayerViewModel
 ) {
     val recordings by recordingsViewModel.recordings.collectAsState()
@@ -36,9 +40,12 @@ fun RecordingsScreen(
     val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
     val selectedFilter by recordingsViewModel.selectedFilter.collectAsState()
     val isLoading by recordingsViewModel.isLoading.collectAsState()
+    val channels by guideViewModel.channels.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     var selectedRecordingForSheet by remember { mutableStateOf<HDHomeRunRecording?>(null) }
     var showRulesDialog by remember { mutableStateOf(false) }
+    var showKeywordRuleDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (recordings.isEmpty()) {
@@ -60,6 +67,11 @@ fun RecordingsScreen(
                     )
                 },
                 actions = {
+                    // Add Keyword Rule Button
+                    IconButton(onClick = { showKeywordRuleDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Keyword Rule", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+
                     // Scheduled Rules Button
                     IconButton(onClick = { showRulesDialog = true }) {
                         Icon(Icons.Default.List, contentDescription = "Rules", tint = MaterialTheme.colorScheme.onSurface)
@@ -197,6 +209,21 @@ fun RecordingsScreen(
                 rules = recordingRules,
                 recordingsViewModel = recordingsViewModel,
                 onDismiss = { showRulesDialog = false }
+            )
+        }
+
+        if (showKeywordRuleDialog) {
+            KeywordRuleDialog(
+                channels = channels,
+                loading = isLoading,
+                onConfirm = { title, options ->
+                    coroutineScope.launch {
+                        recordingsViewModel.createKeywordRule(title, options)
+                        recordingsViewModel.loadRules()
+                    }
+                    showKeywordRuleDialog = false
+                },
+                onDismiss = { showKeywordRuleDialog = false }
             )
         }
     }

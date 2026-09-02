@@ -604,25 +604,35 @@ and detailed rules management. Core serialization and rule matchers in `HDHROpen
 and Android `:core` have been updated, but the UI layers, ViewModels, and recording
 flows in iOS, tvOS, and Android still need to be brought to full parity.
 
-- [ ] **REC-1 — Shared Native ViewModels & Networking API Parity (iOS/tvOS & Android core).**
-  Bring `apple/HDHROpenKit` and `android/core` view models and API client helpers
-  to parity with the web client's recording capabilities:
-  - `GuideViewModel` (`GuideViewModel.swift`, `GuideViewModel.kt`): update
-    `recordEpisode` and `recordSeries` signatures and payload construction to
-    support the complete set of `RecordingRuleOptions`: `title`, `titleMatchMode`
-    (`"exact"` vs `"contains"`), `keywordQuery`, `channel` override (supporting
-    pipe-delimited channel numbers for multi-channel rules like `"4.1|5.1"`),
-    `startPadding`, `endPadding`, `recentOnly`, `maxEpisodesToKeep`, and `server`.
-    Allow `recordSeries` to generate title-based series rules when `seriesId` is
-    absent or empty by defaulting `seriesId` to `"auto"`.
-  - `RecordingsViewModel` (`RecordingsViewModel.swift`, `RecordingsViewModel.kt`):
-    currently only exposes `deleteRule` — add `addRecordingRule(payload:)` /
-    `createKeywordRule(options:)` so the recordings/rules view can create
-    standalone rules directly without going through guide entries.
-  - Tests: add test coverage in `apple/HDHROpenKit/Tests/HDHROpenKitTests/` and
-    `android/core/src/test/` asserting that `AddRecordingRulePayload` and
-    `RecordingRuleOptions` serialize all rule combinations correctly (exact title,
-    contains title, keyword query, multi-channel scope, retention limits, and server targets).
+- [x] **REC-1 — Shared Native ViewModels & Networking API Parity (iOS/tvOS & Android core).**
+  Brought `apple/HDHROpenKit` and `android/core` to parity with the web client's
+  recording capabilities:
+  - `RecordingRuleOptions` gained a `channel: String?` field on both platforms
+    (`RecordingRule.swift`, `RecordingRule.kt`) — the wire payload type already
+    supported it, only the options struct used to build that payload didn't.
+  - `GuideViewModel.recordEpisode`/`recordSeries` (both platforms) now forward
+    `title`, `titleMatchMode`, `keywordQuery`, and `channel` into
+    `AddRecordingRulePayload` instead of silently dropping them; `channel` now
+    lets `options.channel` override the airing's own channel (needed for "any
+    channel" / custom multi-channel scope). `recordSeries` now defaults an
+    absent *or empty* `seriesId` to `"auto"` (matching web's `seriesId ||
+    'auto'`) — previously only `recordEpisode` defaulted `nil`, and neither
+    handled empty string.
+  - `RecordingsViewModel` gained `addRecordingRule(payload:)` (thin wrapper over
+    the already-complete `APIClient.addRecordingRule`) and
+    `createKeywordRule(title:options:)` on both platforms, so the
+    recordings/rules view can create standalone rules directly without going
+    through a guide entry. Keyword/contains-match rules are implicitly
+    `server: builtin` client-side (server-side `dvr.py` also enforces this).
+  - Read-side `RecordingRuleMatcher` (both platforms) already handled
+    pipe-delimited multi-channel and keyword/contains matching correctly —
+    confirmed during scouting, no changes needed.
+  - Tests: `apple/HDHROpenKit/Tests/HDHROpenKitTests/ModelsSerializationTests.swift`
+    and new `android/core/src/test/kotlin/org/hdhropen/kit/RecordingRulePayloadTest.kt`
+    both cover exact title, contains title, keyword query, multi-channel scope
+    (`"4.1|5.1"`), retention limit, and server target payload serialization.
+    `swift test --package-path apple/HDHROpenKit` (34/34) and
+    `./gradlew :core:test` both green.
 
 - [ ] **REC-2 — iOS: Recording Options Sheet, Keyword Rules, and Rules Management.**
   Bring the iOS client (`apple/HDHROpeniOS`) to full recording feature parity:
@@ -659,23 +669,38 @@ flows in iOS, tvOS, and Android still need to be brought to full parity.
     to keep, and Padding. Add an "Add Keyword Rule" action button if remote text input is
     configured, or structured rule creation from existing guide channels.
 
-- [ ] **REC-4 — Android: Recording Options Bottom Sheet & Standalone Keyword Rules Dialog.**
-  Bring the Android Compose client (`android/app`) to full recording feature parity:
-  - Update `ProgramDetailBottomSheet.kt`: enable "Record Series" even when `airing.seriesId`
-    is null (using title-based series matching), and add an "Options" button opening a new
-    `RecordingOptionsBottomSheet.kt` (or expanding the sheet) featuring:
-    - Channel scope selector (Current channel, Any channel, or multi-channel dialog picker).
-    - Title match mode toggle (Exact vs Contains) and Keyword query input field with
-      an interactive suggestion chip (`+ Use subtitle as keyword`).
-    - Start / End padding steppers (in minutes).
-    - "New episodes only" switch.
-    - Retention count selector (Unlimited vs Keep Last N).
-    - DVR Server selection (Built-in vs HDHomeRun) with Built-in requirement indicator for keyword rules.
-  - Enhance `RecordingRulesDialog.kt`: render keyword query badges, contains mode chips,
-    channel scope tags, retention counts, and padding details on each rule card.
-  - Add `KeywordRuleDialog.kt` invoked from `RecordingsScreen.kt` or `RecordingRulesDialog.kt`
-    to allow creating standalone standing rules with title, keywords, channel filters,
-    padding, and retention limits from scratch (matching `HDHomeRunKeywordRuleDialog.svelte`).
+- [x] **REC-4 — Android: Recording Options Bottom Sheet & Standalone Keyword Rules Dialog.**
+  Brought the Android Compose client (`android/app`) to recording feature parity,
+  building on REC-1:
+  - `ProgramDetailBottomSheet.kt`: "Record Series" is now always shown (no longer
+    gated on `!seriesId.isNullOrEmpty()`) — relies on REC-1's empty/nil→`"auto"`
+    defaulting for title-based series matching. Added a "Recording Options…"
+    button opening a new `RecordingOptionsBottomSheet.kt`, which mirrors
+    `HDHomeRunRecordingOptionsDialog.svelte`'s full field set (mode, title match
+    mode, keyword query, channel scope, start/end padding, new-only, retention,
+    DVR server) and its exact business rules: keyword/contains-match forces
+    `server="builtin"`, and retention is hidden + nulled when the target is the
+    official HDHomeRun DVR (`isOfficialDvrTarget`, computed the same way as web's
+    `officialDvrActive = dvrInfo?.is_builtin === false`, threaded down from
+    `GuideScreen.kt`'s newly-added `RecordingsViewModel.dvrInfo` load).
+  - `RecordingRulesDialog.kt`: added a `RuleBadgesRow` composable rendering
+    keyword query, contains-match, "New only", retention count, start/end
+    padding (minutes), and provider badges on each rule card (capped at 4).
+  - New `KeywordRuleDialog.kt`, opened from a new "Add Keyword Rule" toolbar
+    action in `RecordingsScreen.kt`, mirroring `HDHomeRunKeywordRuleDialog.svelte`
+    — creates standalone standing rules (title, keyword, channel filter,
+    padding, retention) via REC-1's `RecordingsViewModel.createKeywordRule`.
+    No server field: keyword rules are always implicitly builtin-DVR, enforced
+    server-side too.
+  - `GuideScreen.kt`/`RootMobileScreen.kt`: threaded `RecordingsViewModel`
+    into `GuideScreen` (for `dvrInfo`) and `GuideViewModel` into
+    `RecordingsScreen` (for the channel lineup used by both new sheets).
+  - **Verification ceiling** (matches CC-2/CC-6/CC-7's documented limitation):
+    no Android emulator is attached in this environment, and this codebase's
+    existing convention is ViewModel-only unit tests, no Compose view-level
+    tests. Verified via `./gradlew :app:compileDebugKotlin :core:test` —
+    BUILD SUCCESSFUL, all core tests green. Not manually exercised in an
+    emulator/device.
 
 - [ ] **REC-5 — Native In-Player Recording Controls Parity (iOS, tvOS, Android).**
   Provide rich recording controls directly from the video player overlay across all native apps,

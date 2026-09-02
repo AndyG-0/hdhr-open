@@ -25,6 +25,37 @@ import org.hdhropen.kit.models.HDHomeRunRecordingRule
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 @Composable
+private fun RuleBadgesRow(rule: HDHomeRunRecordingRule) {
+    val badges = buildList {
+        if (!rule.keywordQuery.isNullOrEmpty()) add("Keyword: ${rule.keywordQuery}")
+        if (rule.titleMatchMode == "contains") add("Contains match")
+        if (rule.recentOnly == 1) add("New only")
+        rule.maxEpisodesToKeep?.let { add("Keep last $it") }
+        rule.startPadding?.takeIf { it != 0 }?.let { add("Start +${it / 60}m") }
+        rule.endPadding?.takeIf { it != 0 }?.let { add("End +${it / 60}m") }
+        rule.provider?.let { add(it) }
+    }
+    if (badges.isEmpty()) return
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        badges.take(4).forEach { badge ->
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = RoundedCornerShape(3.dp)
+            ) {
+                Text(
+                    text = badge,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 9.sp
+                    ),
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun RecordingRulesDialog(
     rules: List<HDHomeRunRecordingRule>,
     recordingsViewModel: RecordingsViewModel,
@@ -91,6 +122,8 @@ fun RecordingRulesDialog(
                                             text = "$type$ch",
                                             style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        RuleBadgesRow(rule)
                                     }
 
                                     IconButton(onClick = {

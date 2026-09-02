@@ -32,6 +32,8 @@ import org.hdhropen.kit.viewmodels.GuideViewModel
 fun ProgramDetailBottomSheet(
     channel: HDHomeRunChannel,
     airing: HDHomeRunGuideEntry,
+    channels: List<HDHomeRunChannel> = emptyList(),
+    officialDvrActive: Boolean = false,
     guideViewModel: GuideViewModel,
     onDismiss: () -> Unit,
     onTune: () -> Unit
@@ -39,6 +41,7 @@ fun ProgramDetailBottomSheet(
     val coroutineScope = rememberCoroutineScope()
     val recordingRules by guideViewModel.recordingRules.collectAsState()
     val favoriteChannels by guideViewModel.favoriteChannels.collectAsState()
+    var showOptionsSheet by remember { mutableStateOf(false) }
 
     val isFav = favoriteChannels.contains(channel.channelNumber)
     val existingRule = remember(recordingRules, channel, airing) {
@@ -312,31 +315,73 @@ fun ProgramDetailBottomSheet(
                         Text("Record Ep", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
                     }
 
-                    // Record Series
-                    val seriesId = airing.seriesId
-                    if (!seriesId.isNullOrEmpty()) {
-                        Button(
-                            onClick = {
-                                coroutineScope.launch {
-                                    guideViewModel.recordSeries(
-                                        seriesId = seriesId,
-                                        channelNumber = channel.channelNumber
-                                    )
-                                }
-                            },
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Icon(Icons.Default.VideoLibrary, contentDescription = "Record Series", tint = YellowAccent)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Record Series", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
-                        }
+                    // Record Series — the ViewModel now defaults an empty/nil
+                    // seriesId to "auto" server-side, so this no longer needs
+                    // to be gated on the airing having a real seriesId.
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                guideViewModel.recordSeries(
+                                    seriesId = airing.seriesId ?: "",
+                                    channelNumber = channel.channelNumber
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Icon(Icons.Default.VideoLibrary, contentDescription = "Record Series", tint = YellowAccent)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Record Series", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.labelMedium)
                     }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = { showOptionsSheet = true },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Recording Options…", style = MaterialTheme.typography.labelMedium)
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showOptionsSheet) {
+        RecordingOptionsBottomSheet(
+            channel = channel,
+            airing = airing,
+            channels = channels,
+            canRecordSeries = true,
+            officialDvrActive = officialDvrActive,
+            existingRule = existingRule,
+            onConfirm = { isSeries, options ->
+                coroutineScope.launch {
+                    if (isSeries) {
+                        guideViewModel.recordSeries(
+                            seriesId = airing.seriesId ?: "",
+                            channelNumber = channel.channelNumber,
+                            options = options
+                        )
+                    } else {
+                        guideViewModel.recordEpisode(
+                            seriesId = airing.seriesId,
+                            channelNumber = channel.channelNumber,
+                            start = airing.start,
+                            options = options
+                        )
+                    }
+                }
+            },
+            onCancelRule = existingRule?.let {
+                { coroutineScope.launch { guideViewModel.cancelRule(it.recordingRuleId) } }
+            },
+            onDismiss = { showOptionsSheet = false }
+        )
     }
 }

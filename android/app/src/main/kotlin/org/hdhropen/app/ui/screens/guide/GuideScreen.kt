@@ -20,16 +20,25 @@ import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
 fun GuideScreen(
     guideViewModel: GuideViewModel,
+    recordingsViewModel: RecordingsViewModel,
     playerViewModel: PlayerViewModel
 ) {
     val channels by guideViewModel.channels.collectAsState()
     val filterOnlyFavorites by guideViewModel.filterOnlyFavorites.collectAsState()
     val isLoading by guideViewModel.isLoading.collectAsState()
+    val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
+
+    LaunchedEffect(Unit) {
+        if (dvrInfo == null) {
+            recordingsViewModel.loadDvrInfo()
+        }
+    }
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedAiringForSheet by remember { mutableStateOf<Pair<HDHomeRunChannel, HDHomeRunGuideEntry>?>(null) }
@@ -132,6 +141,8 @@ fun GuideScreen(
             ProgramDetailBottomSheet(
                 channel = channel,
                 airing = airing,
+                channels = channels,
+                officialDvrActive = dvrInfo?.isBuiltin == false,
                 guideViewModel = guideViewModel,
                 onDismiss = { selectedAiringForSheet = null },
                 onTune = { playerViewModel.playChannel(channel, airing) }
