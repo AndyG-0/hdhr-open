@@ -7,6 +7,7 @@ public struct TVRecordingRulesView: View {
     let onDismiss: () -> Void
 
     @Namespace private var focusNamespace
+    @State private var showKeywordRuleModal = false
 
     public init(
         rules: [HDHomeRunRecordingRule],
@@ -16,6 +17,34 @@ public struct TVRecordingRulesView: View {
         self.rules = rules
         self.onDeleteRule = onDeleteRule
         self.onDismiss = onDismiss
+    }
+
+    // Mirrors iOSRecordingRulesSheet.swift's badge set (itself mirroring
+    // Android's RecordingRulesDialog.kt).
+    private func badges(for rule: HDHomeRunRecordingRule) -> [String] {
+        var badges: [String] = []
+        if let keyword = rule.keywordQuery, !keyword.isEmpty {
+            badges.append("Keyword: \(keyword)")
+        }
+        if rule.titleMatchMode == "contains" {
+            badges.append("Contains match")
+        }
+        if rule.recentOnly == 1 {
+            badges.append("New only")
+        }
+        if let keep = rule.maxEpisodesToKeep {
+            badges.append("Keep last \(keep)")
+        }
+        if let start = rule.startPadding, start != 0 {
+            badges.append("Start +\(start / 60)m")
+        }
+        if let end = rule.endPadding, end != 0 {
+            badges.append("End +\(end / 60)m")
+        }
+        if let provider = rule.provider {
+            badges.append(provider)
+        }
+        return badges
     }
 
     public var body: some View {
@@ -29,6 +58,10 @@ public struct TVRecordingRulesView: View {
                         .foregroundColor(Theme.textPrimary)
 
                     Spacer()
+
+                    Button(action: { showKeywordRuleModal = true }) {
+                        Label("Add Keyword Rule", systemImage: "plus")
+                    }
 
                     Button("Close", action: onDismiss)
                         .prefersDefaultFocus(true, in: focusNamespace)
@@ -70,6 +103,21 @@ public struct TVRecordingRulesView: View {
                                                     .foregroundColor(.secondary)
                                             }
                                         }
+
+                                        let ruleBadges = badges(for: rule)
+                                        if !ruleBadges.isEmpty {
+                                            HStack(spacing: 6) {
+                                                ForEach(ruleBadges, id: \.self) { badge in
+                                                    Text(badge)
+                                                        .font(.caption2)
+                                                        .padding(.horizontal, 6)
+                                                        .padding(.vertical, 2)
+                                                        .background(Color.secondary.opacity(0.2))
+                                                        .foregroundColor(Theme.textSecondary)
+                                                        .cornerRadius(4)
+                                                }
+                                            }
+                                        }
                                     }
 
                                     Spacer()
@@ -94,5 +142,8 @@ public struct TVRecordingRulesView: View {
             .cornerRadius(24)
         }
         .focusScope(focusNamespace)
+        .fullScreenCover(isPresented: $showKeywordRuleModal) {
+            TVKeywordRuleModal(onCreated: {})
+        }
     }
 }

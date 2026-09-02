@@ -14,7 +14,11 @@ public struct TVProgramDetailModal: View {
     let onToggleFavorite: () -> Void
     let onDismiss: () -> Void
 
+    @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
+
     @Namespace private var focusNamespace
+    @State private var showOptionsModal = false
 
     public init(
         channel: HDHomeRunChannel,
@@ -197,13 +201,17 @@ public struct TVProgramDetailModal: View {
                         }
                         .prefersDefaultFocus(!airing.isCurrentlyAiring(), in: focusNamespace)
 
-                        if let seriesId = airing.seriesId, !seriesId.isEmpty {
-                            Button(action: onRecordSeries) {
-                                Label("Record Series", systemImage: "recordingtape")
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 12)
-                            }
+                        Button(action: onRecordSeries) {
+                            Label("Record Series", systemImage: "recordingtape")
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
                         }
+                    }
+
+                    Button(action: { showOptionsModal = true }) {
+                        Label("Options…", systemImage: "slider.horizontal.3")
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
                     }
 
                     Button(action: onToggleFavorite) {
@@ -231,5 +239,47 @@ public struct TVProgramDetailModal: View {
             )
         }
         .focusScope(focusNamespace)
+        .task {
+            if recordingsViewModel.dvrInfo == nil {
+                await recordingsViewModel.loadDvrInfo()
+            }
+        }
+        .fullScreenCover(isPresented: $showOptionsModal) {
+            TVRecordingOptionsModal(
+                channel: channel,
+                airing: airing,
+                canRecordSeries: true,
+                existingRule: existingRule,
+                onConfirm: { recordSeries, options in
+                    showOptionsModal = false
+                    Task {
+                        if recordSeries {
+                            try? await guideViewModel.recordSeries(
+                                seriesId: airing.seriesId ?? "",
+                                channelNumber: channel.channelNumber,
+                                options: options
+                            )
+                        } else {
+                            try? await guideViewModel.recordEpisode(
+                                seriesId: airing.seriesId,
+                                channelNumber: channel.channelNumber,
+                                start: airing.start,
+                                options: options
+                            )
+                        }
+                        onDismiss()
+                    }
+                },
+                onCancelRule: existingRule.map { rule in
+                    {
+                        showOptionsModal = false
+                        Task {
+                            try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId)
+                            onDismiss()
+                        }
+                    }
+                }
+            )
+        }
     }
 }

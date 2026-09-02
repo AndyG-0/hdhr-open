@@ -128,11 +128,10 @@ public struct TVGuideView: View {
                     }
                 },
                 onRecordSeries: {
-                    guard let seriesId = selection.airing.seriesId else { return }
                     selectedAiringForModal = nil
                     Task {
                         try? await guideViewModel.recordSeries(
-                            seriesId: seriesId,
+                            seriesId: selection.airing.seriesId ?? "",
                             channelNumber: selection.channel.channelNumber
                         )
                     }

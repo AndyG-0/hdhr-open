@@ -705,16 +705,65 @@ flows in iOS, tvOS, and Android still need to be brought to full parity.
     Matches this codebase's existing convention (no SwiftUI view-level tests
     anywhere) — not manually exercised in a running simulator/device.
 
-- [ ] **REC-3 — tvOS: Recording Options & Rich Rules Management for 10-Foot UI.**
-  Bring the Apple TV client (`apple/HDHROpenTV`) to parity while adapting for 10-foot D-pad navigation:
-  - Update `TVProgramDetailModal.swift`: remove the requirement that `airing.seriesId` must be
-    non-empty to show "Record Series" (fallback to title-based series recording), and add an
-    "Options..." button that presents `TVRecordingOptionsModal.swift` (padding steppers,
-    retention limit, channel scope, new-only switch, keyword query).
-  - Enhance `TVRecordingRulesView.swift`: update rule item cards to display rich metadata
-    badges: Keyword query tags, Contains match mode indicators, Channel filters, Max episodes
-    to keep, and Padding. Add an "Add Keyword Rule" action button if remote text input is
-    configured, or structured rule creation from existing guide channels.
+- [x] **REC-3 — tvOS: Recording Options & Rich Rules Management for 10-Foot UI.**
+  Brought the Apple TV client (`apple/HDHROpenTV`) to recording feature parity,
+  building on REC-1 and ported from REC-2's iOS sheets (same business rules,
+  adapted for D-pad focus navigation rather than iOS's `NavigationStack`/`Form`):
+  - New `TVRecordingOptionsModal.swift`: a full-screen `.fullScreenCover` modal
+    (no `Form`/`.toolbar` — tvOS has no navigation-bar concept identical to
+    iOS's, so this uses the same explicit-header-button pattern as the existing
+    `TVProgramDetailModal.swift`/`TVRecordingRulesView.swift`). DVR server,
+    title match mode, and channel scope pickers are hand-rolled button groups
+    (matching `TVSettingsView.swift`'s theme-mode selector) rather than
+    `Picker(.segmented)`, which doesn't render usably on tvOS. Padding uses a
+    hand-rolled +/- row: **`Stepper` is unavailable on tvOS entirely** (a real
+    build error, not just a style mismatch — `'Stepper' is unavailable in
+    tvOS`), so both this file and `TVKeywordRuleModal.swift` implement their
+    own minute-stepper row instead. `Toggle` compiles fine on tvOS and is used
+    as-is for "New episodes only". Same business rules as REC-2/REC-4:
+    `isKeywordActive = !keywordQuery.trimmed.isEmpty || titleMatchMode ==
+    "contains"` forces `server = "builtin"`; `isOfficialDvrTarget =
+    !isKeywordActive && (server == "hdhomerun" || (server == "default" &&
+    officialDvrActive))`, retention hidden when `isOfficialDvrTarget`. Supports
+    both "create new rule" and "cancel existing rule" modes via `existingRule`.
+  - New `TVKeywordRuleModal.swift`: standalone standing-rule creation, mirroring
+    `iOSKeywordRuleSheet.swift`. **Keyword text entry is viable on tvOS** — the
+    only precedent search found in this app is `TVServerConnectionFields.swift`,
+    which already uses a plain `TextField` relying on tvOS's native on-screen
+    remote keyboard with no special wrapper — so this uses the same plain
+    `TextField`, not a documented gap.
+  - `TVRecordingRulesView.swift`: rule cards now show the same badge set as
+    iOS/Android (keyword query, contains-match, "New only", retention count,
+    start/end padding, provider), and gained an "Add Keyword Rule" header
+    button opening `TVKeywordRuleModal`.
+  - `TVProgramDetailModal.swift`: "Record Series" is now always shown (no
+    longer gated on `airing.seriesId` being non-empty) — relies on REC-1's
+    empty/nil→`"auto"` defaulting. `TVGuideView.swift`'s `onRecordSeries`
+    closure had its own separate `guard let seriesId = ... else { return }`
+    that would have silently no-op'd the fallback even after the modal's own
+    gate was removed — updated to pass `selection.airing.seriesId ?? ""`
+    too. Added an "Options…" button opening `TVRecordingOptionsModal`, and
+    loads `RecordingsViewModel.dvrInfo` on appear if not already loaded (same
+    fix REC-2 made in `iOSProgramDetailSheet.swift`).
+  - Like iOS, the new tvOS modals read `GuideViewModel`/`RecordingsViewModel`
+    via `@EnvironmentObject` (injected once at `HDHROpenTVApp.swift` and
+    already propagating through `.fullScreenCover`) rather than constructor
+    parameters, even though the pre-existing `TVProgramDetailModal.swift`/
+    `TVRecordingRulesView.swift` use closure-based callback props — the two
+    patterns coexist in those two files without conflict.
+  - The two new files aren't SwiftPM sources, so they also had to be added to
+    `apple/HDHROpen.xcodeproj/project.pbxproj` (file references, build files,
+    group membership, and the `HDHROpenTV` target's Sources build phase) by
+    hand, same as REC-2.
+  - **Verification**: unlike REC-4's Android ceiling, a tvOS Simulator
+    toolchain was available here. `xcodebuild -project apple/HDHROpen.xcodeproj
+    -scheme HDHROpenTV -destination 'platform=tvOS Simulator,...,name=Apple TV'
+    build` → **BUILD SUCCEEDED** (compiles and links the real app target; this
+    run is what caught the `Stepper`-unavailable-on-tvOS error above).
+    `swift test --package-path apple/HDHROpenKit` — 34/34 green, confirming
+    REC-1's ViewModel layer is untouched and still correct. Matches this
+    codebase's existing convention (no SwiftUI view-level tests anywhere) —
+    not manually exercised in a running simulator/device.
 
 - [x] **REC-4 — Android: Recording Options Bottom Sheet & Standalone Keyword Rules Dialog.**
   Brought the Android Compose client (`android/app`) to recording feature parity,

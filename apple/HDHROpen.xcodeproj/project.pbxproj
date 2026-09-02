@@ -15,6 +15,7 @@
 		B81BC32CFAA8FBE5953C7817 /* TVGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21130A37C9ED1C78EA1A58A1 /* TVGuideView.swift */; };
 		12412CE89BFC9E175EAE157C /* TVProgramCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0D667502D7CE564834CC47 /* TVProgramCardView.swift */; };
 		00648E78A31CDE037E087614 /* TVProgramDetailModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43129C85C574FB0A697B956 /* TVProgramDetailModal.swift */; };
+		E1714E1AB22F464EA26944A8 /* TVRecordingOptionsModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC5474FDF4484895888974F6 /* TVRecordingOptionsModal.swift */; };
 		7F2B7905DA8A4C0A4650DF48 /* TVChannelSwitcherOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08DEAC025D22ED5A105A1BB6 /* TVChannelSwitcherOverlay.swift */; };
 		33AE4C459C72C4E630A2EB5E /* TVPlaybackControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8EC769B5F29DF4F0D710F1 /* TVPlaybackControlsView.swift */; };
 		04F7F9CBEF07175A82689A03 /* TVPlayerSettingsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D377D3CAA621E520AA5D21A /* TVPlayerSettingsOverlay.swift */; };
@@ -23,6 +24,7 @@
 		FDD8CD2F8FA2D8D82706024C /* TVRecordingCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261D7115C8BAC71DD40CE75B /* TVRecordingCardView.swift */; };
 		C19C84DB1810AB4697C4151A /* TVRecordingDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C97A3F894B1CF19CD093E90A /* TVRecordingDetailView.swift */; };
 		D505D0C47CC297A104281CE0 /* TVRecordingRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCDED5935ABFB977F0E37DD /* TVRecordingRulesView.swift */; };
+		7EF03C4BA55D465DAEA1591A /* TVKeywordRuleModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D130F98E7342F4B9358FCB /* TVKeywordRuleModal.swift */; };
 		F90527D3D70169C8A4F37BF7 /* TVRecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91A09B318A58D5CEC0BECC4 /* TVRecordingsView.swift */; };
 		81559D3E2696C4B363A124E3 /* TVServerConnectionFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08D1DE5FA2DA8FE571C9C387 /* TVServerConnectionFields.swift */; };
 		A12329298966778EBFB4D318 /* TVServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFFD19C585CB38F0DC26F6B4 /* TVServerSetupView.swift */; };
@@ -59,6 +61,7 @@
 		21130A37C9ED1C78EA1A58A1 /* TVGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVGuideView.swift"; sourceTree = "<group>"; };
 		2C0D667502D7CE564834CC47 /* TVProgramCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVProgramCardView.swift"; sourceTree = "<group>"; };
 		F43129C85C574FB0A697B956 /* TVProgramDetailModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVProgramDetailModal.swift"; sourceTree = "<group>"; };
+		FC5474FDF4484895888974F6 /* TVRecordingOptionsModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingOptionsModal.swift"; sourceTree = "<group>"; };
 		08DEAC025D22ED5A105A1BB6 /* TVChannelSwitcherOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVChannelSwitcherOverlay.swift"; sourceTree = "<group>"; };
 		BA8EC769B5F29DF4F0D710F1 /* TVPlaybackControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVPlaybackControlsView.swift"; sourceTree = "<group>"; };
 		7D377D3CAA621E520AA5D21A /* TVPlayerSettingsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVPlayerSettingsOverlay.swift"; sourceTree = "<group>"; };
@@ -67,6 +70,7 @@
 		261D7115C8BAC71DD40CE75B /* TVRecordingCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingCardView.swift"; sourceTree = "<group>"; };
 		C97A3F894B1CF19CD093E90A /* TVRecordingDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingDetailView.swift"; sourceTree = "<group>"; };
 		ACCDED5935ABFB977F0E37DD /* TVRecordingRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingRulesView.swift"; sourceTree = "<group>"; };
+		A1D130F98E7342F4B9358FCB /* TVKeywordRuleModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVKeywordRuleModal.swift"; sourceTree = "<group>"; };
 		F91A09B318A58D5CEC0BECC4 /* TVRecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingsView.swift"; sourceTree = "<group>"; };
 		08D1DE5FA2DA8FE571C9C387 /* TVServerConnectionFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVServerConnectionFields.swift"; sourceTree = "<group>"; };
 		DFFD19C585CB38F0DC26F6B4 /* TVServerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVServerSetupView.swift"; sourceTree = "<group>"; };
@@ -194,6 +198,7 @@
 				21130A37C9ED1C78EA1A58A1 /* TVGuideView.swift */,
 				2C0D667502D7CE564834CC47 /* TVProgramCardView.swift */,
 				F43129C85C574FB0A697B956 /* TVProgramDetailModal.swift */,
+				FC5474FDF4484895888974F6 /* TVRecordingOptionsModal.swift */,
 			);
 			path = "Guide"; sourceTree = "<group>";
 		};
@@ -215,6 +220,7 @@
 				C97A3F894B1CF19CD093E90A /* TVRecordingDetailView.swift */,
 				ACCDED5935ABFB977F0E37DD /* TVRecordingRulesView.swift */,
 				F91A09B318A58D5CEC0BECC4 /* TVRecordingsView.swift */,
+				A1D130F98E7342F4B9358FCB /* TVKeywordRuleModal.swift */,
 			);
 			path = "Recordings"; sourceTree = "<group>";
 		};
@@ -418,6 +424,7 @@
 				B81BC32CFAA8FBE5953C7817 /* in Sources */,
 				12412CE89BFC9E175EAE157C /* in Sources */,
 				00648E78A31CDE037E087614 /* in Sources */,
+				E1714E1AB22F464EA26944A8 /* in Sources */,
 				7F2B7905DA8A4C0A4650DF48 /* in Sources */,
 				33AE4C459C72C4E630A2EB5E /* in Sources */,
 				04F7F9CBEF07175A82689A03 /* in Sources */,
@@ -426,6 +433,7 @@
 				FDD8CD2F8FA2D8D82706024C /* in Sources */,
 				C19C84DB1810AB4697C4151A /* in Sources */,
 				D505D0C47CC297A104281CE0 /* in Sources */,
+				7EF03C4BA55D465DAEA1591A /* in Sources */,
 				F90527D3D70169C8A4F37BF7 /* in Sources */,
 				81559D3E2696C4B363A124E3 /* in Sources */,
 				A12329298966778EBFB4D318 /* in Sources */,
