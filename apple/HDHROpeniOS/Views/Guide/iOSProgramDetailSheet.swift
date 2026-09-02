@@ -7,7 +7,10 @@ public struct iOSProgramDetailSheet: View {
 
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
     @Environment(\.dismiss) private var dismiss
+
+    @State private var showRecordingOptionsSheet = false
 
     public init(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry) {
         self.channel = channel
@@ -15,6 +18,8 @@ public struct iOSProgramDetailSheet: View {
     }
 
     public var body: some View {
+        let existingRule = guideViewModel.findRule(for: channel.channelNumber, airing: airing)
+
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -136,8 +141,6 @@ public struct iOSProgramDetailSheet: View {
 
                     Divider().padding(.vertical, 8)
 
-                    let existingRule = guideViewModel.findRule(for: channel.channelNumber, airing: airing)
-
                     VStack(spacing: 12) {
                         if airing.isCurrentlyAiring() {
                             Button(action: {
@@ -182,23 +185,30 @@ public struct iOSProgramDetailSheet: View {
                             }
                             .buttonStyle(.bordered)
 
-                            if let seriesId = airing.seriesId, !seriesId.isEmpty {
-                                Button(action: {
-                                    Task {
-                                        try? await guideViewModel.recordSeries(
-                                            seriesId: seriesId,
-                                            channelNumber: channel.channelNumber
-                                        )
-                                        dismiss()
-                                    }
-                                }) {
-                                    Label("Record Series", systemImage: "recordingtape")
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
+                            Button(action: {
+                                Task {
+                                    try? await guideViewModel.recordSeries(
+                                        seriesId: airing.seriesId ?? "",
+                                        channelNumber: channel.channelNumber
+                                    )
+                                    dismiss()
                                 }
-                                .buttonStyle(.bordered)
+                            }) {
+                                Label("Record Series", systemImage: "recordingtape")
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
                             }
+                            .buttonStyle(.bordered)
                         }
+
+                        Button(action: {
+                            showRecordingOptionsSheet = true
+                        }) {
+                            Label("Recording Options…", systemImage: "slider.horizontal.3")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
                 .padding(20)
@@ -209,6 +219,46 @@ public struct iOSProgramDetailSheet: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .task {
+                if recordingsViewModel.dvrInfo == nil {
+                    await recordingsViewModel.loadDvrInfo()
+                }
+            }
+            .sheet(isPresented: $showRecordingOptionsSheet) {
+                iOSRecordingOptionsSheet(
+                    channel: channel,
+                    airing: airing,
+                    canRecordSeries: true,
+                    existingRule: existingRule,
+                    onConfirm: { recordSeries, options in
+                        Task {
+                            if recordSeries {
+                                try? await guideViewModel.recordSeries(
+                                    seriesId: airing.seriesId ?? "",
+                                    channelNumber: channel.channelNumber,
+                                    options: options
+                                )
+                            } else {
+                                try? await guideViewModel.recordEpisode(
+                                    seriesId: airing.seriesId,
+                                    channelNumber: channel.channelNumber,
+                                    start: airing.start,
+                                    options: options
+                                )
+                            }
+                            dismiss()
+                        }
+                    },
+                    onCancelRule: existingRule.map { rule in
+                        {
+                            Task {
+                                try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId)
+                                dismiss()
+                            }
+                        }
+                    }
+                )
             }
         }
     }

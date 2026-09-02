@@ -655,29 +655,55 @@ flows in iOS, tvOS, and Android still need to be brought to full parity.
     `swift test --package-path apple/HDHROpenKit` (34/34) and
     `./gradlew :core:test` both green.
 
-- [ ] **REC-2 — iOS: Recording Options Sheet, Keyword Rules, and Rules Management.**
-  Bring the iOS client (`apple/HDHROpeniOS`) to full recording feature parity:
-  - Add `iOSRecordingOptionsSheet.swift` (or expandable options in `iOSProgramDetailSheet.swift`)
-    matching `HDHomeRunRecordingOptionsDialog.svelte`:
-    - Mode toggle: Single Episode vs Series / Standing Rule.
-    - Title match mode selector: Exact Title vs Contains / Substring.
-    - Keyword filter query text field with a quick "+ Use subtitle as keyword" chip.
-    - Channel scope selector: "Current Channel (X)", "Any Channel", or a custom
-      channel selection checklist from the loaded channel lineup.
-    - Start padding and end padding steppers (in minutes, converted to seconds).
-    - "New episodes only" toggle switch.
-    - Retention policy: "Unlimited" vs "Keep Last N Episodes" with numeric stepper
-      (disabled when targeting the official HDHomeRun DVR server).
-    - DVR Server picker: Default vs Built-in vs HDHomeRun (with note that keyword/contains
-      rules target Built-in DVR only).
-  - Add Scheduled Rules management to `iOSRecordingsView.swift`: currently `iOSRecordingsView`
-    only lists recorded files and has no rules view. Add a toolbar button to open a
-    new `iOSRecordingRulesSheet.swift` listing all scheduled rules with their badges
-    (Series vs Episode vs Keyword, Contains mode, Channel scope, Retention count,
-    Padding), swipe-to-delete, and an "Add Keyword Rule" button presenting
-    `iOSKeywordRuleSheet.swift` (mirroring `HDHomeRunKeywordRuleDialog.svelte`).
-  - Update `iOSProgramDetailSheet.swift`: allow "Record Series" even if `airing.seriesId`
-    is nil (using title matching), and add a "Recording Options..." button opening the options sheet.
+- [x] **REC-2 — iOS: Recording Options Sheet, Keyword Rules, and Rules Management.**
+  Brought the iOS client (`apple/HDHROpeniOS`) to recording feature parity,
+  building on REC-1 and ported from REC-4's Android implementation (same
+  Svelte source of truth) as idiomatic SwiftUI rather than a Kotlin transliteration:
+  - New `iOSRecordingOptionsSheet.swift` (`Form`/`Section` sheet, matching the
+    `iOSSettingsView.swift` idiom): title match mode, keyword query field with a
+    "+ Use episode title as keyword" chip, channel scope (current/any/custom
+    multi-select pipe-joined as `"4.1|5.1"`), start/end padding steppers
+    (minutes converted to seconds), "New episodes only" toggle, retention
+    (Unlimited vs Keep Last N, hidden when `isOfficialDvrTarget`), and a DVR
+    server picker (Default/Built-in/HDHomeRun). Mirrors the same business rules
+    as REC-4: `isKeywordActive = !keywordQuery.trimmed.isEmpty || titleMatchMode
+    == "contains"` forces `server = "builtin"`; `isOfficialDvrTarget =
+    !isKeywordActive && (server == "hdhomerun" || (server == "default" &&
+    officialDvrActive))`, with `officialDvrActive` read from
+    `RecordingsViewModel.dvrInfo?.isBuiltin == false`. Supports both "create new
+    rule" and "cancel existing rule" modes via an `existingRule` parameter.
+  - New `iOSRecordingRulesSheet.swift`: lists all scheduled rules with badges
+    (keyword, contains-match, "New only", retention count, start/end padding,
+    provider), swipe-to-delete via `RecordingsViewModel.deleteRule(ruleId:)`,
+    and a toolbar "Add Keyword Rule" button opening the next item.
+  - New `iOSKeywordRuleSheet.swift`: standalone standing-rule creation (title,
+    title match mode, keyword query, channel mode, padding, recentOnly,
+    retention) via `RecordingsViewModel.createKeywordRule`. No server field —
+    keyword rules are always implicitly builtin-DVR, enforced server-side too.
+  - `iOSProgramDetailSheet.swift`: "Record Series" is now always shown (no
+    longer gated on `airing.seriesId` being non-empty) — relies on REC-1's
+    empty/nil→`"auto"` defaulting for title-based series matching. Added a
+    "Recording Options…" button opening `iOSRecordingOptionsSheet`, and loads
+    `RecordingsViewModel.dvrInfo` on appear if not already loaded.
+  - `iOSRecordingsView.swift`: added a toolbar button opening
+    `iOSRecordingRulesSheet`.
+  - Unlike Android's explicit `channels`/`dvrInfo` parameter-passing, the new
+    iOS sheets read `GuideViewModel`/`RecordingsViewModel` via
+    `@EnvironmentObject` — both are already injected once at `RootiOSView.swift`
+    and propagate automatically through `.sheet()` presentation, so no
+    constructor plumbing was needed for REC-2 beyond the two edits above.
+  - The three new files aren't SwiftPM sources, so they also had to be added to
+    `apple/HDHROpen.xcodeproj/project.pbxproj` (file references, build files,
+    group membership, and the `HDHROpeniOS` target's Sources build phase) by
+    hand — this project doesn't use Xcode 16's filesystem-synchronized groups.
+  - **Verification**: unlike REC-4's Android ceiling, an iOS Simulator toolchain
+    was available here. `xcodebuild -project apple/HDHROpen.xcodeproj -scheme
+    HDHROpeniOS -destination 'platform=iOS Simulator,...,name=iPhone 16e' build`
+    → **BUILD SUCCEEDED** (compiles and links the real app target, not just the
+    SwiftPM library). `swift test --package-path apple/HDHROpenKit` — 34/34
+    green, confirming REC-1's ViewModel layer is untouched and still correct.
+    Matches this codebase's existing convention (no SwiftUI view-level tests
+    anywhere) — not manually exercised in a running simulator/device.
 
 - [ ] **REC-3 — tvOS: Recording Options & Rich Rules Management for 10-Foot UI.**
   Bring the Apple TV client (`apple/HDHROpenTV`) to parity while adapting for 10-foot D-pad navigation:

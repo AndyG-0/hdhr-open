@@ -34,11 +34,14 @@
 		CF041FDD8AD260953AB14347 /* iOSGuideGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC01CBDACE454856F8022B7D /* iOSGuideGridView.swift */; };
 		8F4E8B0AC01774F88A987E2A /* iOSGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF6D40416A97C749A2CD2ED /* iOSGuideView.swift */; };
 		16B9ED124AEAB0D8A545CEDF /* iOSProgramDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 550FCE2AFB7BEEB7655151A9 /* iOSProgramDetailSheet.swift */; };
+		5FCECD255F2580187F7592C8 /* iOSRecordingOptionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C6C0077A9BF09ACEF1AA0E7 /* iOSRecordingOptionsSheet.swift */; };
 		58FAA4D70CC6155886F9536D /* iOSPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F1061180084500A451A807 /* iOSPlayerView.swift */; };
 		C88E5CBBD604B09FE53B0E23 /* iOSScrubBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2150599F5C7EA54A93A727BB /* iOSScrubBarView.swift */; };
 		F2741ADF6958219F23EC0139 /* iOSPlaybackInfoOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10290794CF0139AE16E7DE2 /* iOSPlaybackInfoOverlay.swift */; };
 		5EBED811807AB906AC26BAAD /* iOSRecordingDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1DF074D216521FA84F7D057 /* iOSRecordingDetailSheet.swift */; };
 		73E6B9BA58F5A74141F20E0F /* iOSRecordingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9883747756A0797ABB4200F9 /* iOSRecordingsView.swift */; };
+		36E3E28131ADD94C2A01BAD9 /* iOSKeywordRuleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF6849787B7B7360C181EFF3 /* iOSKeywordRuleSheet.swift */; };
+		D068E205F8FBF3495943E2CD /* iOSRecordingRulesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C785900D60BB3C5226DA0372 /* iOSRecordingRulesSheet.swift */; };
 		0A93A7E950B978B4C1BC7D51 /* iOSServerConnectionFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A9A6859EE3DA77CEA3248E /* iOSServerConnectionFields.swift */; };
 		EFFA2CA7DC761D675140C14F /* iOSServerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E173F09AE8588C8F45B48334 /* iOSServerSetupView.swift */; };
 		586989FFF0AD3FDF248217EC /* iOSSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC95D678F53BCC89C3EA8C6D /* iOSSettingsView.swift */; };
@@ -76,11 +79,14 @@
 		FC01CBDACE454856F8022B7D /* iOSGuideGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSGuideGridView.swift"; sourceTree = "<group>"; };
 		BBF6D40416A97C749A2CD2ED /* iOSGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSGuideView.swift"; sourceTree = "<group>"; };
 		550FCE2AFB7BEEB7655151A9 /* iOSProgramDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSProgramDetailSheet.swift"; sourceTree = "<group>"; };
+		8C6C0077A9BF09ACEF1AA0E7 /* iOSRecordingOptionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingOptionsSheet.swift"; sourceTree = "<group>"; };
 		95F1061180084500A451A807 /* iOSPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSPlayerView.swift"; sourceTree = "<group>"; };
 		2150599F5C7EA54A93A727BB /* iOSScrubBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSScrubBarView.swift"; sourceTree = "<group>"; };
 		D10290794CF0139AE16E7DE2 /* iOSPlaybackInfoOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSPlaybackInfoOverlay.swift"; sourceTree = "<group>"; };
 		F1DF074D216521FA84F7D057 /* iOSRecordingDetailSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingDetailSheet.swift"; sourceTree = "<group>"; };
 		9883747756A0797ABB4200F9 /* iOSRecordingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingsView.swift"; sourceTree = "<group>"; };
+		FF6849787B7B7360C181EFF3 /* iOSKeywordRuleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSKeywordRuleSheet.swift"; sourceTree = "<group>"; };
+		C785900D60BB3C5226DA0372 /* iOSRecordingRulesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingRulesSheet.swift"; sourceTree = "<group>"; };
 		96A9A6859EE3DA77CEA3248E /* iOSServerConnectionFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerConnectionFields.swift"; sourceTree = "<group>"; };
 		E173F09AE8588C8F45B48334 /* iOSServerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerSetupView.swift"; sourceTree = "<group>"; };
 		CC95D678F53BCC89C3EA8C6D /* iOSSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSSettingsView.swift"; sourceTree = "<group>"; };
@@ -278,6 +284,7 @@
 				FC01CBDACE454856F8022B7D /* iOSGuideGridView.swift */,
 				BBF6D40416A97C749A2CD2ED /* iOSGuideView.swift */,
 				550FCE2AFB7BEEB7655151A9 /* iOSProgramDetailSheet.swift */,
+				8C6C0077A9BF09ACEF1AA0E7 /* iOSRecordingOptionsSheet.swift */,
 			);
 			path = "Guide"; sourceTree = "<group>";
 		};
@@ -295,6 +302,8 @@
 			children = (
 				F1DF074D216521FA84F7D057 /* iOSRecordingDetailSheet.swift */,
 				9883747756A0797ABB4200F9 /* iOSRecordingsView.swift */,
+				FF6849787B7B7360C181EFF3 /* iOSKeywordRuleSheet.swift */,
+				C785900D60BB3C5226DA0372 /* iOSRecordingRulesSheet.swift */,
 			);
 			path = "Recordings"; sourceTree = "<group>";
 		};
@@ -435,11 +444,14 @@
 				CF041FDD8AD260953AB14347 /* in Sources */,
 				8F4E8B0AC01774F88A987E2A /* in Sources */,
 				16B9ED124AEAB0D8A545CEDF /* in Sources */,
+				5FCECD255F2580187F7592C8 /* in Sources */,
 				58FAA4D70CC6155886F9536D /* in Sources */,
 				C88E5CBBD604B09FE53B0E23 /* in Sources */,
 				F2741ADF6958219F23EC0139 /* in Sources */,
 				5EBED811807AB906AC26BAAD /* in Sources */,
 				73E6B9BA58F5A74141F20E0F /* in Sources */,
+				36E3E28131ADD94C2A01BAD9 /* in Sources */,
+				D068E205F8FBF3495943E2CD /* in Sources */,
 				0A93A7E950B978B4C1BC7D51 /* in Sources */,
 				EFFA2CA7DC761D675140C14F /* in Sources */,
 				586989FFF0AD3FDF248217EC /* in Sources */,

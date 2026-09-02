@@ -6,6 +6,7 @@ public struct iOSRecordingsView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
 
     @State private var selectedRecordingForSheet: HDHomeRunRecording?
+    @State private var showRulesSheet = false
 
     public init() {}
 
@@ -137,6 +138,13 @@ public struct iOSRecordingsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: {
+                    showRulesSheet = true
+                }) {
+                    Image(systemName: "list.bullet.rectangle")
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
                     Task { await recordingsViewModel.loadData() }
                 }) {
                     Image(systemName: "arrow.clockwise")
@@ -145,6 +153,9 @@ public struct iOSRecordingsView: View {
         }
         .sheet(item: $selectedRecordingForSheet) { recording in
             iOSRecordingDetailSheet(recording: recording)
+        }
+        .sheet(isPresented: $showRulesSheet) {
+            iOSRecordingRulesSheet()
         }
         .task {
             if recordingsViewModel.recordings.isEmpty {
