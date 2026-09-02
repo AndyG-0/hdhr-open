@@ -115,6 +115,8 @@ fun RootMobileScreen(appEnvironment: AppEnvironment) {
         if (isPlayerActive) {
             PlayerScreen(
                 playerViewModel = playerViewModel,
+                guideViewModel = appEnvironment.guideViewModel,
+                recordingsViewModel = appEnvironment.recordingsViewModel,
                 onDismiss = { playerViewModel.closePlayer() }
             )
         }

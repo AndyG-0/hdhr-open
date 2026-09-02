@@ -4,11 +4,13 @@ import HDHROpenKit
 public struct iOSPlayerView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var showControls: Bool = true
     @State private var controlsTimer: Task<Void, Never>?
     @State private var showPlaybackInfo: Bool = false
+    @State private var showRecordingOptionsSheet: Bool = false
 
     public init() {}
 
@@ -172,13 +174,60 @@ public struct iOSPlayerView: View {
 
                         HStack {
                             if playerViewModel.isWatchSession {
-                                Button(action: {
-                                    Task { await playerViewModel.promoteToRecording() }
-                                }) {
+                                let existingRule = guideViewModel.findRule(for: playerViewModel.activeChannel?.channelNumber, airing: playerViewModel.activeAiring)
+                                let canRecordSeries = !(playerViewModel.activeAiring?.seriesId?.isEmpty ?? true) || !(playerViewModel.activeAiring?.title.isEmpty ?? true)
+
+                                Menu {
+                                    if let rule = existingRule {
+                                        Button(role: .destructive) {
+                                            Task { try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId) }
+                                        } label: {
+                                            Label("Cancel Recording", systemImage: "record.circle")
+                                        }
+                                    } else {
+                                        Button {
+                                            Task { await playerViewModel.promoteToRecording() }
+                                        } label: {
+                                            Label(playerViewModel.isPromoted ? "Recording Saved" : "Save Current Recording", systemImage: "checkmark.circle")
+                                        }
+                                        .disabled(playerViewModel.isPromoting || playerViewModel.isPromoted)
+
+                                        Button {
+                                            Task {
+                                                try? await guideViewModel.recordEpisode(
+                                                    seriesId: playerViewModel.activeAiring?.seriesId,
+                                                    channelNumber: playerViewModel.activeChannel?.channelNumber,
+                                                    start: playerViewModel.activeAiring?.start
+                                                )
+                                            }
+                                        } label: {
+                                            Label("Record Episode", systemImage: "record.circle")
+                                        }
+
+                                        if canRecordSeries {
+                                            Button {
+                                                Task {
+                                                    try? await guideViewModel.recordSeries(
+                                                        seriesId: playerViewModel.activeAiring?.seriesId ?? "",
+                                                        channelNumber: playerViewModel.activeChannel?.channelNumber
+                                                    )
+                                                }
+                                            } label: {
+                                                Label("Record Series", systemImage: "recordingtape")
+                                            }
+                                        }
+
+                                        Button {
+                                            showRecordingOptionsSheet = true
+                                        } label: {
+                                            Label("Recording Options…", systemImage: "slider.horizontal.3")
+                                        }
+                                    }
+                                } label: {
                                     HStack(spacing: 6) {
-                                        Image(systemName: playerViewModel.isPromoted ? "checkmark.circle.fill" : "record.circle")
-                                            .foregroundColor(playerViewModel.isPromoted ? .green : .red)
-                                        Text(playerViewModel.isPromoted ? "Recording" : "Record Live")
+                                        Image(systemName: (existingRule != nil || playerViewModel.isPromoted) ? "checkmark.circle.fill" : "record.circle")
+                                            .foregroundColor((existingRule != nil || playerViewModel.isPromoted) ? .green : .red)
+                                        Text(existingRule != nil ? "Recording Scheduled" : (playerViewModel.isPromoted ? "Recording Saved" : "Record"))
                                             .font(.caption.bold())
                                     }
                                     .padding(.horizontal, 12)
@@ -187,7 +236,7 @@ public struct iOSPlayerView: View {
                                     .cornerRadius(8)
                                     .foregroundColor(.white)
                                 }
-                                .disabled(playerViewModel.isPromoting || playerViewModel.isPromoted)
+                                .disabled(playerViewModel.isPromoting)
                             }
 
                             Spacer()
@@ -229,6 +278,49 @@ public struct iOSPlayerView: View {
 
             if showPlaybackInfo {
                 iOSPlaybackInfoOverlay(playerViewModel: playerViewModel, onDismiss: { showPlaybackInfo = false })
+            }
+        }
+        .task {
+            if recordingsViewModel.dvrInfo == nil {
+                await recordingsViewModel.loadDvrInfo()
+            }
+        }
+        .sheet(isPresented: $showRecordingOptionsSheet) {
+            if let channel = playerViewModel.activeChannel, let airing = playerViewModel.activeAiring {
+                let existingRule = guideViewModel.findRule(for: channel.channelNumber, airing: airing)
+                iOSRecordingOptionsSheet(
+                    channel: channel,
+                    airing: airing,
+                    canRecordSeries: !(airing.seriesId?.isEmpty ?? true) || !airing.title.isEmpty,
+                    existingRule: existingRule,
+                    onConfirm: { recordSeries, options in
+                        Task {
+                            if recordSeries {
+                                try? await guideViewModel.recordSeries(
+                                    seriesId: airing.seriesId ?? "",
+                                    channelNumber: channel.channelNumber,
+                                    options: options
+                                )
+                            } else {
+                                try? await guideViewModel.recordEpisode(
+                                    seriesId: airing.seriesId,
+                                    channelNumber: channel.channelNumber,
+                                    start: airing.start,
+                                    options: options
+                                )
+                            }
+                            showRecordingOptionsSheet = false
+                        }
+                    },
+                    onCancelRule: existingRule.map { rule in
+                        {
+                            Task {
+                                try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId)
+                                showRecordingOptionsSheet = false
+                            }
+                        }
+                    }
+                )
             }
         }
         .onChange(of: playerViewModel.playerEngine.state) { _, newState in

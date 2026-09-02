@@ -5,9 +5,11 @@ import HDHROpenKit
 public struct TVPlayerView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
 
     @State private var showControls: Bool = true
     @State private var controlsTimer: Task<Void, Never>?
+    @State private var showRecordingOptionsSheet: Bool = false
     // SwiftUI doesn't automatically retarget focus onto the ZStack just
     // because `.focusable(!showControls)` makes it newly eligible the
     // instant `TVPlaybackControlsView` (and its own focused button) leaves
@@ -150,7 +152,7 @@ public struct TVPlayerView: View {
                 // views can claim focus onAppear, but the focus engine still
                 // considers these disabled buttons unless they're explicitly
                 // excluded.
-                .disabled(playerViewModel.showChannelSwitcher || playerViewModel.showAudioMenu)
+                .disabled(playerViewModel.showChannelSwitcher || playerViewModel.showAudioMenu || playerViewModel.showRecordMenu)
             }
 
             // Channel Switcher Bottom Drawer
@@ -183,6 +185,54 @@ public struct TVPlayerView: View {
                 .transition(.opacity)
             }
 
+            // Record Menu Overlay
+            if playerViewModel.showRecordMenu {
+                let existingRule = guideViewModel.findRule(for: playerViewModel.activeChannel?.channelNumber, airing: playerViewModel.activeAiring)
+                let canRecordSeries = !(playerViewModel.activeAiring?.seriesId?.isEmpty ?? true) || !(playerViewModel.activeAiring?.title.isEmpty ?? true)
+
+                TVPlayerRecordMenuOverlay(
+                    existingRule: existingRule,
+                    canRecordSeries: canRecordSeries,
+                    isPromoted: playerViewModel.isPromoted,
+                    isPromoting: playerViewModel.isPromoting,
+                    onSaveCurrentRecording: {
+                        playerViewModel.showRecordMenu = false
+                        Task { await playerViewModel.promoteToRecording() }
+                    },
+                    onRecordEpisode: {
+                        playerViewModel.showRecordMenu = false
+                        Task {
+                            try? await guideViewModel.recordEpisode(
+                                seriesId: playerViewModel.activeAiring?.seriesId,
+                                channelNumber: playerViewModel.activeChannel?.channelNumber,
+                                start: playerViewModel.activeAiring?.start
+                            )
+                        }
+                    },
+                    onRecordSeries: {
+                        playerViewModel.showRecordMenu = false
+                        Task {
+                            try? await guideViewModel.recordSeries(
+                                seriesId: playerViewModel.activeAiring?.seriesId ?? "",
+                                channelNumber: playerViewModel.activeChannel?.channelNumber
+                            )
+                        }
+                    },
+                    onCancelRule: {
+                        playerViewModel.showRecordMenu = false
+                        if let rule = existingRule {
+                            Task { try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId) }
+                        }
+                    },
+                    onOptions: {
+                        playerViewModel.showRecordMenu = false
+                        showRecordingOptionsSheet = true
+                    },
+                    onDismiss: { playerViewModel.showRecordMenu = false }
+                )
+                .transition(.opacity)
+            }
+
             // Fallback focus target + reveal-on-press handler, present ONLY
             // while controls are hidden. Confirmed via live device logs that
             // `.onMoveCommand` attached anywhere in this ZStack's modifier
@@ -208,6 +258,47 @@ public struct TVPlayerView: View {
                         withAnimation { showControls = true }
                         resetControlsTimer()
                     }
+            }
+        }
+        .task {
+            if recordingsViewModel.dvrInfo == nil {
+                await recordingsViewModel.loadDvrInfo()
+            }
+        }
+        .fullScreenCover(isPresented: $showRecordingOptionsSheet) {
+            if let channel = playerViewModel.activeChannel, let airing = playerViewModel.activeAiring {
+                let existingRule = guideViewModel.findRule(for: channel.channelNumber, airing: airing)
+                TVRecordingOptionsModal(
+                    channel: channel,
+                    airing: airing,
+                    canRecordSeries: !(airing.seriesId?.isEmpty ?? true) || !airing.title.isEmpty,
+                    existingRule: existingRule,
+                    onConfirm: { recordSeries, options in
+                        showRecordingOptionsSheet = false
+                        Task {
+                            if recordSeries {
+                                try? await guideViewModel.recordSeries(
+                                    seriesId: airing.seriesId ?? "",
+                                    channelNumber: channel.channelNumber,
+                                    options: options
+                                )
+                            } else {
+                                try? await guideViewModel.recordEpisode(
+                                    seriesId: airing.seriesId,
+                                    channelNumber: channel.channelNumber,
+                                    start: airing.start,
+                                    options: options
+                                )
+                            }
+                        }
+                    },
+                    onCancelRule: existingRule.map { rule in
+                        {
+                            showRecordingOptionsSheet = false
+                            Task { try? await guideViewModel.cancelRule(ruleId: rule.recordingRuleId) }
+                        }
+                    }
+                )
             }
         }
         .onChange(of: playerViewModel.playerEngine.state) { _, newState in

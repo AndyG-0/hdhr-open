@@ -32,6 +32,7 @@ public final class PlayerViewModel: ObservableObject {
     @Published public var showAudioMenu: Bool = false
     @Published public var showSettingsOverlay: Bool = false
     @Published public var showChannelSwitcher: Bool = false
+    @Published public var showRecordMenu: Bool = false
 
     private let apiClient: APIClient
     private var cancellables = Set<AnyCancellable>()

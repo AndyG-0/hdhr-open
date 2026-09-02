@@ -28,16 +28,23 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.hdhropen.app.ui.screens.guide.RecordingOptionsBottomSheet
 import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.playback.PlaybackState
+import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 @UnstableApi
 @Composable
 fun PlayerScreen(
     playerViewModel: PlayerViewModel,
+    guideViewModel: GuideViewModel,
+    recordingsViewModel: RecordingsViewModel,
     onDismiss: () -> Unit
 ) {
+    val coroutineScope = rememberCoroutineScope()
     val playerEngine = playerViewModel.playerEngine
     val state by playerEngine.state.collectAsState()
     val currentTime by playerEngine.currentTime.collectAsState()
@@ -61,9 +68,26 @@ fun PlayerScreen(
     val isPromoting by playerViewModel.isPromoting.collectAsState()
     val isSwitchingAudioTrack by playerViewModel.isSwitchingAudioTrack.collectAsState()
 
+    val activeChannel by playerViewModel.activeChannel.collectAsState()
+    val activeAiring by playerViewModel.activeAiring.collectAsState()
+    val channels by guideViewModel.channels.collectAsState()
+    val recordingRules by guideViewModel.recordingRules.collectAsState()
+    val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
+    val existingRule = remember(recordingRules, activeChannel, activeAiring) {
+        guideViewModel.findRule(activeChannel?.channelNumber, activeAiring)
+    }
+
+    LaunchedEffect(Unit) {
+        if (dvrInfo == null) {
+            recordingsViewModel.loadDvrInfo()
+        }
+    }
+
     var showControls by remember { mutableStateOf(true) }
     var showAudioMenu by remember { mutableStateOf(false) }
     var showPlaybackInfo by remember { mutableStateOf(false) }
+    var showRecordMenu by remember { mutableStateOf(false) }
+    var showRecordingOptionsSheet by remember { mutableStateOf(false) }
 
     // Auto-hide controls timer
     LaunchedEffect(showControls, state) {
@@ -335,25 +359,93 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Record Live Button
+                        // Record Live Button + Menu (mirrors HDHomeRunPlayerRecordMenu.svelte:
+                        // a scheduled rule for the current airing/channel shows only "Cancel
+                        // Recording"; otherwise the menu offers episode/series rules, options,
+                        // and this app's own quick "save the buffering watch session" action).
                         if (isWatchSession) {
-                            Button(
-                                onClick = { playerViewModel.promoteToRecording() },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
-                                shape = RoundedCornerShape(8.dp),
-                                enabled = !isPromoting && !isPromoted
-                            ) {
-                                Icon(
-                                    if (isPromoted) Icons.Default.CheckCircle else Icons.Default.FiberManualRecord,
-                                    contentDescription = "Record",
-                                    tint = if (isPromoted) GreenActive else RedLive,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isPromoted) "Recording Saved" else "Record Live",
-                                    style = MaterialTheme.typography.labelMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
-                                )
+                            Box {
+                                Button(
+                                    onClick = { showRecordMenu = !showRecordMenu },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    enabled = !isPromoting
+                                ) {
+                                    Icon(
+                                        if (existingRule != null || isPromoted) Icons.Default.CheckCircle else Icons.Default.FiberManualRecord,
+                                        contentDescription = "Record",
+                                        tint = if (existingRule != null || isPromoted) GreenActive else RedLive,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = when {
+                                            existingRule != null -> "Recording Scheduled"
+                                            isPromoted -> "Recording Saved"
+                                            else -> "Record"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showRecordMenu,
+                                    onDismissRequest = { showRecordMenu = false },
+                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                                ) {
+                                    if (existingRule != null) {
+                                        DropdownMenuItem(
+                                            text = { Text("Cancel Recording", color = RedLive) },
+                                            onClick = {
+                                                showRecordMenu = false
+                                                coroutineScope.launch { guideViewModel.cancelRule(existingRule.recordingRuleId) }
+                                            }
+                                        )
+                                    } else {
+                                        DropdownMenuItem(
+                                            text = { Text(if (isPromoted) "Recording Saved" else "Save Current Recording") },
+                                            enabled = !isPromoted && !isPromoting,
+                                            onClick = {
+                                                showRecordMenu = false
+                                                playerViewModel.promoteToRecording()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Record Episode") },
+                                            onClick = {
+                                                showRecordMenu = false
+                                                coroutineScope.launch {
+                                                    guideViewModel.recordEpisode(
+                                                        seriesId = activeAiring?.seriesId,
+                                                        channelNumber = activeChannel?.channelNumber,
+                                                        start = activeAiring?.start
+                                                    )
+                                                }
+                                            }
+                                        )
+                                        if (!activeAiring?.seriesId.isNullOrEmpty() || !activeAiring?.title.isNullOrEmpty()) {
+                                            DropdownMenuItem(
+                                                text = { Text("Record Series") },
+                                                onClick = {
+                                                    showRecordMenu = false
+                                                    coroutineScope.launch {
+                                                        guideViewModel.recordSeries(
+                                                            seriesId = activeAiring?.seriesId ?: "",
+                                                            channelNumber = activeChannel?.channelNumber
+                                                        )
+                                                    }
+                                                }
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("Recording Options…") },
+                                            onClick = {
+                                                showRecordMenu = false
+                                                showRecordingOptionsSheet = true
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         } else {
                             Spacer(modifier = Modifier.width(1.dp))
@@ -406,6 +498,39 @@ fun PlayerScreen(
                 audioTracks = availableAudioTracks,
                 observedBitrateBps = observedBitrateBps,
                 onDismiss = { showPlaybackInfo = false }
+            )
+        }
+
+        if (showRecordingOptionsSheet && activeChannel != null && activeAiring != null) {
+            RecordingOptionsBottomSheet(
+                channel = activeChannel!!,
+                airing = activeAiring!!,
+                channels = channels,
+                canRecordSeries = !activeAiring!!.seriesId.isNullOrEmpty() || activeAiring!!.title.isNotEmpty(),
+                officialDvrActive = dvrInfo?.isBuiltin == false,
+                existingRule = existingRule,
+                onConfirm = { isSeries, options ->
+                    coroutineScope.launch {
+                        if (isSeries) {
+                            guideViewModel.recordSeries(
+                                seriesId = activeAiring?.seriesId ?: "",
+                                channelNumber = activeChannel?.channelNumber,
+                                options = options
+                            )
+                        } else {
+                            guideViewModel.recordEpisode(
+                                seriesId = activeAiring?.seriesId,
+                                channelNumber = activeChannel?.channelNumber,
+                                start = activeAiring?.start,
+                                options = options
+                            )
+                        }
+                    }
+                },
+                onCancelRule = existingRule?.let { rule ->
+                    { coroutineScope.launch { guideViewModel.cancelRule(rule.recordingRuleId) } }
+                },
+                onDismiss = { showRecordingOptionsSheet = false }
             )
         }
     }

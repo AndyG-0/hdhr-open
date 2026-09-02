@@ -3,6 +3,7 @@ import HDHROpenKit
 
 public struct TVPlaybackControlsView: View {
     @ObservedObject var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var guideViewModel: GuideViewModel
 
     let onTogglePlayPause: () -> Void
     let onSkipBackward: () -> Void
@@ -66,15 +67,18 @@ public struct TVPlaybackControlsView: View {
 
             Spacer()
 
-            // Promote Live Watch to Recording Button
+            // Record Menu Button (mirrors HDHomeRunPlayerRecordMenu.svelte's
+            // state machine: a scheduled rule collapses this to cancel-only)
             if playerViewModel.isWatchSession {
+                let existingRule = guideViewModel.findRule(for: playerViewModel.activeChannel?.channelNumber, airing: playerViewModel.activeAiring)
+
                 Button(action: {
-                    Task { await playerViewModel.promoteToRecording() }
+                    playerViewModel.showRecordMenu.toggle()
                 }) {
                     HStack(spacing: 8) {
-                        Image(systemName: playerViewModel.isPromoted ? "checkmark.circle.fill" : "record.circle")
-                            .foregroundColor(playerViewModel.isPromoted ? .green : .red)
-                        Text(playerViewModel.isPromoted ? "Recording" : "Record Live")
+                        Image(systemName: (existingRule != nil || playerViewModel.isPromoted) ? "checkmark.circle.fill" : "record.circle")
+                            .foregroundColor((existingRule != nil || playerViewModel.isPromoted) ? .green : .red)
+                        Text(existingRule != nil ? "Recording Scheduled" : (playerViewModel.isPromoted ? "Recording Saved" : "Record"))
                             .font(.callout.bold())
                     }
                     .padding(.horizontal, 20)
@@ -84,7 +88,7 @@ public struct TVPlaybackControlsView: View {
                 }
                 .buttonStyle(.plain)
                 .focused($focusedControl, equals: .record)
-                .disabled(playerViewModel.isPromoting || playerViewModel.isPromoted)
+                .disabled(playerViewModel.isPromoting)
             }
 
             // Audio Track Selector

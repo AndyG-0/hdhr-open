@@ -798,7 +798,7 @@ flows in iOS, tvOS, and Android still need to be brought to full parity.
     BUILD SUCCESSFUL, all core tests green. Not manually exercised in an
     emulator/device.
 
-- [ ] **REC-5 — Native In-Player Recording Controls Parity (iOS, tvOS, Android).**
+- [x] **REC-5 — Native In-Player Recording Controls Parity (iOS, tvOS, Android).**
   Provide rich recording controls directly from the video player overlay across all native apps,
   matching the web player's `HDHomeRunPlayerRecordMenu.svelte`:
   - Android (`PlayerScreen.kt`): currently has no in-player recording button or menu. Add a
@@ -809,6 +809,29 @@ flows in iOS, tvOS, and Android still need to be brought to full parity.
     button currently only executes single-click live watch session promotion. Expand it into
     a menu (or long-press / options popup on tvOS) offering "Record Episode", "Record Series",
     "Recording Options...", and "Cancel Recording" alongside watch session promotion.
+  - Every platform mirrors the same state machine: a scheduled rule for the current
+    channel/airing collapses the menu to just "Cancel Recording"; otherwise it offers
+    "Save Current Recording" (this app's own promote-buffering-watch-session action, kept
+    alongside the web's rule-creation actions since it has no web equivalent), "Record
+    Episode", "Record Series" (gated on series id or title), and "Recording Options…"
+    (opening the REC-2/REC-3/REC-4 options sheet/modal). Android: `PlayerScreen.kt`'s
+    record button is now a `DropdownMenu`. iOS: `iOSPlayerView.swift`'s record button is
+    now a native `Menu`, opening `iOSRecordingOptionsSheet` via `.sheet`. tvOS: adds
+    `showRecordMenu` to the shared `PlayerViewModel` and a new focus-scoped
+    `TVPlayerRecordMenuOverlay.swift` (matching the existing `TVPlayerSettingsOverlay`
+    convention rather than a native `Menu`, which this app doesn't use for in-player
+    popups), opening `TVRecordingOptionsModal` via `.fullScreenCover`; registered the new
+    file in `project.pbxproj`'s HDHROpenTV target.
+  - **Verification**: Android — `./gradlew :app:compileDebugKotlin :core:test` **BUILD
+    SUCCESSFUL**; no emulator attached in this environment, so not manually exercised
+    (matches REC-4's documented limitation). iOS — real Simulator
+    `xcodebuild -scheme HDHROpeniOS -destination 'platform=iOS Simulator,name=iPhone 17'
+    build` → **BUILD SUCCEEDED**. tvOS — real Simulator
+    `xcodebuild -scheme HDHROpenTV -destination 'platform=tvOS Simulator,name=Apple TV'
+    build` → **BUILD SUCCEEDED**. `swift test --package-path apple/HDHROpenKit` — 34/34
+    green, confirming the new `PlayerViewModel.showRecordMenu` field introduced no
+    regressions. No SwiftUI/Compose view-level tests exist in this codebase (existing
+    convention) — UI is verified by these real builds, not automated view tests.
 
 ## Tuner & Network Intelligence
 
