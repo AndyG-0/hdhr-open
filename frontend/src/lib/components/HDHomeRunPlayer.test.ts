@@ -1671,7 +1671,7 @@ describe('HDHomeRunPlayer', () => {
 			await fireEvent.keyDown(window, { key: ' ' });
 		});
 
-		it('calculates dynamic Ends at timestamp for seekable recordings and LIVE for live channels', async () => {
+		it('calculates dynamic Ends at timestamp for seekable recordings and scheduled guide end for live channels', async () => {
 			hdhomerunRecordingDetail.mockResolvedValue({
 				is_in_progress: false,
 				duration_seconds: 7200,
@@ -1681,8 +1681,31 @@ describe('HDHomeRunPlayer', () => {
 				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
 			});
 
-			render(HDHomeRunPlayer, { props: seekableProps });
+			const { unmount } = render(HDHomeRunPlayer, { props: seekableProps });
 			expect(await screen.findByText(/Ends at/i)).toBeInTheDocument();
+			unmount();
+
+			// Live channel with guide airing
+			const futureEnd = Math.floor(Date.now() / 1000) + 1800;
+			const { unmount: unmountLive } = render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					airing: {
+						title: 'Evening News',
+						episode_title: null,
+						start: Math.floor(Date.now() / 1000) - 600,
+						end: futureEnd,
+						series_id: 'SERIES123',
+						channel_number: '4.1',
+					},
+				},
+			});
+			expect(await screen.findByText(/Ends at/i)).toBeInTheDocument();
+			unmountLive();
+
+			// Live channel with no guide end time
+			render(HDHomeRunPlayer, { props });
+			expect(screen.queryByText(/Ends at/i)).not.toBeInTheDocument();
 		});
 
 		it('supports Fullscreen toggle via button and F key', async () => {

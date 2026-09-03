@@ -843,10 +843,16 @@
 		};
 	});
 
-	async function showAirPlayPicker() {
-		if (!airplaySessionId) {
-			await startAirPlayPlayback();
-		}
+	// Must call webkitShowPlaybackTargetPicker() synchronously, with nothing
+	// awaited first - Safari only honors it while the click's transient user
+	// activation is still live, the same constraint Chrome's Cast picker has
+	// (see requestCastSession() in cast-loader.ts). Minting the for_cast HLS
+	// session first (as this used to do) burns through that window before the
+	// picker call ever runs, so the picker silently never opens at all. The
+	// actual source swap happens later, reactively, once
+	// webkitcurrentplaybacktargetiswirelesschanged confirms a route is
+	// actually live (see startAirPlayPlayback below).
+	function showAirPlayPicker() {
 		(videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null)
 			?.webkitShowPlaybackTargetPicker?.();
 	}
@@ -1030,6 +1036,7 @@
 			{currentAudioIndex}
 			{currentCaptionTrack}
 			{secondaryCaptions}
+			scheduledEndTime={effectiveAiring?.end ?? recordEndTimestamp}
 			{playbackRate}
 			{aspectRatio}
 			bind:showAudioMenu

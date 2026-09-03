@@ -28,6 +28,7 @@
 		currentAudioIndex?: number | null;
 		currentCaptionTrack?: 1 | 2;
 		secondaryCaptions?: 'unknown' | 'available' | 'unavailable' | null;
+		scheduledEndTime?: number | null;
 		playbackRate?: number;
 		aspectRatio?: 'contain' | 'cover' | 'fill' | '16:9' | '4:3';
 		showAudioMenu?: boolean;
@@ -72,6 +73,7 @@
 		currentAudioIndex = null,
 		currentCaptionTrack = 1,
 		secondaryCaptions = null,
+		scheduledEndTime = null,
 		playbackRate = 1.0,
 		aspectRatio = 'contain',
 		showAudioMenu = $bindable(false),
@@ -98,14 +100,16 @@
 
 	// Dynamic "Ends at hh:mm AM/PM" calculation
 	const endsAtText = $derived.by<string>(() => {
-		if (duration && duration > 0) {
+		if (seekable && duration && duration > 0) {
 			const remainingSec = Math.max(0, duration - displayedPosition);
 			const endMs = Date.now() + remainingSec * 1000;
 			const timeStr = new Date(endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 			return `Ends at ${timeStr}`;
 		}
-		if (!seekable || isInProgress) {
-			return 'LIVE';
+		if (scheduledEndTime && scheduledEndTime > 0) {
+			const endMs = scheduledEndTime * 1000;
+			const timeStr = new Date(endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+			return `Ends at ${timeStr}`;
 		}
 		return '';
 	});
@@ -163,10 +167,7 @@
 			</button>
 
 			{#if endsAtText}
-				<div class="ends-at-label" class:is-live={endsAtText === 'LIVE'}>
-					{#if endsAtText === 'LIVE'}
-						<span class="live-dot"></span>
-					{/if}
+				<div class="ends-at-label">
 					{endsAtText}
 				</div>
 			{/if}
@@ -476,26 +477,6 @@
 		display: flex;
 		align-items: center;
 		gap: 0.35rem;
-	}
-
-	.ends-at-label.is-live {
-		color: #ff5555;
-		font-weight: 700;
-		letter-spacing: 0.05em;
-	}
-
-	.live-dot {
-		width: 0.5rem;
-		height: 0.5rem;
-		border-radius: 50%;
-		background: #ff4444;
-		box-shadow: 0 0 6px #ff4444;
-		animation: pulse-dot 1.5s infinite;
-	}
-
-	@keyframes pulse-dot {
-		0%, 100% { opacity: 1; transform: scale(1); }
-		50% { opacity: 0.4; transform: scale(0.85); }
 	}
 
 	.popover-wrapper {
