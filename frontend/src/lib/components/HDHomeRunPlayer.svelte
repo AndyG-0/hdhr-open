@@ -905,6 +905,25 @@
 		return { url: session.playlist_url, sessionId: session.session_id };
 	}
 
+	// AirPlay DOES need to reuse the same for_cast/token session Google Cast
+	// uses (not a cookie-authenticated one): once a route actually connects,
+	// it's the Apple TV itself - a separate device on the LAN - that fetches
+	// the playlist/segments directly, exactly like a Chromecast receiver, and
+	// it has no way to send this browser's session cookie. A cookie-only
+	// session 404s/401s on the TV's own fetch (the "can't play" no-entry icon
+	// on real hardware).
+	//
+	// That token route's wildcard Access-Control-Allow-Origin is only a
+	// problem for *this* page's own <video> element, which - before/unless a
+	// route actually connects - may itself try to load the swapped src
+	// locally. With crossorigin="use-credentials" still set (needed for the
+	// normal cookie-authenticated src), that local fetch sends credentials,
+	// and wildcard-origin + credentialed-request is forbidden by the CORS
+	// spec (confirmed via a real Safari console error). So the crossorigin
+	// attribute is dropped for the duration of the swap - the token in the
+	// URL is this route's actual auth, cookies were never required for it -
+	// and restored once AirPlay ends and normal cookie-authenticated
+	// playback resumes below.
 	async function startAirPlayPlayback() {
 		if (!videoElement || airplaySessionId) return;
 		try {
@@ -916,6 +935,7 @@
 			}
 			airplaySessionId = sessionId;
 			mpegtsPlayer.teardownPlayer();
+			videoElement.removeAttribute('crossorigin');
 			videoElement.src = url;
 			videoElement.load();
 			safePlay();
@@ -929,6 +949,7 @@
 		api.stopHlsSession(airplaySessionId);
 		airplaySessionId = null;
 		if (!videoElement || destroyed) return;
+		videoElement.setAttribute('crossorigin', 'use-credentials');
 		videoElement.removeAttribute('src');
 		videoElement.load();
 		if (seekable) {

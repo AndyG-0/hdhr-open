@@ -1343,13 +1343,25 @@ describe('HDHomeRunPlayer', () => {
 			// WebKit negotiates AirPlay as audio-only (remote control works, no
 			// picture) whenever the video's src is still the mpegts.js MSE blob:
 			// URL at the moment a route is picked - swapping afterwards doesn't
-			// upgrade it. So the swap to a directly-fetchable for_cast HLS URL
-			// has to happen as soon as a route is merely *available*, well
-			// before any click.
+			// upgrade it. So the swap to a directly-fetchable HLS URL has to
+			// happen as soon as a route is merely *available*, well before any
+			// click. This must be the for_cast/token session, matching Google
+			// Cast - once a route actually connects, the Apple TV itself fetches
+			// the playlist directly (same as a Chromecast receiver) and has no
+			// way to send this browser's session cookie, so a cookie-only
+			// session 404s/401s on the TV's own fetch (confirmed on real
+			// hardware as a "can't play" no-entry icon on the TV).
 			await vi.waitFor(() => expect(createChannelHlsSessionForCast).toHaveBeenCalledWith('4.1'));
 			await vi.waitFor(() =>
 				expect(video.src).toBe('https://example.com/api/hls/sess-4.1/tok/playlist.m3u8'),
 			);
+			// The for_cast route's wildcard Access-Control-Allow-Origin is only
+			// legal for a non-credentialed fetch - this page's own <video>
+			// element would otherwise still send the crossorigin="use-credentials"
+			// cookie and get the fetch aborted client-side (confirmed via a real
+			// Safari console error: "Cannot use wildcard in
+			// Access-Control-Allow-Origin when credentials flag is true").
+			expect(video.getAttribute('crossorigin')).toBeNull();
 
 			const airplayBtn = await screen.findByRole('button', { name: 'AirPlay' });
 			// webkitShowPlaybackTargetPicker() only opens while the click's
@@ -1401,6 +1413,9 @@ describe('HDHomeRunPlayer', () => {
 			// Reverting re-attaches the local mpegts.js pipeline rather than
 			// leaving the native HLS src in place.
 			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(2));
+			// crossorigin has to come back too, or normal cookie-authenticated
+			// playback/captions break once local playback resumes.
+			expect(video.getAttribute('crossorigin')).toBe('use-credentials');
 		});
 	});
 

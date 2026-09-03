@@ -1005,6 +1005,27 @@ device fetch.
   discovery/negotiation, `SessionManagerListener` callbacks from a live session, and
   `CastOptionsProvider` resolution were not verified against real hardware.
 
+- [ ] **CAST-4 — Web: Persist AirPlay/Cast Sessions Across SPA Navigation, User-Selectable.**
+  Today, navigating away from the player page in the web app kills an active AirPlay session:
+  AirPlay is bound to the specific `<video>` DOM element (not tab/window-scoped like Google Cast's
+  `CastContext`), and `HDHomeRunPlayer.svelte`'s `destroy()` explicitly tears down
+  `airplaySessionId`/stops the backend HLS session on unmount — mirroring what Safari would do
+  anyway once that element leaves the DOM. Google Cast already *does* survive SPA navigation today
+  (`cast-loader.ts`'s module-level `activeBackendSessionId` singleton — `CastContext` lives at the
+  tab/window level, independent of any DOM element), so this ticket is really about closing the gap
+  for AirPlay and then giving the user an explicit choice for both:
+  - Making AirPlay survive navigation requires the same `<video>` element (not just component state)
+    to persist across routes — e.g. hoisting playback into a persistent layout-level "mini
+    player"/PiP-style component that stays mounted while the user browses elsewhere, rather than
+    living inside the per-page component that unmounts today. This is a real architecture change to
+    where/how the player is composed, not a small patch.
+  - Once that's in place, expose a convenient UX toggle (e.g. "keep playing when I navigate away" /
+    a persistent mini-player affordance) so the user can opt in or out per-session rather than it
+    being all-or-nothing — should work the same way for both AirPlay and Google Cast so the two
+    don't have inconsistent navigation behavior.
+  - Needs product/UX thought on where that toggle lives and what the mini-player looks like while
+    AirPlaying/casting and the user is elsewhere in the app, not just the plumbing.
+
 ## Synchronized Playback & SyncPlay (Watch Parties)
 
 Investigation and implementation of synchronized co-watching solutions across platforms,
