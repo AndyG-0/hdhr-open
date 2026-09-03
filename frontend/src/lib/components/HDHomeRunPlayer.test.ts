@@ -1300,72 +1300,44 @@ describe('HDHomeRunPlayer', () => {
 	});
 
 	describe('AirPlay', () => {
-		it('stays hidden until webkitplaybacktargetavailabilitychanged reports a route, then swaps to a real HLS playlist and opens the picker on click', async () => {
+		it('stays hidden until webkitplaybacktargetavailabilitychanged reports a route, then opens the picker synchronously on click', async () => {
 			// Feature-detected the same way Safari itself exposes AirPlay - other
 			// browsers never define this, so the button never appears there.
 			vi.stubGlobal('WebKitPlaybackTargetAvailabilityEvent', class {});
-			vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
-			vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
 			const showPicker = vi.fn();
 			(
 				HTMLVideoElement.prototype as unknown as { webkitShowPlaybackTargetPicker: () => void }
 			).webkitShowPlaybackTargetPicker = showPicker;
 
-			render(HDHomeRunPlayer, {
-				props: {
-					...props,
-					channel: {
-						channel_number: '4.1',
-						name: 'KDFW',
-						is_hd: true,
-						is_drm: false,
-						stream_url: '',
-						playback_url: null,
-						now: null,
-						next: null,
-					},
-				},
-			});
+			render(HDHomeRunPlayer, { props });
 			expect(screen.queryByRole('button', { name: 'AirPlay' })).not.toBeInTheDocument();
 
 			// The overlay is use:portal-ed onto document.body (see JellyfinPlayer.svelte),
 			// so it lives outside render()'s own container.
 			const video = document.body.querySelector('video')!;
-			// Let the initial mount's local mpegts.js attachment finish first,
-			// so the later assertion can tell a fresh re-attachment apart from
-			// this one.
-			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
 			const availabilityEvent = new Event('webkitplaybacktargetavailabilitychanged');
 			(availabilityEvent as unknown as { availability: string }).availability = 'available';
 			await fireEvent(video, availabilityEvent);
 
 			const airplayBtn = await screen.findByRole('button', { name: 'AirPlay' });
-			await fireEvent.click(airplayBtn);
-
-			// Regression guard: mpegts.js attaches via MediaSource (a blob:
-			// <video> src), which an Apple TV can't fetch on its own - AirPlay
-			// connects but nothing plays. The element must be swapped to a
-			// directly-fetchable for_cast HLS URL - and, per a second
-			// regression this swap must happen *before* the picker opens, not
-			// after a route goes live: doing it after actually killed
-			// playback everywhere (confirmed against real Safari/Apple TV),
-			// since changing src/calling load() while a wireless route is
-			// already active doesn't hand off cleanly, it just drops the
-			// route.
-			await vi.waitFor(() => expect(createChannelHlsSessionForCast).toHaveBeenCalledWith('4.1'));
-			await vi.waitFor(() =>
-				expect(video.src).toBe('https://example.com/api/hls/sess-4.1/tok/playlist.m3u8'),
-			);
-			await vi.waitFor(() => expect(showPicker).toHaveBeenCalledTimes(1));
+			// Regression guard: webkitShowPlaybackTargetPicker() only opens while
+			// the click's transient user activation is still live - Safari
+			// silently no-ops it once anything gets awaited first (the same
+			// constraint Chrome's Cast picker has, see requestCastSession() in
+			// cast-loader.ts). This must fire synchronously off the click, with
+			// no source-swap or network call ahead of it.
+			fireEvent.click(airplayBtn);
+			expect(showPicker).toHaveBeenCalledTimes(1);
+			// Clicking must not touch the video element at all - the source
+			// swap only happens later, reactively, once a route actually goes
+			// live (see the next test).
+			expect(createChannelHlsSessionForCast).not.toHaveBeenCalled();
 		});
 
-		it('reverts to the local mpegts.js pipeline once AirPlay disconnects', async () => {
+		it('swaps to a real HLS playlist once a route actually connects, and reverts once it disconnects', async () => {
 			vi.stubGlobal('WebKitPlaybackTargetAvailabilityEvent', class {});
 			vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
 			vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
-			(
-				HTMLVideoElement.prototype as unknown as { webkitShowPlaybackTargetPicker: () => void }
-			).webkitShowPlaybackTargetPicker = vi.fn();
 
 			render(HDHomeRunPlayer, {
 				props: {
@@ -1386,12 +1358,23 @@ describe('HDHomeRunPlayer', () => {
 			const video = document.body.querySelector('video')! as HTMLVideoElement & {
 				webkitCurrentPlaybackTargetIsWireless?: boolean;
 			};
+			// Let the initial mount's local mpegts.js attachment finish first,
+			// so the later assertion can tell a fresh re-attachment apart from
+			// this one.
 			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
-			const availabilityEvent = new Event('webkitplaybacktargetavailabilitychanged');
-			(availabilityEvent as unknown as { availability: string }).availability = 'available';
-			await fireEvent(video, availabilityEvent);
-			const airplayBtn = await screen.findByRole('button', { name: 'AirPlay' });
-			await fireEvent.click(airplayBtn);
+
+			// webkitcurrentplaybacktargetiswirelesschanged - not the availability
+			// event or the click - is the real "AirPlay is live" signal, fired by
+			// WebKit itself once the user actually picks a device in the native
+			// picker.
+			video.webkitCurrentPlaybackTargetIsWireless = true;
+			await fireEvent(video, new Event('webkitcurrentplaybacktargetiswirelesschanged'));
+
+			// mpegts.js attaches via MediaSource (a blob: <video> src), which an
+			// Apple TV can't fetch on its own - AirPlay connects but nothing
+			// plays. The element must be swapped to a directly-fetchable
+			// for_cast HLS URL once the route is confirmed live.
+			await vi.waitFor(() => expect(createChannelHlsSessionForCast).toHaveBeenCalledWith('4.1'));
 			await vi.waitFor(() =>
 				expect(video.src).toBe('https://example.com/api/hls/sess-4.1/tok/playlist.m3u8'),
 			);

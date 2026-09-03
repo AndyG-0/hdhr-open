@@ -185,6 +185,8 @@
 		(!seekable || isWatchSession) && (channel !== null || airing !== null || Boolean(channelNumber)),
 	);
 
+	const isLive = $derived(isWatchSession || isInProgress || !seekable || channel !== null);
+
 	const isActionLoading = $derived(
 		internalRecordingLoading ||
 			(recordingLoading !== null &&
@@ -1037,6 +1039,7 @@
 			{currentCaptionTrack}
 			{secondaryCaptions}
 			scheduledEndTime={effectiveAiring?.end ?? recordEndTimestamp}
+			{isLive}
 			{playbackRate}
 			{aspectRatio}
 			bind:showAudioMenu

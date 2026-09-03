@@ -29,6 +29,7 @@
 		currentCaptionTrack?: 1 | 2;
 		secondaryCaptions?: 'unknown' | 'available' | 'unavailable' | null;
 		scheduledEndTime?: number | null;
+		isLive?: boolean;
 		playbackRate?: number;
 		aspectRatio?: 'contain' | 'cover' | 'fill' | '16:9' | '4:3';
 		showAudioMenu?: boolean;
@@ -74,6 +75,7 @@
 		currentCaptionTrack = 1,
 		secondaryCaptions = null,
 		scheduledEndTime = null,
+		isLive = false,
 		playbackRate = 1.0,
 		aspectRatio = 'contain',
 		showAudioMenu = $bindable(false),
@@ -100,14 +102,18 @@
 
 	// Dynamic "Ends at hh:mm AM/PM" calculation
 	const endsAtText = $derived.by<string>(() => {
+		if (isLive) {
+			if (scheduledEndTime && scheduledEndTime > 0) {
+				const endMs = scheduledEndTime * 1000;
+				const timeStr = new Date(endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+				return `Ends at ${timeStr}`;
+			}
+			return '';
+		}
+
 		if (seekable && duration && duration > 0) {
 			const remainingSec = Math.max(0, duration - displayedPosition);
 			const endMs = Date.now() + remainingSec * 1000;
-			const timeStr = new Date(endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-			return `Ends at ${timeStr}`;
-		}
-		if (scheduledEndTime && scheduledEndTime > 0) {
-			const endMs = scheduledEndTime * 1000;
 			const timeStr = new Date(endMs).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 			return `Ends at ${timeStr}`;
 		}
