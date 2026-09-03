@@ -23,6 +23,7 @@ import re
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 from app.async_utils import run_subprocess, terminate_process
 from app.config import HDHOMERUN_MEDIA_CACHE_DIR
@@ -49,18 +50,24 @@ def _cache_dir() -> Path:
 
 
 # Background live-caption extraction loops (see ensure_live_captions below),
-# keyed by recording_id. capture_pipeline.stop_capture() calls
-# stop_live_captions() as its single teardown choke point so a finished/
-# torn-down capture never leaves an orphaned extraction loop running.
-_live_caption_tasks: dict[str, asyncio.Task[None]] = {}
+# keyed by (recording_id, channel) - channel 1 (the primary broadcast
+# language) runs eagerly for every capture; channel 2 (CC-14's secondary
+# track) is started lazily, only once a client actually asks for it, so the
+# two channels' supervision loops for the same recording need independent
+# keys rather than colliding on a bare recording_id.
+# capture_pipeline.stop_capture() calls stop_live_captions() as its single
+# teardown choke point so a finished/torn-down capture never leaves an
+# orphaned extraction loop running (either channel).
+_live_caption_tasks: dict[tuple[str, int], asyncio.Task[None]] = {}
 
 
 def stop_live_captions(recording_id: str) -> None:
-    """Cancel the live-caption extraction loop for recording_id, if running."""
-    task = _live_caption_tasks.pop(recording_id, None)
-    if task and not task.done():
-        task.cancel()
-    _live_caption_disabled.discard(recording_id)
+    """Cancel every live-caption extraction loop (every channel) for recording_id, if running."""
+    for key in [key for key in _live_caption_tasks if key[0] == recording_id]:
+        task = _live_caption_tasks.pop(key, None)
+        if task and not task.done():
+            task.cancel()
+    _live_caption_disabled.difference_update({key for key in _live_caption_disabled if key[0] == recording_id})
 
 
 def _escape_movie_filter_url(url: str) -> str:
@@ -253,25 +260,69 @@ _LIVE_CAPTION_MAX_BACKOFF_SECONDS = 120.0
 # 2,4,8,16,32,64,120,120 - roughly 6 minutes of total backoff before giving up.
 _LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES = 8
 
-# recording_ids for which live captions have been permanently given up on for
-# the rest of this capture, after too many consecutive quick failures. Once a
-# recording_id is here, ensure_live_captions() is a no-op for it - otherwise
-# every viewer's poll would immediately re-trigger the whole backoff cycle
-# again the moment the loop above exits and pops itself from
+# How long a channel-2 (secondary/CC-14) extraction loop waits, once actually
+# running, before an all-zero-cues result is treated as "this broadcast has
+# no second CC track" rather than "still checking" or "crashed". An absent
+# channel isn't a crash - the process stays alive and simply never completes
+# a cue block - so it would otherwise never trip the quick-fail breaker above
+# and would instead restart forever, burning a full re-decode every stall
+# cycle for a track that will never produce anything. 20s (same order of
+# magnitude as web's LIVE_CUE_MAX_CATCHUP_SECONDS) is enough for ccextractor
+# to have emitted at least one cue if the channel carries any dialogue at
+# all. Not used for channel 1, which is assumed present.
+_LIVE_CAPTION_TRACK2_GRACE_SECONDS = 20.0
+
+# (recording_id, channel) pairs for which live captions have been
+# permanently given up on for the rest of this capture - either after too
+# many consecutive crashes, or (channel 2 only) because the grace period
+# above elapsed with no cues. Once a key is here, ensure_live_captions() is a
+# no-op for it - otherwise every viewer's poll would immediately re-trigger
+# the whole cycle again the moment the loop above exits and pops itself from
 # _live_caption_tasks, defeating the breaker. Cleared by stop_live_captions.
-_live_caption_disabled: set[str] = set()
+_live_caption_disabled: set[tuple[str, int]] = set()
+
+_LIVE_CAPTION_EMPTY_HEADER_SIZE = len("WEBVTT\n\n".encode())
 
 
-def _live_caption_path(recording_id: str) -> Path:
-    return _cache_dir() / f"{recording_id}.live.vtt"
+def _live_caption_output_has_cues(path: Path) -> bool:
+    """Whether path has grown past the bare WEBVTT header written by
+    `_reset_live_caption_output` - i.e. at least one cue has been appended."""
+    try:
+        return path.stat().st_size > _LIVE_CAPTION_EMPTY_HEADER_SIZE
+    except OSError:
+        return False
 
 
-def live_captions_path(recording_id: str) -> Path:
+def _live_caption_path(recording_id: str, channel: int = 1) -> Path:
+    if channel == 1:
+        return _cache_dir() / f"{recording_id}.live.vtt"
+    return _cache_dir() / f"{recording_id}.cc{channel}.live.vtt"
+
+
+def live_captions_path(recording_id: str, channel: int = 1) -> Path:
     """Where ensure_live_captions writes recording_id's growing captions
-    file. Created (with just a WEBVTT header) as soon as the extraction loop
+    file for the given channel (1 = primary, 2 = CC-14 secondary track).
+    Created (with just a WEBVTT header) as soon as the extraction loop
     starts - callers should still check .exists() since that only happens
     once the loop has actually been started via ensure_live_captions."""
-    return _live_caption_path(recording_id)
+    return _live_caption_path(recording_id, channel)
+
+
+def live_caption_track2_status(recording_id: str) -> Literal["unknown", "available", "unavailable"] | None:
+    """Status of recording_id's secondary (channel 2) caption track, or None
+    if channel 2 has never been requested (via ensure_live_captions(...,
+    channel=2)) for this capture. "unknown" means the extraction loop is
+    still running and hasn't yet produced a cue or hit the grace period;
+    "available"/"unavailable" are permanent for the rest of the capture."""
+    key = (recording_id, 2)
+    path = _live_caption_path(recording_id, channel=2)
+    if _live_caption_output_has_cues(path):
+        return "available"
+    if key in _live_caption_disabled:
+        return "unavailable"
+    if key in _live_caption_tasks:
+        return "unknown"
+    return None
 
 
 def ensure_live_captions(
@@ -279,17 +330,20 @@ def ensure_live_captions(
     file_path: Path,
     is_source_alive: Callable[[], bool],
     capture_start_ts: float | None = None,
+    channel: int = 1,
 ) -> None:
     """Lazily start the background live-caption extraction loop for
-    recording_id if one isn't already running. Safe to call on every viewer's
-    captions request - a no-op once the loop is already going, or once it's
-    been permanently disabled for this capture after too many crashes."""
-    if recording_id in _live_caption_tasks or recording_id in _live_caption_disabled:
+    (recording_id, channel) if one isn't already running. Safe to call on
+    every viewer's captions request - a no-op once the loop is already
+    going, or once it's been permanently disabled for this capture after too
+    many crashes (or, for channel 2, after the no-data grace period)."""
+    key = (recording_id, channel)
+    if key in _live_caption_tasks or key in _live_caption_disabled:
         return
     task = asyncio.create_task(
-        _run_live_caption_loop(recording_id, file_path, is_source_alive, capture_start_ts)
+        _run_live_caption_loop(recording_id, file_path, is_source_alive, capture_start_ts, channel)
     )
-    _live_caption_tasks[recording_id] = task
+    _live_caption_tasks[key] = task
 
 
 def _reset_live_caption_output(output_path: Path) -> None:
@@ -302,15 +356,19 @@ async def _run_live_caption_loop(
     file_path: Path,
     is_source_alive: Callable[[], bool],
     capture_start_ts: float | None = None,
+    channel: int = 1,
 ) -> None:
     """Supervise the single long-lived captioning ccextractor process for
-    recording_id for the lifetime of the capture, restarting it (from byte 0
-    again, with output truncated and regenerated) if it dies or hangs while
-    the source is still alive. Backs off exponentially on consecutive quick
-    failures and gives up entirely (see _live_caption_disabled) after too
-    many, rather than hot-looping full byte-0 re-decodes forever against a
-    persistently broken source."""
-    output_path = _live_caption_path(recording_id)
+    (recording_id, channel) for the lifetime of the capture, restarting it
+    (from byte 0 again, with output truncated and regenerated) if it dies or
+    hangs while the source is still alive. Backs off exponentially on
+    consecutive quick failures and gives up entirely (see
+    _live_caption_disabled) after too many, rather than hot-looping full
+    byte-0 re-decodes forever against a persistently broken source - or, for
+    channel 2 only, after _LIVE_CAPTION_TRACK2_GRACE_SECONDS elapses with no
+    cues at all (see _LIVE_CAPTION_TRACK2_GRACE_SECONDS)."""
+    key = (recording_id, channel)
+    output_path = _live_caption_path(recording_id, channel)
     consecutive_quick_failures = 0
 
     def _current_size() -> int:
@@ -339,14 +397,17 @@ async def _run_live_caption_loop(
                 _current_size(),
                 is_source_alive(),
             )
+        loop_start = time.monotonic()
         attempt_number = 0
         while is_source_alive():
             attempt_number += 1
             _reset_live_caption_output(output_path)
             attempt_start = time.monotonic()
-            logger.info("Live captions for %s: starting attempt #%d", recording_id, attempt_number)
+            logger.info(
+                "Live captions for %s channel %d: starting attempt #%d", recording_id, channel, attempt_number
+            )
             should_restart = await _run_live_caption_process_once(
-                file_path, output_path, is_source_alive, capture_start_ts
+                file_path, output_path, is_source_alive, capture_start_ts, channel
             )
             attempt_duration = time.monotonic() - attempt_start
 
@@ -355,16 +416,32 @@ async def _run_live_caption_loop(
             else:
                 consecutive_quick_failures = 0
 
+            if (
+                channel != 1
+                and not _live_caption_output_has_cues(output_path)
+                and time.monotonic() - loop_start >= _LIVE_CAPTION_TRACK2_GRACE_SECONDS
+            ):
+                logger.info(
+                    "Live captions for %s channel %d: no cues emitted after %.0fs - treating as "
+                    "unavailable rather than continuing to restart",
+                    recording_id,
+                    channel,
+                    time.monotonic() - loop_start,
+                )
+                _live_caption_disabled.add(key)
+                break
+
             if consecutive_quick_failures >= _LIVE_CAPTION_MAX_CONSECUTIVE_QUICK_FAILURES:
                 logger.error(
-                    "Live captions disabled for recording %s after %d consecutive crashes "
+                    "Live captions disabled for recording %s channel %d after %d consecutive crashes "
                     "within %.0fs of starting each time - giving up for the rest of this "
                     "capture (source likely has corrupted/unsupported caption data)",
                     recording_id,
+                    channel,
                     consecutive_quick_failures,
                     _LIVE_CAPTION_QUICK_FAIL_SECONDS,
                 )
-                _live_caption_disabled.add(recording_id)
+                _live_caption_disabled.add(key)
                 break
 
             if should_restart and is_source_alive():
@@ -395,12 +472,13 @@ async def _run_live_caption_loop(
         raise
     finally:
         logger.info(
-            "Live captions for %s: loop exiting (source_alive=%s, disabled=%s)",
+            "Live captions for %s channel %d: loop exiting (source_alive=%s, disabled=%s)",
             recording_id,
+            channel,
             is_source_alive(),
-            recording_id in _live_caption_disabled,
+            key in _live_caption_disabled,
         )
-        _live_caption_tasks.pop(recording_id, None)
+        _live_caption_tasks.pop(key, None)
 
 
 async def _drain_stderr_logging(stream: asyncio.StreamReader) -> None:
@@ -429,6 +507,7 @@ async def _run_live_caption_process_once(
     output_path: Path,
     is_source_alive: Callable[[], bool],
     capture_start_ts: float | None = None,
+    channel: int = 1,
 ) -> bool:
     """Run one continuous captioning ccextractor process, decoding file_path
     from byte 0 with no seeking, until the source dies, the process exits, or
@@ -439,21 +518,22 @@ async def _run_live_caption_process_once(
     mode it'd use tailing a live tuner capture - rather than its default
     behavior of stopping as soon as it catches up to the current end of a
     file it thinks is complete. `--quiet` keeps stderr empty in the normal
-    case (see `_drain_stderr_logging`). `-1` restricts decoding to CEA-608
-    field 1/channel 1 (the primary broadcast language). Without it,
-    ccextractor also decodes any CEA-708 (DTVCC) service present - which on
-    a dual-language broadcast is often a second language (e.g. Spanish SAP)
-    - and interleaves it into this same stdout stream alongside the primary
-    608 track, distinguishable (per ccextractor's own behavior) only by a
-    `<font>` tag it isn't guaranteed to add to every 708 cue. That let
-    secondary-language lines slip past `_parse_srt_block`'s `<font>` filter
-    and appear mixed in with the primary caption text."""
+    case (see `_drain_stderr_logging`). `-{channel}` restricts decoding to a
+    single CEA-608 field/channel (1 = the primary broadcast language, 2 =
+    CC-14's secondary track) instead of decoding every CEA-708 (DTVCC)
+    service present - which on a dual-language broadcast is often a second
+    language (e.g. Spanish SAP) - and interleaving it into this same stdout
+    stream alongside the requested 608 track, distinguishable (per
+    ccextractor's own behavior) only by a `<font>` tag it isn't guaranteed to
+    add to every 708 cue. That let secondary-language lines slip past
+    `_parse_srt_block`'s `<font>` filter and appear mixed in with the
+    primary caption text."""
     argv = [
         "ccextractor",
         "--stdin",
         "-s",
         "999999999",
-        "-1",
+        f"-{channel}",
         "-out=srt",
         "-stdout",
         "-o",

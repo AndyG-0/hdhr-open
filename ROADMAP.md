@@ -23,3 +23,29 @@ actually work. This needs real-world verification against a live tuner.
   live watch sessions with pause/rewind/scrub, DVR scheduling/library, tuner signal meters,
   mDNS server discovery, closed captions, and Bearer token auth via Encrypted Preferences.
 - **Android TV**: Planned for a future workstream, building on the shared `core` module.
+
+## Casting & Wireless Playback
+
+- **AirPlay & Google Cast**: Direct HLS stream handoff to Apple TV (AirPlay 2) and
+  Chromecast/Google Cast devices from web, iOS, and Android clients.
+
+## Synchronized Co-Watching
+
+- **SharePlay**: Native Apple `GroupActivities` integration for FaceTime co-viewing in
+  iOS/tvOS client apps.
+- **Cross-Platform Sync**: Architecture evaluation for WebSocket-coordinated synchronized
+  playback on Web and Android.
+
+## AI & Intelligent Guide / DVR Assistant
+
+- **Multi-Provider LLM Integration**: Support for OpenAI, Anthropic Claude, Google Gemini,
+  and local/custom OpenAI-compatible models (Ollama, vLLM, OpenRouter).
+- **Guide & Recording Tool Calling**: Natural language guide querying, personalized TV
+  recommendations, and conversational DVR recording scheduling/conflict detection.
+
+## Browser Playback & Multitasking
+
+- **Picture-in-Picture & Popout Player**: Native HTML5 Video PiP, Document Picture-in-Picture API
+  (Chromium), and standalone frameless popout player windows (`/player`) for browser-based multitasking.
+
+

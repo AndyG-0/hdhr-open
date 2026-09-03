@@ -271,6 +271,69 @@ async def test_sweep_orphaned_session_dirs_ignores_non_directory_entries():
     assert stray_file.exists()
 
 
+# --- cast token / URL builders ---------------------------------------------
+
+
+def test_new_cast_token_is_random_and_urlsafe():
+    a = hls_streaming.new_cast_token()
+    b = hls_streaming.new_cast_token()
+    assert a != b
+    assert len(a) > 16
+
+
+def test_cast_base_url_embeds_session_id_and_token():
+    assert hls_streaming.cast_base_url("sess123", "tok456") == "/api/hls/sess123/tok456/"
+
+
+def test_cast_playlist_url_appends_playlist_filename():
+    assert hls_streaming.cast_playlist_url("sess123", "tok456") == "/api/hls/sess123/tok456/playlist.m3u8"
+
+
+def test_cast_playlist_url_for_request_leaves_real_host_relative():
+    # A real hostname/IP means PUBLIC_API_BASE_URL is (or should be) already
+    # correctly configured by the operator - this machine's own auto-detected
+    # interface must never override that.
+    url = hls_streaming.cast_playlist_url_for_request("http://192.168.1.50:8000/", "sess123", "tok456")
+    assert url == "/api/hls/sess123/tok456/playlist.m3u8"
+
+
+def test_cast_playlist_url_for_request_resolves_localhost_to_lan_ip(monkeypatch):
+    # localhost in the URL handed to a Cast *receiver* (a separate physical
+    # device) means the receiver itself, not this server - the exact bug
+    # reported against CAST-1's initial web implementation.
+    monkeypatch.setattr(hls_streaming, "_lan_ip", lambda: "10.0.0.5")
+    url = hls_streaming.cast_playlist_url_for_request("http://localhost:8000/", "sess123", "tok456")
+    assert url == "http://10.0.0.5:8000/api/hls/sess123/tok456/playlist.m3u8"
+
+
+def test_cast_playlist_url_for_request_resolves_127_0_0_1(monkeypatch):
+    monkeypatch.setattr(hls_streaming, "_lan_ip", lambda: "10.0.0.5")
+    url = hls_streaming.cast_playlist_url_for_request("http://127.0.0.1:8000/", "sess123", "tok456")
+    assert url == "http://10.0.0.5:8000/api/hls/sess123/tok456/playlist.m3u8"
+
+
+def test_cast_playlist_url_for_request_falls_back_when_lan_ip_undetectable(monkeypatch):
+    monkeypatch.setattr(hls_streaming, "_lan_ip", lambda: None)
+    url = hls_streaming.cast_playlist_url_for_request("http://localhost:8000/", "sess123", "tok456")
+    assert url == "/api/hls/sess123/tok456/playlist.m3u8"
+
+
+async def test_create_session_stores_cast_token(monkeypatch):
+    spawn = AsyncMock(side_effect=lambda *a, **kw: _fake_ffmpeg_process())
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    _write_playlist(tmp_dir)
+
+    session = await hls_streaming.create_session(session_id, tmp_dir, [], label="test", cast_token="tok456")
+
+    assert session.cast_token == "tok456"
+
+
+async def test_create_session_defaults_cast_token_to_none(monkeypatch):
+    session = await _make_session(monkeypatch)
+    assert session.cast_token is None
+
+
 # --- register ---------------------------------------------------------
 
 

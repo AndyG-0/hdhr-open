@@ -214,6 +214,10 @@
 		"fast_forward": "Avancer de 10 s",
 		"subtitles": "Sous-titres",
 		"audio_tracks": "Pistes audio",
+		"caption_tracks": "Piste de sous-titres",
+		"caption_track_1": "Piste 1",
+		"caption_track_2": "Piste 2",
+		"caption_track_unavailable": "indisponible",
 		"playback_info": "Infos de lecture",
 		"video": "Vidéo",
 		"audio": "Audio",
@@ -231,7 +235,12 @@
 		"recording_options": "Options d'enregistrement…",
 		"recording_active": "Enregistrement en cours",
 		"cancel_recording": "Annuler l'enregistrement",
-		"pending_confirmation": "En attente de confirmation"
+		"pending_confirmation": "En attente de confirmation",
+		"airplay": "AirPlay",
+		"cast": "Diffuser",
+		"cast_stop": "Arrêter la diffusion",
+		"cast_connecting": "Connexion…",
+		"cast_connected": "Diffusion en cours"
 	},
 	"setup": {
 		"title": "Bienvenue sur HDHR Open",

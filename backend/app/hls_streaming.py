@@ -1,10 +1,14 @@
-"""HLS packaging sessions for native (Apple) clients.
+"""HLS packaging sessions for native (Apple) clients and cast receivers.
 
 `api/streaming.py`'s `/stream/{channel}` and `api/dvr.py`'s `/recording-stream`
 both hand a single, unbounded, chunked `video/mp2t` HTTP response straight to
 the caller — fine for the web frontend, which demuxes it in-browser via
 mpegts.js + MSE, but AVFoundation (iOS/tvOS's only player) has no equivalent
-and needs real HLS (a `.m3u8` playlist plus `.ts` segment files) instead.
+and needs real HLS (a `.m3u8` playlist plus `.ts` segment files) instead. The
+same sessions also serve a Chromecast/Google Cast receiver device casting
+from the web or Android client, which needs real HLS for the same reason and
+additionally can't authenticate via the normal session cookie/bearer header
+(see `cast_token`/`verify_cast_token` in `api/hls.py`).
 
 Unlike the existing routes, HLS is inherently multi-request: one session
 creation, then an unbounded number of playlist/segment GETs that all have to
@@ -25,13 +29,16 @@ import asyncio
 import contextlib
 import logging
 import re
+import secrets
 import shutil
+import socket
 import tempfile
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -124,6 +131,7 @@ class HLSSession:
     pump_task: asyncio.Task[None] | None = None
     pump_stop_event: asyncio.Event | None = None
     on_teardown: Callable[[], Awaitable[None]] | None = None
+    cast_token: str | None = None
     _stderr_tail: bytearray = field(default_factory=bytearray)
 
 
@@ -139,6 +147,74 @@ def playlist_path(tmp_dir: Path) -> Path:
 
 def segment_pattern(tmp_dir: Path) -> str:
     return str(tmp_dir / _SEGMENT_PATTERN)
+
+
+def new_cast_token() -> str:
+    """A random, unguessable capability token minted per cast session -
+    same `secrets.token_urlsafe` convention app.auth uses for session/device
+    ids, not a self-contained signed token (nothing else in this codebase
+    does stateless/signed tokens)."""
+    return secrets.token_urlsafe(24)
+
+
+def cast_base_url(session_id: str, cast_token: str) -> str:
+    """Path prefix an external cast receiver (Chromecast, Android's default
+    Cast receiver) fetches the playlist/segments from, in place of the
+    cookie/bearer-authenticated routes native clients use - see
+    `verify_cast_token` in api/hls.py."""
+    return f"/api/hls/{session_id}/{cast_token}/"
+
+
+def cast_playlist_url(session_id: str, cast_token: str) -> str:
+    return f"{cast_base_url(session_id, cast_token)}playlist.m3u8"
+
+
+_LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
+
+
+def _lan_ip() -> str | None:
+    """Best-effort address for this machine on its local network, found the
+    standard way: "connecting" a UDP socket never actually sends a packet,
+    it just asks the OS routing table which local interface it would use to
+    reach that address - i.e. the real LAN interface (Wi-Fi/Ethernet), not
+    loopback. Returns None (caller falls back to the unresolved relative
+    path) if this machine has no route to the outside world at all, e.g. an
+    offline dev box."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect(("8.8.8.8", 80))
+        return sock.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def cast_playlist_url_for_request(request_base_url: str, session_id: str, cast_token: str) -> str:
+    """Same as `cast_playlist_url`, except resolved to an absolute,
+    LAN-reachable URL when the incoming request's own host was
+    "localhost"/"127.0.0.1". A Cast *receiver* is a separate physical device
+    on the network - if the browser reached this server via localhost (the
+    common single-machine dev setup), "localhost" in the URL handed to the
+    receiver means the receiver itself, not this server, and its manifest
+    fetch would always fail (see the CAST-1 bug report this fixes).
+
+    Every other deployment shape (a real hostname/IP, or a container behind
+    an operator-configured `PUBLIC_API_BASE_URL`) is left as the plain
+    relative path exactly as before - the frontend's `PUBLIC_API_BASE_URL`
+    already names a real, operator-chosen address in those cases, and this
+    machine's own auto-detected interface (which could be a Docker bridge
+    IP, wrong for that topology) must not override it.
+    """
+    relative = cast_playlist_url(session_id, cast_token)
+    parts = urlsplit(request_base_url)
+    if parts.hostname not in _LOCAL_HOSTNAMES:
+        return relative
+    lan_ip = _lan_ip()
+    if lan_ip is None:
+        return relative
+    netloc = f"{lan_ip}:{parts.port}" if parts.port else lan_ip
+    return urlunsplit((parts.scheme, netloc, relative, "", ""))
 
 
 def allocate_session_dir() -> tuple[str, Path]:
@@ -160,6 +236,7 @@ async def create_session(
     on_process_spawned: Callable[[asyncio.subprocess.Process], None] | None = None,
     min_segments: int = 1,
     on_teardown: Callable[[], Awaitable[None]] | None = None,
+    cast_token: str | None = None,
 ) -> HLSSession:
     """Spawn ffmpeg (already built with output_format="hls" pointed at
     `tmp_dir`'s playlist/segment paths, per `allocate_session_dir`) and wait
@@ -222,6 +299,7 @@ async def create_session(
             last_request_at=now,
             label=label,
             on_teardown=on_teardown,
+            cast_token=cast_token,
         )
 
         drain_done = asyncio.Event()

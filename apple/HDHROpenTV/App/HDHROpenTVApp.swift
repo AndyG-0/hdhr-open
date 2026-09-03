@@ -14,8 +14,11 @@ struct HDHROpenTVApp: App {
             // No PiP/background playback support: once the app leaves the
             // foreground there's no legitimate reason to keep the tuner
             // reserved, so release it the same way the in-player close
-            // button does.
-            if newPhase == .background {
+            // button does. Exception: an active AirPlay session is *meant*
+            // to keep playing on the external device once this app
+            // backgrounds - tearing the player down here would kill it the
+            // instant the user leaves the app (CAST-2).
+            if newPhase == .background && !environment.playerViewModel.playerEngine.isExternalPlaybackActive {
                 environment.playerViewModel.closePlayer()
             }
         }

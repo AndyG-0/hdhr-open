@@ -11,6 +11,16 @@ export interface AppSettings {
 	dvr_server_priority: string;
 }
 
+// A Google Cast receiver device fetches this playlist directly over HTTP
+// (it can't carry the session cookie a native fetch would) - `for_cast=true`
+// session creation mints a per-session capability token embedded in
+// playlist_url's path instead. See backend/app/hls_streaming.py's
+// cast_token/cast_playlist_url and api/hls.py's verify_cast_token.
+export interface HDHomeRunHLSSession {
+	session_id: string;
+	playlist_url: string;
+}
+
 export interface HDHomeRunGuideEntry {
 	series_id?: string | null;
 	title: string;
@@ -267,6 +277,11 @@ export interface HDHomeRunRecordingDetail {
 	audio: HDHomeRunRecordingAudioInfo[];
 	has_captions: boolean;
 	transcode: HDHomeRunTranscodeInfo;
+	/** CC-14 secondary (CEA-608 channel 2) caption track status - "unknown"
+	 * while still checking, "available"/"unavailable" once resolved, or null
+	 * for a finished recording (only live recordings run the channel-2
+	 * pipeline) or one where track 2 has never been requested. */
+	secondary_captions: 'unknown' | 'available' | 'unavailable' | null;
 }
 
 export interface HDHomeRunTranscodePreset {
@@ -506,10 +521,18 @@ export const api = {
 		}
 		return getJSON<HDHomeRunRecordingDetail>(`/api/dvr/recording-detail?${params.toString()}`);
 	},
-	hdhomerunRecordingCaptionsUrl: (options: { url: string; recordingId: string; recordEnd?: number | null }) => {
+	hdhomerunRecordingCaptionsUrl: (options: {
+		url: string;
+		recordingId: string;
+		recordEnd?: number | null;
+		track?: 1 | 2;
+	}) => {
 		const params = new URLSearchParams({ url: options.url, recording_id: options.recordingId });
 		if (options.recordEnd !== undefined && options.recordEnd !== null) {
 			params.set('record_end', String(options.recordEnd));
+		}
+		if (options.track !== undefined && options.track !== 1) {
+			params.set('track', String(options.track));
 		}
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-captions.vtt?${params.toString()}`;
 	},
@@ -533,6 +556,54 @@ export const api = {
 	},
 	hdhomerunPlaylistUrl: (channelNumber: string) =>
 		`${env.PUBLIC_API_BASE_URL}/api/streaming/playlist/${channelNumber}`,
+	// Google Cast entry points - both mirror a native (Apple) HLS session
+	// creation call, but with for_cast=true so the returned playlist_url is
+	// scoped to a cast token the receiver device can fetch without a cookie.
+	// The backend normally returns playlist_url as an API-relative path (it
+	// has no notion of this browser's origin) - a Cast receiver fetches it
+	// directly over the LAN, not through this page, so it's resolved to an
+	// absolute URL here before any caller sees it. When the backend itself
+	// was reached via "localhost" (single-machine dev setups), it already
+	// returns a *fully absolute* URL rewritten to its own LAN IP instead -
+	// "localhost" in a URL handed to a receiver device means the receiver
+	// itself, not this server (see hls_streaming.cast_playlist_url_for_request)
+	// - so this only prefixes when the backend left it relative, same
+	// already-absolute-or-not check as hdhomerunPlaybackUrl above.
+	createChannelHlsSessionForCast: async (channelNumber: string) => {
+		const session = await postJSON<HDHomeRunHLSSession>(
+			`/api/streaming/hls/${encodeURIComponent(channelNumber)}?for_cast=true`,
+		);
+		return { ...session, playlist_url: api.hdhomerunPlaybackUrl(session.playlist_url) };
+	},
+	createRecordingHlsSessionForCast: async (options: {
+		url: string;
+		recordingId?: string | null;
+		start?: number;
+		audioIndex?: number;
+		provider?: string;
+	}) => {
+		const session = await postJSON<HDHomeRunHLSSession>('/api/dvr/recording-stream-hls', {
+			url: options.url,
+			recording_id: options.recordingId ?? undefined,
+			start: options.start,
+			audio_index: options.audioIndex,
+			provider: options.provider,
+			for_cast: true,
+		});
+		return { ...session, playlist_url: api.hdhomerunPlaybackUrl(session.playlist_url) };
+	},
+	// Raw fetch with keepalive, same rationale as stopWatch above - this must
+	// still reach the backend even if it's fired from a page-unload/close
+	// path, and the response body (204, no content) isn't needed.
+	stopHlsSession: (sessionId: string) => {
+		fetch(`${env.PUBLIC_API_BASE_URL}/api/hls/${sessionId}/stop`, {
+			method: 'POST',
+			credentials: 'include',
+			keepalive: true,
+		}).catch(() => {
+			// Best-effort: the idle-timeout reaper on the backend is the backstop.
+		});
+	},
 	// Admin-only, and slow by design: it test-encodes a short clip through
 	// each plausible preset, so budget several seconds.
 	hdhomerunHwaccelDiagnostics: (device?: string) =>

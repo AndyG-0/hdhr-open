@@ -71,7 +71,9 @@ private data class RecordingStreamHLSBody(
     val start: Double? = null,
     @SerialName("audio_index")
     val audioIndex: Int? = null,
-    val provider: String? = null
+    val provider: String? = null,
+    @SerialName("for_cast")
+    val forCast: Boolean = false
 )
 
 class APIClient(
@@ -267,17 +269,18 @@ class APIClient(
 
     // MARK: - HLS Packaging APIs
 
-    suspend fun createChannelHLSSession(channelNumber: String): HDHomeRunRecording =
-        request(APIEndpoints.hlsChannelSession(channelNumber), method = "POST")
+    suspend fun createChannelHLSSession(channelNumber: String, forCast: Boolean = false): HDHomeRunRecording =
+        request(APIEndpoints.hlsChannelSession(channelNumber, forCast), method = "POST")
 
     suspend fun createRecordingHLSSession(
         url: String,
         recordingId: String? = null,
         start: Double? = null,
         audioIndex: Int? = null,
-        provider: String? = null
+        provider: String? = null,
+        forCast: Boolean = false
     ): HLSSessionResponse {
-        val body = RecordingStreamHLSBody(url, recordingId, start, audioIndex, provider)
+        val body = RecordingStreamHLSBody(url, recordingId, start, audioIndex, provider, forCast)
         return request(APIEndpoints.hlsRecordingSession(), method = "POST", body = json.encodeToString(body))
     }
 

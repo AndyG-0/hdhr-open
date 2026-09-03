@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -734,16 +734,22 @@ class RecordingStreamHLSRequest(BaseModel):
     start: float | None = None
     audio_index: int | None = None
     provider: str | None = None
+    for_cast: bool = False
 
 
 @router.post("/recording-stream-hls")
-async def stream_recording_hls(body: RecordingStreamHLSRequest):
-    """HLS entry point for native (Apple) clients - the primary playback path
-    (see PlayerViewModel.playChannel). Unlike /recording-stream, this always
-    transcodes: AVFoundation (iOS/tvOS's only player) can't decode raw
-    MPEG-2, so the direct-file/remote-proxy fallback branches that
-    /recording-stream uses for playback_mode != "server_transcode" don't
-    apply here regardless of the user's saved playback_mode setting.
+async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request):
+    """HLS entry point for native (Apple) clients and Google Cast senders -
+    the primary playback path (see PlayerViewModel.playChannel). Unlike
+    /recording-stream, this always transcodes: AVFoundation (iOS/tvOS's only
+    player) can't decode raw MPEG-2, so the direct-file/remote-proxy fallback
+    branches that /recording-stream uses for playback_mode != "server_transcode"
+    don't apply here regardless of the user's saved playback_mode setting.
+
+    `for_cast=True` (set by a Google Cast sender, web or Android, instead of
+    a native Apple client) scopes the returned `playlist_url` to a
+    per-session cast token instead of this app's normal cookie/bearer auth -
+    see the matching comment on `api/streaming.py`'s `stream_channel_hls`.
     """
     settings = await get_hdhomerun_settings()
     active_capture = (
@@ -774,6 +780,7 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
     seek_seconds = None if active_capture is not None else body.start
 
     session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    cast_token = hls_streaming.new_cast_token() if body.for_cast else None
     try:
         ffmpeg_args = transcoding.build_ffmpeg_args(
             settings,
@@ -784,6 +791,7 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
             hls_vod=active_capture is None,
+            hls_base_url=hls_streaming.cast_base_url(session_id, cast_token) if cast_token else None,
         )
     except transcoding.InvalidCustomFfmpegArgsError as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -823,6 +831,7 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
             stdin_pipe=active_capture is not None,
             on_process_spawned=_start_pump,
             min_segments=1 if active_capture is None else hls_streaming.HLS_READY_MIN_SEGMENTS,
+            cast_token=cast_token,
         )
     except hls_streaming.HLSStartupError as exc:
         if pump_stop_event is not None:
@@ -838,7 +847,11 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest):
 
     return {
         "session_id": session.session_id,
-        "playlist_url": f"/api/hls/{session.session_id}/playlist.m3u8",
+        "playlist_url": (
+            hls_streaming.cast_playlist_url_for_request(str(request.base_url), session.session_id, cast_token)
+            if cast_token
+            else f"/api/hls/{session.session_id}/playlist.m3u8"
+        ),
     }
 
 
@@ -901,6 +914,11 @@ async def recording_detail(
             "is_in_progress": True,
             "duration_seconds": max(0.0, time.time() - start) if start is not None else None,
             "transcode": transcode_info,
+            # None until a client has actually requested the secondary
+            # track (recording-captions.vtt?track=2), since starting its
+            # extraction loop just to answer this field would defeat CC-14's
+            # on-demand/lazy design.
+            "secondary_captions": media_cache.live_caption_track2_status(recording_id),
             **cached,
         }
 
@@ -918,13 +936,28 @@ async def recording_detail(
             },
         )
 
-    return {"is_in_progress": False, "transcode": transcode_info, **_probe_cache[recording_id]}
+    return {
+        "is_in_progress": False,
+        "transcode": transcode_info,
+        # Finished recordings only decode via ffmpeg (no verified way to
+        # select CEA-608 channel 2 in this build - see generate_captions_vtt),
+        # so a secondary track is never available for them.
+        "secondary_captions": None,
+        **_probe_cache[recording_id],
+    }
 
 
 @router.get("/recording-captions.vtt")
 async def recording_captions(
-    url: str, recording_id: str, record_end: float | None = None, provider: str | None = None
+    url: str,
+    recording_id: str,
+    record_end: float | None = None,
+    provider: str | None = None,
+    track: int = 1,
 ):
+    if track not in (1, 2):
+        raise HTTPException(status_code=400, detail="track must be 1 or 2")
+
     if record_end is None or record_end > time.time():
         active_capture = await capture_pipeline.get_active_capture(recording_id)
         if active_capture is None:
@@ -934,12 +967,20 @@ async def recording_captions(
             active_capture.file_path,
             lambda: capture_pipeline.is_capture_active(recording_id),
             capture_start_ts=active_capture.start_ts,
+            channel=track,
         )
-        live_path = media_cache.live_captions_path(recording_id)
+        live_path = media_cache.live_captions_path(recording_id, channel=track)
         if not live_path.exists():
             # Nothing extracted yet - the client polls again shortly.
             raise HTTPException(status_code=404, detail="No captions extracted yet")
         return FileResponse(live_path, media_type="text/vtt")
+
+    if track == 2:
+        # Finished recordings only decode via ffmpeg's movie/subcc filter
+        # (generate_captions_vtt), which has no verified way to select
+        # CEA-608 channel 2 in this ffmpeg build - explicit 404 rather than
+        # silently serving track 1 or pretending to support it.
+        raise HTTPException(status_code=404, detail="Secondary caption track not available for finished recordings")
 
     settings = await get_hdhomerun_settings()
     target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id, provider)

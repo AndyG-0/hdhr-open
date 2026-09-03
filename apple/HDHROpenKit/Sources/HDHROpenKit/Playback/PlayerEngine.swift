@@ -23,6 +23,11 @@ public final class PlayerEngine: ObservableObject {
     @Published public private(set) var videoSpecs: HDHomeRunRecordingVideoInfo?
     @Published public private(set) var transcodeInfo: HDHomeRunTranscodeInfo?
     @Published public private(set) var observedBitrate: Double?
+    /// Whether AirPlay (or another external-playback route) is currently
+    /// active - the app shell (`HDHROpeniOSApp`/`HDHROpenTVApp`) reads this
+    /// to skip tearing the player down on `scenePhase == .background`, since
+    /// backgrounding is the normal, expected state while AirPlaying.
+    @Published public private(set) var isExternalPlaybackActive: Bool = false
 
     public private(set) var avPlayer: AVPlayer?
 
@@ -41,6 +46,7 @@ public final class PlayerEngine: ObservableObject {
     // `.buffering` indefinitely - freezing both the loading spinner and the
     // controls auto-hide timer (which only runs while state == .playing).
     private var timeControlStatusObserver: AnyCancellable?
+    private var externalPlaybackObserver: AnyCancellable?
     private var cancellables = Set<AnyCancellable>()
 
     public init() {
@@ -67,6 +73,36 @@ public final class PlayerEngine: ObservableObject {
                     break
                 }
             }
+
+        #if canImport(UIKit)
+        // Both default to true already, but set explicitly per CAST-2 - this
+        // is the entry point that lets AVPlayer route to an AirPlay device at
+        // all, and the second flag keeps that route alive while showing a
+        // mirrored/black local screen instead of dropping back to this
+        // device the moment it isn't the visible screen.
+        player.allowsExternalPlayback = true
+        player.usesExternalPlaybackWhileExternalScreenIsActive = true
+
+        // Configuring the audio session is otherwise entirely absent from
+        // this codebase - without `.playback`, audio (and therefore AirPlay
+        // audio routing) doesn't survive the app being backgrounded or the
+        // silent switch. `.moviePlayback`/`.longFormVideo` mirror Apple's own
+        // guidance for a video-playback app like this one - `.longFormVideo`
+        // is iOS-only (unavailable on tvOS), so tvOS gets the same category/
+        // mode without a route-sharing policy override.
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, policy: .longFormVideo)
+        #else
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        #endif
+        try? AVAudioSession.sharedInstance().setActive(true)
+
+        externalPlaybackObserver = player.publisher(for: \.isExternalPlaybackActive)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.isExternalPlaybackActive = isActive
+            }
+        #endif
     }
 
     public func loadMedia(

@@ -52,6 +52,14 @@ class PlayerViewModel(
         // never show. Stretching such a cue's window to start from whenever it
         // actually arrived keeps it on screen for a bit instead.
         const val LIVE_CUE_STRETCH_SECONDS = 4.0
+
+        // Caps how far behind "now" a stretched cue's slot can be pushed by a
+        // burst of backlog (see alignLiveCues's cursor-reset comment for why
+        // this exists - mirrors web's caption-controller.ts LIVE_CUE_MAX_
+        // CATCHUP_SECONDS from the CC-13 freeze fix). Past this cap, further
+        // backlog cues are left unstretched (naturally expired, dropped from
+        // display) instead of extending the queue arbitrarily far forward.
+        const val LIVE_CUE_MAX_CATCHUP_SECONDS = 20.0
     }
 
     private var captionPollJob: Job? = null
@@ -162,15 +170,26 @@ class PlayerViewModel(
             // transcoding entirely, in exchange for lower latency/CPU - only
             // for clients whose own platform can decode the tuner's raw
             // MPEG-2/MPEG-TS stream, which ExoPlayer can.
+            val artworkUrl = airing?.imageUrl ?: channel.now?.imageUrl
+
             if (playbackPreferences.directPlayEnabled.value) {
                 val directURL = StreamURLBuilder.liveStreamURL(baseURL, channel.channelNumber, direct = true)
                 _isWatchSession.value = false
                 _activeRecording.value = null
                 _activeHLSSessionId.value = null
                 _playbackMode.value = PlaybackMode.Direct
-                playerEngine.loadMedia(url = directURL, isLive = true, isSeekable = false, headers = hlsAuthHeaders())
+                playerEngine.loadMedia(
+                    url = directURL,
+                    isLive = true,
+                    isSeekable = false,
+                    headers = hlsAuthHeaders(),
+                    title = mediaTitle,
+                    artworkUrl = artworkUrl
+                )
                 return@launch
             }
+
+            val forCast = playerEngine.isCasting.value
 
             // 1. Try starting a watch session for live pause/rewind, packaged as HLS
             try {
@@ -180,14 +199,26 @@ class PlayerViewModel(
                     val hlsSession = apiClient.createRecordingHLSSession(
                         url = playUrl,
                         recordingId = watchRec.recordingId,
-                        provider = watchRec.provider
+                        provider = watchRec.provider,
+                        forCast = forCast
                     )
-                    val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
+                    // Uses the server's own playlist_url rather than
+                    // reconstructing it - when forCast is set, that URL is
+                    // scoped under a cast token and can't be derived from
+                    // sessionId alone.
+                    val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
                     _activeRecording.value = watchRec
                     _isWatchSession.value = true
                     _activeHLSSessionId.value = hlsSession.sessionId
                     _playbackMode.value = PlaybackMode.ServerTranscodedHls
-                    playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = true, headers = hlsAuthHeaders())
+                    playerEngine.loadMedia(
+                        url = playlistURL,
+                        isLive = true,
+                        isSeekable = true,
+                        headers = hlsAuthHeaders(),
+                        title = mediaTitle,
+                        artworkUrl = artworkUrl ?: watchRec.imageUrl
+                    )
                     loadRecordingMetadata(watchRec)
                     return@launch
                 }
@@ -197,14 +228,22 @@ class PlayerViewModel(
 
             // 2. Direct HLS streaming fallback
             try {
-                val rec = apiClient.createChannelHLSSession(channel.channelNumber)
+                val rec = apiClient.createChannelHLSSession(channel.channelNumber, forCast = forCast)
                 val sessionId = rec.sessionId ?: throw APIError.DecodingError("Missing session_id")
-                val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = sessionId)
+                val playlistURL = rec.playlistUrl?.let { StreamURLBuilder.resolve(baseURL, it) }
+                    ?: StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = sessionId)
                 _isWatchSession.value = false
                 _activeRecording.value = if (rec.recordingId != null) rec else null
                 _activeHLSSessionId.value = sessionId
                 _playbackMode.value = PlaybackMode.ServerTranscodedHls
-                playerEngine.loadMedia(url = playlistURL, isLive = true, isSeekable = false, headers = hlsAuthHeaders())
+                playerEngine.loadMedia(
+                    url = playlistURL,
+                    isLive = true,
+                    isSeekable = false,
+                    headers = hlsAuthHeaders(),
+                    title = mediaTitle,
+                    artworkUrl = artworkUrl ?: rec.imageUrl
+                )
                 if (rec.recordingId != null) {
                     loadRecordingMetadata(rec)
                 }
@@ -230,12 +269,20 @@ class PlayerViewModel(
                 val hlsSession = apiClient.createRecordingHLSSession(
                     url = playUrl,
                     recordingId = recording.recordingId,
-                    provider = recording.provider
+                    provider = recording.provider,
+                    forCast = playerEngine.isCasting.value
                 )
-                val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
+                val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
                 _activeHLSSessionId.value = hlsSession.sessionId
                 _playbackMode.value = PlaybackMode.ServerTranscodedHls
-                playerEngine.loadMedia(url = playlistURL, isLive = recording.isInProgress, isSeekable = true, headers = hlsAuthHeaders())
+                playerEngine.loadMedia(
+                    url = playlistURL,
+                    isLive = recording.isInProgress,
+                    isSeekable = true,
+                    headers = hlsAuthHeaders(),
+                    title = recording.title,
+                    artworkUrl = recording.imageUrl
+                )
                 loadRecordingMetadata(recording)
             } catch (e: Exception) {
                 Log.player.error("Recording HLS stream failed: ${e.localizedMessage}")
@@ -290,15 +337,23 @@ class PlayerViewModel(
                     recordingId = recording.recordingId,
                     start = resumeTime,
                     audioIndex = track.index,
-                    provider = recording.provider
+                    provider = recording.provider,
+                    forCast = playerEngine.isCasting.value
                 )
-                val playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = hlsSession.sessionId)
+                val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
                 _activeHLSSessionId.value = hlsSession.sessionId
                 // loadMedia() calls reset() internally, which wipes the audio
                 // track list/video specs - restore them since they describe the
                 // underlying recording and don't change when only the mapped
                 // audio stream does.
-                playerEngine.loadMedia(url = playlistURL, isLive = isLive, isSeekable = isSeekable, headers = hlsAuthHeaders())
+                playerEngine.loadMedia(
+                    url = playlistURL,
+                    isLive = isLive,
+                    isSeekable = isSeekable,
+                    headers = hlsAuthHeaders(),
+                    title = recording.title,
+                    artworkUrl = recording.imageUrl
+                )
                 playerEngine.setAudioTracks(previousAudioTracks)
                 playerEngine.setVideoSpecs(previousVideoSpecs)
                 playerEngine.setTranscodeInfo(previousTranscodeInfo)
@@ -456,6 +511,15 @@ class PlayerViewModel(
         val elapsedCaptureSeconds = (System.currentTimeMillis() / 1000.0) - start
         val playerTime = playerEngine.currentTime.value
         val baseOffsetSeconds = elapsedCaptureSeconds - playerTime
+        // Re-anchor to "now" on every call instead of trusting wherever a
+        // previous, separate call left the cursor. Without this, the cursor
+        // advances by LIVE_CUE_STRETCH_SECONDS per newly-stretched cue - slower
+        // than real cue cadence (~2.85s avg observed) - so it drifts further
+        // ahead of real time on every poll and never catches back up, pinning
+        // near the cap below and queuing every cue after that behind an
+        // unreachable backlog: a permanent freeze, not a bounded lag. Same bug
+        // and fix as web's caption-controller.ts (CC-13).
+        nextStretchSlotAbsolute = elapsedCaptureSeconds
 
         return cues.mapNotNull { cue ->
             val (absStart, absEnd) = stretchedCueDisplay[cue.id] ?: run {
@@ -464,6 +528,9 @@ class PlayerViewModel(
                     cue.start to cue.end
                 } else {
                     val slotStart = maxOf(cue.start, nextStretchSlotAbsolute, elapsedCaptureSeconds)
+                    if (slotStart - elapsedCaptureSeconds > LIVE_CUE_MAX_CATCHUP_SECONDS) {
+                        return@run cue.start to cue.end
+                    }
                     val slotEnd = slotStart + LIVE_CUE_STRETCH_SECONDS
                     stretchedCueDisplay[cue.id] = slotStart to slotEnd
                     nextStretchSlotAbsolute = slotEnd

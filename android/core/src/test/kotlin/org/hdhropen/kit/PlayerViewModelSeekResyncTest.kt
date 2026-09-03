@@ -146,6 +146,65 @@ class PlayerViewModelSeekResyncTest {
     }
 
     @Test
+    fun `stretch cursor re-anchors to now each call instead of drifting across separate polls`() {
+        // CC-11 regression test, mirroring web's CC-13 fix/test: without
+        // resetting nextStretchSlotAbsolute to "now" at the top of every
+        // alignLiveCues call, the cursor advances by LIVE_CUE_STRETCH_SECONDS
+        // per newly-stretched cue and never resets between separate polls, so
+        // a second stale cue arriving on a later poll queues behind the
+        // first cue's stale reservation instead of anchoring to its own "now"
+        // - a permanent, ever-growing freeze rather than a bounded lag.
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/live.m3u8", isLive = true, isSeekable = true)
+
+        val recording = inProgressRecording(startedSecondsAgo = 100.0)
+        setActiveRecording(vm, recording)
+
+        val first = CaptionCue(start = 95.0, end = 98.0, text = "First")
+        setLastRawCues(vm, listOf(first))
+        vm.seek(50.0)
+        val firstSlotStart = stretchedCueDisplay(vm).getValue(first.id).first
+
+        // A second stale cue, delivered on what stands in for a *separate*
+        // later poll (not the same batch as the first).
+        val second = CaptionCue(start = 96.0, end = 99.0, text = "Second")
+        setLastRawCues(vm, listOf(first, second))
+        vm.seek(51.0)
+        val secondSlotStart = stretchedCueDisplay(vm).getValue(second.id).first
+
+        // Both should anchor close to their own call's "now" (~100s elapsed
+        // capture time), not LIVE_CUE_STRETCH_SECONDS (4s) or more apart.
+        assertEquals(firstSlotStart, secondSlotStart, 2.0)
+    }
+
+    @Test
+    fun `stale cues beyond the max-catchup cap are left unstretched instead of queued forever`() {
+        // CC-11: a huge backlog (e.g. first poll after enabling captions
+        // mid-show) must not hand out ever-later slots without bound -
+        // mirrors web's LIVE_CUE_MAX_CATCHUP_SECONDS cap from CC-13.
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/live.m3u8", isLive = true, isSeekable = true)
+
+        val recording = inProgressRecording(startedSecondsAgo = 100.0)
+        setActiveRecording(vm, recording)
+
+        val cues = (0 until 10).map { i ->
+            CaptionCue(start = 50.0 + i, end = 52.0 + i, text = "Line $i")
+        }
+        setLastRawCues(vm, cues)
+
+        vm.seek(0.0)
+
+        val displayed = vm.captionController.cues.value
+        val lastDisplayedStart = displayed.maxOfOrNull { it.start } ?: 0.0
+        // Player-relative start of any displayed cue must stay within the
+        // catch-up cap (20s, PlayerViewModel's private LIVE_CUE_MAX_CATCHUP_
+        // SECONDS) of "now" (player position 0.0) - never queued minutes into
+        // the future.
+        assertTrue(lastDisplayedStart <= 21.0)
+    }
+
+    @Test
     fun `skipForward and skipBackward also trigger a caption resync`() {
         val vm = newViewModel()
         vm.playerEngine.loadMedia(url = "http://example.com/live.m3u8", isLive = true, isSeekable = true)

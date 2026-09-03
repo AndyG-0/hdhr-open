@@ -12,6 +12,7 @@ public struct TVPlayerSettingsOverlay: View {
     private enum SettingsFocus: Hashable {
         case close
         case track(Int)
+        case airplay
     }
 
     public init(playerViewModel: PlayerViewModel, onDismiss: @escaping () -> Void) {
@@ -68,6 +69,21 @@ public struct TVPlayerSettingsOverlay: View {
                             .focused($focusedElement, equals: .track(track.index))
                         }
                     }
+                }
+
+                // AirPlay - placed inside this settings overlay rather than the
+                // always-visible control bar, since AVRoutePickerView is itself
+                // focusable and this codebase deliberately avoids AVKit's own
+                // focusable chrome competing with this view's hand-rolled
+                // Siri Remote focus handling (see PlayerLayerView's doc comment).
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("AirPlay")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+
+                    AirPlayRoutePickerView(tintColor: .white)
+                        .frame(width: 44, height: 44)
+                        .focused($focusedElement, equals: .airplay)
                 }
 
                 // Playback Mode

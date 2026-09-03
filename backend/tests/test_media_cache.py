@@ -320,7 +320,7 @@ def test_parse_srt_block_parses_multiline_cue():
 async def test_ensure_live_captions_is_idempotent(monkeypatch):
     started = []
 
-    async def fake_loop(recording_id, file_path, is_source_alive, capture_start_ts=None):
+    async def fake_loop(recording_id, file_path, is_source_alive, capture_start_ts=None, channel=1):
         started.append(recording_id)
         await asyncio.sleep(3600)
 
@@ -332,10 +332,10 @@ async def test_ensure_live_captions_is_idempotent(monkeypatch):
     await asyncio.sleep(0)  # let the scheduled task actually start running
 
     assert len(started) == 1  # second call must not schedule a second loop
-    assert "rec1" in media_cache._live_caption_tasks
+    assert ("rec1", 1) in media_cache._live_caption_tasks
 
     media_cache.stop_live_captions("rec1")
-    assert "rec1" not in media_cache._live_caption_tasks
+    assert ("rec1", 1) not in media_cache._live_caption_tasks
 
 
 async def test_run_live_caption_process_once_parses_cues_incrementally_across_reads(monkeypatch, tmp_path):
@@ -445,7 +445,7 @@ async def test_live_caption_loop_stops_cleanly_when_source_dies(monkeypatch, tmp
     alive = False
     await asyncio.sleep(0.3)
 
-    assert "rec1" not in media_cache._live_caption_tasks
+    assert ("rec1", 1) not in media_cache._live_caption_tasks
     assert fake_process.terminated
 
 
@@ -489,7 +489,7 @@ async def test_live_caption_loop_restarts_when_process_exits_early(monkeypatch, 
 
     alive = False
     await asyncio.sleep(0.3)
-    assert "rec1" not in media_cache._live_caption_tasks
+    assert ("rec1", 1) not in media_cache._live_caption_tasks
 
 
 async def test_live_caption_loop_passes_capture_start_ts_through(monkeypatch, tmp_path):
@@ -497,7 +497,7 @@ async def test_live_caption_loop_passes_capture_start_ts_through(monkeypatch, tm
     monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
     received: list[float | None] = []
 
-    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None):
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None, channel=1):
         received.append(capture_start_ts)
         return False  # stop the loop after one run
 
@@ -518,7 +518,7 @@ async def test_live_caption_loop_logs_restart_cost(monkeypatch, tmp_path, caplog
 
     call_count = 0
 
-    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None):
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None, channel=1):
         nonlocal call_count
         call_count += 1
         return call_count < 2  # restart once, then stop
@@ -585,7 +585,7 @@ async def test_live_caption_loop_truncates_output_on_restart_avoiding_duplicates
     output_path = media_cache.live_captions_path("rec1")
     text = output_path.read_text()
     assert text.count("First") == 1
-    assert "rec1" not in media_cache._live_caption_tasks
+    assert ("rec1", 1) not in media_cache._live_caption_tasks
 
 
 async def test_run_live_caption_process_once_cue_silence_watchdog_trips(monkeypatch, tmp_path, caplog):
@@ -640,7 +640,7 @@ async def test_live_caption_loop_backoff_schedule_and_circuit_breaker(monkeypatc
 
     monkeypatch.setattr(media_cache.asyncio, "sleep", fake_sleep)
 
-    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None):
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None, channel=1):
         return True  # "should restart", finishing instantly every time (a quick failure)
 
     monkeypatch.setattr(media_cache, "_run_live_caption_process_once", fake_process_once)
@@ -650,13 +650,13 @@ async def test_live_caption_loop_backoff_schedule_and_circuit_breaker(monkeypatc
     media_cache._live_caption_disabled.clear()
     media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True)
 
-    await asyncio.wait_for(media_cache._live_caption_tasks["rec1"], timeout=1.0)
+    await asyncio.wait_for(media_cache._live_caption_tasks[("rec1", 1)], timeout=1.0)
 
     # POLL_SECONDS(2.0) * 2**n capped at MAX_BACKOFF(120.0), for n=1..7 -
     # the 8th consecutive quick failure trips the circuit breaker before a
     # further backoff/sleep is scheduled.
     assert sleeps == [4.0, 8.0, 16.0, 32.0, 64.0, 120.0, 120.0]
-    assert "rec1" in media_cache._live_caption_disabled
+    assert ("rec1", 1) in media_cache._live_caption_disabled
     assert "giving up" in caplog.text.lower()
 
 
@@ -664,11 +664,11 @@ async def test_ensure_live_captions_noop_when_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
     media_cache._live_caption_tasks.clear()
     media_cache._live_caption_disabled.clear()
-    media_cache._live_caption_disabled.add("rec1")
+    media_cache._live_caption_disabled.add(("rec1", 1))
 
     started = []
 
-    async def fake_loop(recording_id, file_path, is_source_alive, capture_start_ts=None):
+    async def fake_loop(recording_id, file_path, is_source_alive, capture_start_ts=None, channel=1):
         started.append(recording_id)
 
     monkeypatch.setattr(media_cache, "_run_live_caption_loop", fake_loop)
@@ -677,19 +677,19 @@ async def test_ensure_live_captions_noop_when_disabled(monkeypatch, tmp_path):
     await asyncio.sleep(0)
 
     assert started == []
-    assert "rec1" not in media_cache._live_caption_tasks
+    assert ("rec1", 1) not in media_cache._live_caption_tasks
 
-    media_cache._live_caption_disabled.discard("rec1")
+    media_cache._live_caption_disabled.discard(("rec1", 1))
 
 
 def test_stop_live_captions_clears_disabled_flag():
     media_cache._live_caption_tasks.clear()
     media_cache._live_caption_disabled.clear()
-    media_cache._live_caption_disabled.add("rec1")
+    media_cache._live_caption_disabled.add(("rec1", 1))
 
     media_cache.stop_live_captions("rec1")
 
-    assert "rec1" not in media_cache._live_caption_disabled
+    assert ("rec1", 1) not in media_cache._live_caption_disabled
 
 
 async def test_stop_live_captions_cancellation_terminates_process(monkeypatch, tmp_path):
@@ -717,7 +717,131 @@ async def test_stop_live_captions_cancellation_terminates_process(monkeypatch, t
     await asyncio.sleep(0.1)
 
     assert fake_process.terminated
-    assert "rec1" not in media_cache._live_caption_tasks
+    assert ("rec1", 1) not in media_cache._live_caption_tasks
+
+
+async def test_run_live_caption_process_once_uses_channel_flag_and_output_path(monkeypatch, tmp_path):
+    # CC-14: channel 2 must decode CEA-608 field/channel 2 (`-2`), not the
+    # default channel 1 (`-1`), and its cues land in the channel-2 sidecar.
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    output_path = tmp_path / "rec1.cc2.live.vtt"
+
+    fake_process = _FakeCaptionProcess()
+    captured_argv: list[str] = []
+
+    async def fake_exec(*argv, **kwargs):
+        captured_argv.extend(argv)
+        return fake_process
+
+    monkeypatch.setattr(media_cache.asyncio, "create_subprocess_exec", fake_exec)
+
+    async def fake_pump(file_path, writer, stop_event, is_source_alive, start_offset_bytes=None):
+        while not stop_event.is_set():
+            await asyncio.sleep(0.005)
+
+    monkeypatch.setattr(media_cache, "pump_tail_follow", fake_pump)
+
+    task = asyncio.create_task(
+        media_cache._run_live_caption_process_once(
+            tmp_path / "capture.ts", output_path, lambda: True, None, 2
+        )
+    )
+    await asyncio.sleep(0.01)
+
+    assert "-2" in captured_argv
+    assert "-1" not in captured_argv
+
+    fake_process.stdout.push(b"1\n00:00:05,000 --> 00:00:07,000\nSegunda\n\n")
+    await asyncio.sleep(0.02)
+    assert "Segunda" in output_path.read_text()
+
+    fake_process.stdout.close()
+    await asyncio.wait_for(task, timeout=1.0)
+
+
+async def test_channel1_and_channel2_loops_run_independently(monkeypatch, tmp_path):
+    # CC-14: the two channels' supervision loops for the same recording_id
+    # must not collide on task/disabled-set bookkeeping.
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
+
+    received_channels: list[int] = []
+
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None, channel=1):
+        received_channels.append(channel)
+        return False  # stop after one attempt
+
+    monkeypatch.setattr(media_cache, "_run_live_caption_process_once", fake_process_once)
+
+    media_cache._live_caption_tasks.clear()
+    media_cache._live_caption_disabled.clear()
+
+    media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True, channel=1)
+    media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True, channel=2)
+
+    task1 = media_cache._live_caption_tasks[("rec1", 1)]
+    task2 = media_cache._live_caption_tasks[("rec1", 2)]
+
+    await asyncio.wait_for(task1, timeout=1.0)
+    await asyncio.wait_for(task2, timeout=1.0)
+
+    assert sorted(received_channels) == [1, 2]
+    assert media_cache.live_captions_path("rec1", channel=1) == tmp_path / "rec1.live.vtt"
+    assert media_cache.live_captions_path("rec1", channel=2) == tmp_path / "rec1.cc2.live.vtt"
+
+
+async def test_channel2_with_no_cues_reports_unavailable_after_grace_period(monkeypatch, tmp_path):
+    # CC-14: an absent channel-2 track isn't a crash - ccextractor stays
+    # alive and just never completes a cue - so this must resolve to
+    # "unavailable" via the grace period rather than restarting forever.
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_TRACK2_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_POLL_SECONDS", 0.01)
+
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None, channel=1):
+        await asyncio.sleep(0.02)
+        return True  # process died, source still alive - normally would restart
+
+    monkeypatch.setattr(media_cache, "_run_live_caption_process_once", fake_process_once)
+
+    media_cache._live_caption_tasks.clear()
+    media_cache._live_caption_disabled.clear()
+
+    assert media_cache.live_caption_track2_status("rec1") is None  # never requested yet
+
+    media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True, channel=2)
+    await asyncio.sleep(0.03)
+    assert media_cache.live_caption_track2_status("rec1") == "unknown"
+
+    await asyncio.wait_for(media_cache._live_caption_tasks[("rec1", 2)], timeout=1.0)
+
+    assert media_cache.live_caption_track2_status("rec1") == "unavailable"
+    assert ("rec1", 2) in media_cache._live_caption_disabled
+
+
+async def test_channel2_status_flips_to_available_once_a_cue_lands(monkeypatch, tmp_path):
+    monkeypatch.setattr(media_cache, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_MIN_START_BYTES", 0)
+    monkeypatch.setattr(media_cache, "_LIVE_CAPTION_TRACK2_GRACE_SECONDS", 0.05)
+
+    async def fake_process_once(file_path, output_path, is_source_alive, capture_start_ts=None, channel=1):
+        media_cache._append_live_cues(output_path, [(5.0, 7.0, "Segunda")])
+        await asyncio.sleep(0.2)  # stay "running" well past the grace period
+        return False
+
+    monkeypatch.setattr(media_cache, "_run_live_caption_process_once", fake_process_once)
+
+    media_cache._live_caption_tasks.clear()
+    media_cache._live_caption_disabled.clear()
+
+    media_cache.ensure_live_captions("rec1", tmp_path / "capture.ts", lambda: True, channel=2)
+    await asyncio.sleep(0.1)
+
+    assert media_cache.live_caption_track2_status("rec1") == "available"
+    assert ("rec1", 2) not in media_cache._live_caption_disabled
+
+    media_cache.stop_live_captions("rec1")
 
 
 async def test_generate_poster_builds_argv_with_image2_and_caches_result(monkeypatch, tmp_path):

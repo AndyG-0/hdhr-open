@@ -345,3 +345,48 @@ def test_stream_channel_hls_releases_fallback_capture_when_data_never_arrives(cl
     assert "recording_id" not in body
     release_mock.assert_awaited_once()
     assert create_session_mock.await_args.kwargs["stdin_pipe"] is False
+
+
+def test_stream_channel_hls_for_cast_returns_token_scoped_playlist_url(client, tmp_db, monkeypatch):
+    """A Google Cast sender passes for_cast=true - the response must hand
+    back a playlist_url under the cast-token path (api/hls.py's
+    verify_cast_token routes), not the cookie/bearer-gated one, since the
+    actual fetcher is the Cast receiver device."""
+    _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_cast"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(streaming_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post("/api/streaming/hls/4.1?for_cast=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == "sess_cast"
+    assert body["playlist_url"].startswith("/api/hls/sess_cast/")
+    assert body["playlist_url"].endswith("/playlist.m3u8")
+    assert body["playlist_url"] != "/api/hls/sess_cast/playlist.m3u8"
+    cast_token = create_session_mock.await_args.kwargs["cast_token"]
+    assert cast_token is not None
+    assert body["playlist_url"] == f"/api/hls/sess_cast/{cast_token}/playlist.m3u8"
+
+
+def test_stream_channel_hls_without_for_cast_omits_cast_token(client, tmp_db, monkeypatch):
+    """Default (native Apple client) behavior must stay byte-for-byte
+    unchanged - no cast_token minted, existing playlist_url shape."""
+    _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_native"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(streaming_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post("/api/streaming/hls/4.1")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["playlist_url"] == "/api/hls/sess_native/playlist.m3u8"
+    assert create_session_mock.await_args.kwargs["cast_token"] is None

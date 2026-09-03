@@ -304,6 +304,7 @@ def build_ffmpeg_args(
     hls_playlist_path: Path | None = None,
     hls_segment_pattern: str | None = None,
     hls_vod: bool = False,
+    hls_base_url: str | None = None,
 ) -> list[str]:
     """Full ffmpeg arg list (excluding the "ffmpeg" program name itself).
 
@@ -312,7 +313,13 @@ def build_ffmpeg_args(
     muxer/output framing changes. `hls_playlist_path`/`hls_segment_pattern`
     are required when `output_format="hls"`. `hls_vod=True` packages a
     COMPLETED recording file as a full-file VOD playlist instead of a rolling
-    live-style window - see `HLS_FLAGS_VOD`.
+    live-style window - see `HLS_FLAGS_VOD`. `hls_base_url`, when given, is
+    prefixed by ffmpeg onto every segment URI it writes into the playlist
+    (`-hls_base_url`) instead of the bare relative filename - used for a
+    cast-token-scoped session so a client resolving segment URIs against the
+    playlist URL lands on the token-authenticated path automatically (a query
+    string on the playlist URL alone wouldn't propagate through that relative
+    resolution).
     """
     preset = resolve_preset(settings.get("hwaccel", DEFAULT_PRESET))
     device = resolve_device(settings)
@@ -366,6 +373,7 @@ def build_ffmpeg_args(
                 "0",
                 "-hls_flags",
                 HLS_FLAGS_VOD,
+                *(["-hls_base_url", hls_base_url] if hls_base_url else []),
                 "-hls_segment_filename",
                 hls_segment_pattern,
                 str(hls_playlist_path),
@@ -380,6 +388,7 @@ def build_ffmpeg_args(
                 str(HLS_LIST_SIZE),
                 "-hls_flags",
                 HLS_FLAGS,
+                *(["-hls_base_url", hls_base_url] if hls_base_url else []),
                 "-hls_segment_filename",
                 hls_segment_pattern,
                 str(hls_playlist_path),

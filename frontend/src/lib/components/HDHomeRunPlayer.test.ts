@@ -36,6 +36,9 @@ const {
 	hdhomerunRecordingThumbnailSpriteUrl,
 	addHDHomeRunRecordingRule,
 	deleteHDHomeRunRecordingRule,
+	createChannelHlsSessionForCast,
+	createRecordingHlsSessionForCast,
+	stopHlsSession,
 } = vi.hoisted(() => ({
 	hdhomerunRecordingStreamUrl: vi.fn(
 		(playUrl: string, options?: { start?: number; audioIndex?: number; recordingId?: string | null }) =>
@@ -43,7 +46,8 @@ const {
 	),
 	hdhomerunRecordingDetail: vi.fn(),
 	hdhomerunRecordingCaptionsUrl: vi.fn(
-		(opts: { recordingId: string }) => `https://example.com/captions/${opts.recordingId}.vtt`,
+		(opts: { recordingId: string; track?: 1 | 2 }) =>
+			`https://example.com/captions/${opts.recordingId}.vtt${opts.track && opts.track !== 1 ? `?track=${opts.track}` : ''}`,
 	),
 	hdhomerunRecordingThumbnailVttUrl: vi.fn(
 		(opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.vtt`,
@@ -53,6 +57,15 @@ const {
 	),
 	addHDHomeRunRecordingRule: vi.fn(),
 	deleteHDHomeRunRecordingRule: vi.fn(),
+	createChannelHlsSessionForCast: vi.fn(async (channelNumber: string) => ({
+		session_id: `sess-${channelNumber}`,
+		playlist_url: `https://example.com/api/hls/sess-${channelNumber}/tok/playlist.m3u8`,
+	})),
+	createRecordingHlsSessionForCast: vi.fn(async () => ({
+		session_id: 'sess-rec1',
+		playlist_url: 'https://example.com/api/hls/sess-rec1/tok/playlist.m3u8',
+	})),
+	stopHlsSession: vi.fn(),
 }));
 vi.mock('$lib/api', () => ({
 	api: {
@@ -63,6 +76,9 @@ vi.mock('$lib/api', () => ({
 		hdhomerunRecordingThumbnailSpriteUrl,
 		addHDHomeRunRecordingRule,
 		deleteHDHomeRunRecordingRule,
+		createChannelHlsSessionForCast,
+		createRecordingHlsSessionForCast,
+		stopHlsSession,
 	},
 }));
 
@@ -95,6 +111,7 @@ let fakeTextTrack = makeFakeTextTrack();
 	fakeTextTrack;
 
 import HDHomeRunPlayer from './HDHomeRunPlayer.svelte';
+import { setActiveCastSessionId } from '$lib/cast/cast-loader';
 
 const props = { src: 'https://example.com/stream/4.1', title: '4.1 KDFW', onClose: () => {} };
 
@@ -120,6 +137,7 @@ describe('HDHomeRunPlayer', () => {
 		vi.clearAllMocks();
 		listeners.clear();
 		vi.unstubAllGlobals();
+		setActiveCastSessionId(null);
 		fakeTextTrack = makeFakeTextTrack();
 	});
 
@@ -344,6 +362,96 @@ describe('HDHomeRunPlayer', () => {
 		await fireEvent.keyDown(window, { key: 'c' });
 		expect(ccButton.className).not.toMatch(/active/);
 		expect(fakeTextTrack.mode).toBe('hidden');
+	});
+
+	it('does not render a caption-track picker for a finished recording (secondary_captions is null)', async () => {
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: false,
+			duration_seconds: 1200,
+			video: null,
+			audio: [],
+			has_captions: true,
+			secondary_captions: null,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockResolvedValue({ ok: true, text: async () => 'WEBVTT\n\n', json: async () => ({}) }),
+		);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await screen.findByRole('button', { name: 'Subtitles / Closed Captions' });
+		expect(screen.queryByRole('button', { name: 'CC Track' })).not.toBeInTheDocument();
+	});
+
+	it('lets the user switch to caption Track 2 on a live recording, resetting cues to the new track', async () => {
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			secondary_captions: 'available',
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttTrack1 = ['WEBVTT', '', '00:00:01.000 --> 00:00:03.000', 'Track 1 line', ''].join('\n');
+		const vttTrack2 = ['WEBVTT', '', '00:00:01.000 --> 00:00:03.000', 'Track 2 line', ''].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttTrack1 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vttTrack2 });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		expect(fetchMock.mock.calls[0][0]).not.toMatch(/track=/);
+
+		const trackMenuBtn = await screen.findByRole('button', { name: 'CC Track' });
+		await fireEvent.click(trackMenuBtn);
+		const track2Btn = screen.getByRole('button', { name: /Track 2/ });
+		expect(track2Btn).not.toBeDisabled();
+		await fireEvent.click(track2Btn);
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+		expect(fetchMock.mock.calls[1][0]).toMatch(/track=2/);
+
+		// Enable the overlay and confirm only the new track's cue is showing.
+		const ccButton = screen.getByRole('button', { name: 'Subtitles / Closed Captions' });
+		await fireEvent.click(ccButton);
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 2, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		expect(await screen.findByText('Track 2 line')).toBeInTheDocument();
+		expect(screen.queryByText('Track 1 line')).not.toBeInTheDocument();
+	});
+
+	it('disables Track 2 in the picker when secondary_captions is unavailable', async () => {
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			secondary_captions: 'unavailable',
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const fetchMock = vi.fn().mockResolvedValue({ ok: true, text: async () => 'WEBVTT\n\n' });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		const trackMenuBtn = await screen.findByRole('button', { name: 'CC Track' });
+		await fireEvent.click(trackMenuBtn);
+		const track2Btn = screen.getByRole('button', { name: /Track 2/ });
+		expect(track2Btn).toBeDisabled();
+
+		const callsBeforeClick = fetchMock.mock.calls.length;
+		await fireEvent.click(track2Btn);
+		// Disabled button click is a no-op - no extra fetch for a track switch.
+		expect(fetchMock.mock.calls.length).toBe(callsBeforeClick);
 	});
 
 	it('renders active caption text in the on-screen overlay when captions are enabled', async () => {
@@ -1189,5 +1297,461 @@ describe('HDHomeRunPlayer', () => {
 	it('does not render Record button during seekable recorded file playback', () => {
 		render(HDHomeRunPlayer, { props: seekableProps });
 		expect(screen.queryByRole('button', { name: /^Record/i })).not.toBeInTheDocument();
+	});
+
+	describe('AirPlay', () => {
+		it('stays hidden until webkitplaybacktargetavailabilitychanged reports a route, then swaps to a real HLS playlist and opens the picker on click', async () => {
+			// Feature-detected the same way Safari itself exposes AirPlay - other
+			// browsers never define this, so the button never appears there.
+			vi.stubGlobal('WebKitPlaybackTargetAvailabilityEvent', class {});
+			vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+			vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+			const showPicker = vi.fn();
+			(
+				HTMLVideoElement.prototype as unknown as { webkitShowPlaybackTargetPicker: () => void }
+			).webkitShowPlaybackTargetPicker = showPicker;
+
+			render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '4.1',
+						name: 'KDFW',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+			expect(screen.queryByRole('button', { name: 'AirPlay' })).not.toBeInTheDocument();
+
+			// The overlay is use:portal-ed onto document.body (see JellyfinPlayer.svelte),
+			// so it lives outside render()'s own container.
+			const video = document.body.querySelector('video')!;
+			// Let the initial mount's local mpegts.js attachment finish first,
+			// so the later assertion can tell a fresh re-attachment apart from
+			// this one.
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+			const availabilityEvent = new Event('webkitplaybacktargetavailabilitychanged');
+			(availabilityEvent as unknown as { availability: string }).availability = 'available';
+			await fireEvent(video, availabilityEvent);
+
+			const airplayBtn = await screen.findByRole('button', { name: 'AirPlay' });
+			await fireEvent.click(airplayBtn);
+
+			// Regression guard: mpegts.js attaches via MediaSource (a blob:
+			// <video> src), which an Apple TV can't fetch on its own - AirPlay
+			// connects but nothing plays. The element must be swapped to a
+			// directly-fetchable for_cast HLS URL - and, per a second
+			// regression this swap must happen *before* the picker opens, not
+			// after a route goes live: doing it after actually killed
+			// playback everywhere (confirmed against real Safari/Apple TV),
+			// since changing src/calling load() while a wireless route is
+			// already active doesn't hand off cleanly, it just drops the
+			// route.
+			await vi.waitFor(() => expect(createChannelHlsSessionForCast).toHaveBeenCalledWith('4.1'));
+			await vi.waitFor(() =>
+				expect(video.src).toBe('https://example.com/api/hls/sess-4.1/tok/playlist.m3u8'),
+			);
+			await vi.waitFor(() => expect(showPicker).toHaveBeenCalledTimes(1));
+		});
+
+		it('reverts to the local mpegts.js pipeline once AirPlay disconnects', async () => {
+			vi.stubGlobal('WebKitPlaybackTargetAvailabilityEvent', class {});
+			vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+			vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+			(
+				HTMLVideoElement.prototype as unknown as { webkitShowPlaybackTargetPicker: () => void }
+			).webkitShowPlaybackTargetPicker = vi.fn();
+
+			render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '4.1',
+						name: 'KDFW',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+
+			const video = document.body.querySelector('video')! as HTMLVideoElement & {
+				webkitCurrentPlaybackTargetIsWireless?: boolean;
+			};
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+			const availabilityEvent = new Event('webkitplaybacktargetavailabilitychanged');
+			(availabilityEvent as unknown as { availability: string }).availability = 'available';
+			await fireEvent(video, availabilityEvent);
+			const airplayBtn = await screen.findByRole('button', { name: 'AirPlay' });
+			await fireEvent.click(airplayBtn);
+			await vi.waitFor(() =>
+				expect(video.src).toBe('https://example.com/api/hls/sess-4.1/tok/playlist.m3u8'),
+			);
+
+			video.webkitCurrentPlaybackTargetIsWireless = false;
+			await fireEvent(video, new Event('webkitcurrentplaybacktargetiswirelesschanged'));
+
+			await vi.waitFor(() => expect(stopHlsSession).toHaveBeenCalledWith('sess-4.1'));
+			// Reverting re-attaches the local mpegts.js pipeline rather than
+			// leaving the native HLS src in place.
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(2));
+		});
+	});
+
+	describe('Google Cast', () => {
+		// jsdom doesn't implement HTMLMediaElement.play()/pause() - real
+		// browsers return a real Promise from play(), which the
+		// onCastingChange handler below relies on.
+		beforeEach(() => {
+			vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+			vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+		});
+
+		// A minimal fake of the slice of window.cast/window.chrome.cast that
+		// cast-loader.ts touches - see that file's local ambient Window typing
+		// for the exact surface being stood in for here.
+		function makeFakeCastGlobals(initialState: string) {
+			let state = initialState;
+			let session: { loadMedia: ReturnType<typeof vi.fn> } | null = null;
+			const stateListeners: Array<(event: { castState: string }) => void> = [];
+			const notify = () => stateListeners.forEach((listener) => listener({ castState: state }));
+			class FakeMediaInfo {
+				metadata?: { title?: string; subtitle?: string; images?: unknown[] };
+				constructor(
+					public contentUrl: string,
+					public contentType: string,
+				) {}
+			}
+			class FakeLoadRequest {
+				constructor(public media: FakeMediaInfo) {}
+			}
+			const context = {
+				setOptions: vi.fn(),
+				getCurrentSession: () => session,
+				requestSession: vi.fn(async () => {
+					state = 'connected';
+					session = { loadMedia: vi.fn(async () => {}) };
+					notify();
+				}),
+				endCurrentSession: vi.fn(() => {
+					state = 'not_connected';
+					session = null;
+					notify();
+				}),
+				getCastState: () => state,
+				addEventListener: (_type: string, listener: (event: { castState: string }) => void) => {
+					stateListeners.push(listener);
+				},
+				removeEventListener: vi.fn(),
+			};
+			return {
+				context,
+				cast: {
+					framework: {
+						CastContext: { getInstance: () => context },
+						CastContextEventType: { CAST_STATE_CHANGED: 'caststatechanged' },
+					},
+				},
+				chrome: {
+					cast: {
+						media: {
+							DEFAULT_MEDIA_RECEIVER_APP_ID: 'CC1AD845',
+							MediaInfo: FakeMediaInfo,
+							GenericMediaMetadata: class {
+								title?: string;
+								subtitle?: string;
+								images?: unknown[];
+							},
+							LoadRequest: FakeLoadRequest,
+						},
+						Image: class {
+							constructor(public url: string) {}
+						},
+						AutoJoinPolicy: { ORIGIN_SCOPED: 'origin_scoped' },
+					},
+				},
+			};
+		}
+
+		it('stays hidden with no receiver on the network', () => {
+			render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '4.1',
+						name: 'KDFW',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+			expect(screen.queryByRole('button', { name: 'Cast' })).not.toBeInTheDocument();
+		});
+
+		it('loads the for_cast HLS playlist onto the receiver once a device is available', async () => {
+			const fake = makeFakeCastGlobals('not_connected');
+			vi.stubGlobal('cast', fake.cast);
+			vi.stubGlobal('chrome', fake.chrome);
+
+			render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '4.1',
+						name: 'KDFW',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+
+			const castBtn = await screen.findByRole('button', { name: 'Cast' });
+			await fireEvent.click(castBtn);
+
+			await vi.waitFor(() => expect(createChannelHlsSessionForCast).toHaveBeenCalledWith('4.1'));
+			await vi.waitFor(() =>
+				expect(fake.context.getCurrentSession()?.loadMedia).toHaveBeenCalledWith(
+					expect.objectContaining({
+						media: expect.objectContaining({
+							contentUrl: 'https://example.com/api/hls/sess-4.1/tok/playlist.m3u8',
+						}),
+					}),
+				),
+			);
+			expect(await screen.findByRole('button', { name: 'Stop Casting' })).toBeInTheDocument();
+		});
+
+		it('requests the Cast session before minting the (slow) backend HLS session, not after', async () => {
+			// Regression guard: requestSession() opens Chrome's native device
+			// picker, which only works while the click's user-activation is
+			// still live. Previously this app awaited the backend HLS-session
+			// call (which can take several real seconds while ffmpeg spins up)
+			// *before* calling requestSession() - by the time it ran, the
+			// picker's gesture window had expired, requestSession() never
+			// resolved, and the button hung on "Connecting..." forever. Model
+			// that slowness here with a delayed backend response and assert
+			// requestSession() is still called (and resolves) first.
+			const fake = makeFakeCastGlobals('not_connected');
+			vi.stubGlobal('cast', fake.cast);
+			vi.stubGlobal('chrome', fake.chrome);
+			let resolveBackendCall!: () => void;
+			createChannelHlsSessionForCast.mockImplementationOnce(
+				(channelNumber: string) =>
+					new Promise((resolve) => {
+						resolveBackendCall = () =>
+							resolve({
+								session_id: `sess-${channelNumber}`,
+								playlist_url: `https://example.com/api/hls/sess-${channelNumber}/tok/playlist.m3u8`,
+							});
+					}),
+			);
+
+			render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '4.1',
+						name: 'KDFW',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+
+			const castBtn = await screen.findByRole('button', { name: 'Cast' });
+			await fireEvent.click(castBtn);
+
+			// The device picker (requestSession) must already have resolved -
+			// and the receiver session must already exist - well before the
+			// backend call is allowed to finish, proving it wasn't blocked
+			// behind that slow await.
+			await vi.waitFor(() => expect(fake.context.requestSession).toHaveBeenCalledTimes(1));
+			expect(fake.context.getCurrentSession()).not.toBeNull();
+
+			resolveBackendCall();
+			await vi.waitFor(() =>
+				expect(fake.context.getCurrentSession()?.loadMedia).toHaveBeenCalledTimes(1),
+			);
+		});
+
+		it('keeps casting alive across an SPA navigation (component unmount), and lets a freshly-mounted player stop it', async () => {
+			// Regression guard: CastButton's onDestroy used to unconditionally
+			// call endCastSession()/stop the backend session whenever it
+			// unmounted - which happens on every client-side route navigation
+			// away from the player, not just when the user actually wants to
+			// stop casting. window.cast's CastContext is page-scoped and
+			// survives navigation on its own; the backend session id is now
+			// tracked at module scope (cast-loader.ts) so a CastButton mounted
+			// on a later page can still discover and stop the right session.
+			const fake = makeFakeCastGlobals('not_connected');
+			vi.stubGlobal('cast', fake.cast);
+			vi.stubGlobal('chrome', fake.chrome);
+
+			const { unmount } = render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '4.1',
+						name: 'KDFW',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+
+			const castBtn = await screen.findByRole('button', { name: 'Cast' });
+			await fireEvent.click(castBtn);
+			await vi.waitFor(() => expect(fake.context.getCurrentSession()?.loadMedia).toHaveBeenCalledTimes(1));
+
+			unmount();
+			expect(stopHlsSession).not.toHaveBeenCalled();
+			expect(fake.context.endCurrentSession).not.toHaveBeenCalled();
+			// Still connected as far as the Cast SDK itself is concerned.
+			expect(fake.context.getCastState()).toBe('connected');
+
+			// A CastButton mounted on a different "page" after navigation.
+			render(HDHomeRunPlayer, {
+				props: {
+					...props,
+					channel: {
+						channel_number: '5.1',
+						name: 'KXAS',
+						is_hd: true,
+						is_drm: false,
+						stream_url: '',
+						playback_url: null,
+						now: null,
+						next: null,
+					},
+				},
+			});
+
+			const stopBtn = await screen.findByRole('button', { name: 'Stop Casting' });
+			await fireEvent.click(stopBtn);
+
+			await vi.waitFor(() => expect(stopHlsSession).toHaveBeenCalledWith('sess-4.1'));
+		});
+	});
+
+	describe('Jellyfin Player UI & Controls', () => {
+		it('toggles play/pause and center flash animation on click and Space key', async () => {
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const playBtn = screen.getByRole('button', { name: /Pause/i });
+			expect(playBtn).toBeInTheDocument();
+
+			const videoContainer = screen.getByRole('button', { name: '' });
+			await fireEvent.click(videoContainer);
+
+			// Space key toggles play/pause
+			await fireEvent.keyDown(window, { key: ' ' });
+		});
+
+		it('calculates dynamic Ends at timestamp for seekable recordings and LIVE for live channels', async () => {
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 7200,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+			});
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			expect(await screen.findByText(/Ends at/i)).toBeInTheDocument();
+		});
+
+		it('supports Fullscreen toggle via button and F key', async () => {
+			const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+			const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+			HTMLElement.prototype.requestFullscreen = requestFullscreen;
+			document.exitFullscreen = exitFullscreen;
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const fsBtn = screen.getByRole('button', { name: /Fullscreen/i });
+			await fireEvent.click(fsBtn);
+			expect(requestFullscreen).toHaveBeenCalled();
+
+			await fireEvent.keyDown(window, { key: 'f' });
+		});
+
+		it('supports Picture-in-Picture toggle via button and P key when supported', async () => {
+			Object.defineProperty(document, 'pictureInPictureEnabled', { value: true, configurable: true });
+			const requestPiP = vi.fn().mockResolvedValue({});
+			HTMLVideoElement.prototype.requestPictureInPicture = requestPiP;
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const pipBtn = await screen.findByRole('button', { name: /Picture in Picture/i });
+			await fireEvent.click(pipBtn);
+			expect(requestPiP).toHaveBeenCalled();
+
+			await fireEvent.keyDown(window, { key: 'p' });
+		});
+
+		it('toggles mute and persists volume', async () => {
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const muteBtn = screen.getByRole('button', { name: /Mute/i });
+			await fireEvent.click(muteBtn);
+			expect(screen.getByRole('button', { name: /Unmute/i })).toBeInTheDocument();
+
+			await fireEvent.keyDown(window, { key: 'm' });
+			expect(screen.getByRole('button', { name: /Mute/i })).toBeInTheDocument();
+		});
+
+		it('opens Settings menu and allows changing playback rate', async () => {
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const settingsBtn = screen.getByRole('button', { name: /Settings/i });
+			await fireEvent.click(settingsBtn);
+
+			expect(screen.getByText(/Playback Settings/i)).toBeInTheDocument();
+			const speedBtn = screen.getByRole('button', { name: /Speed/i });
+			await fireEvent.click(speedBtn);
+
+			const speed15 = screen.getByRole('button', { name: /1.5x/i });
+			await fireEvent.click(speed15);
+		});
+
+		it('opens and closes SyncPlay modal', async () => {
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const syncplayBtn = screen.getByRole('button', { name: /SyncPlay/i });
+			await fireEvent.click(syncplayBtn);
+
+			expect(screen.getByText('SyncPlay Watch Party')).toBeInTheDocument();
+			const createBtn = screen.getByRole('button', { name: /Create New Watch Room/i });
+			await fireEvent.click(createBtn);
+
+			expect(screen.getByText(/Room Code:/i)).toBeInTheDocument();
+			const leaveBtn = screen.getByRole('button', { name: /Leave Room/i });
+			await fireEvent.click(leaveBtn);
+		});
 	});
 });

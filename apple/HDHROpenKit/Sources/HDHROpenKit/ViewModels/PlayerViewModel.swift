@@ -42,6 +42,13 @@ public final class PlayerViewModel: ObservableObject {
     // `@testable import` test code can seed and inspect it directly.
     static let captionPollIntervalNanos: UInt64 = 1_500_000_000 // 1.5s, mirrors Android's CAPTION_POLL_INTERVAL_MS
     static let liveCueStretchSeconds: Double = 4.0 // mirrors Android's LIVE_CUE_STRETCH_SECONDS
+    // Caps how far behind "now" a stretched cue's slot can be pushed by a
+    // burst of backlog (see alignLiveCues's cursor-reset comment for why
+    // this exists - mirrors web's caption-controller.ts LIVE_CUE_MAX_
+    // CATCHUP_SECONDS from the CC-13 freeze fix). Past this cap, further
+    // backlog cues are left unstretched (naturally expired, dropped from
+    // display) instead of extending the queue arbitrarily far forward.
+    static let liveCueMaxCatchupSeconds: Double = 20.0
     var lastRawCues: [CaptionCue] = []
     var stretchedCueDisplay: [String: (start: Double, end: Double)] = [:]
     var nextStretchSlotAbsolute: Double = 0.0
@@ -375,6 +382,16 @@ public final class PlayerViewModel: ObservableObject {
         let playerTime = playerEngine.currentTime
         let baseOffsetSeconds = elapsedCaptureSeconds - playerTime
 
+        // Re-anchor to "now" on every call instead of trusting wherever a
+        // previous, separate call left the cursor. Without this, the cursor
+        // advances by liveCueStretchSeconds per newly-stretched cue - slower
+        // than real cue cadence (~2.85s avg observed) - so it drifts further
+        // ahead of real time on every poll and never catches back up, pinning
+        // near the cap below and queuing every cue after that behind an
+        // unreachable backlog: a permanent freeze, not a bounded lag. Same
+        // bug and fix as web's caption-controller.ts (CC-13).
+        nextStretchSlotAbsolute = elapsedCaptureSeconds
+
         return cues.compactMap { cue in
             let window: (start: Double, end: Double)
             if let stretched = stretchedCueDisplay[cue.id] {
@@ -385,10 +402,14 @@ public final class PlayerViewModel: ObservableObject {
                     window = (cue.start, cue.end)
                 } else {
                     let slotStart = max(cue.start, max(nextStretchSlotAbsolute, elapsedCaptureSeconds))
-                    let slotEnd = slotStart + Self.liveCueStretchSeconds
-                    stretchedCueDisplay[cue.id] = (slotStart, slotEnd)
-                    nextStretchSlotAbsolute = slotEnd
-                    window = (slotStart, slotEnd)
+                    if slotStart - elapsedCaptureSeconds > Self.liveCueMaxCatchupSeconds {
+                        window = (cue.start, cue.end)
+                    } else {
+                        let slotEnd = slotStart + Self.liveCueStretchSeconds
+                        stretchedCueDisplay[cue.id] = (slotStart, slotEnd)
+                        nextStretchSlotAbsolute = slotEnd
+                        window = (slotStart, slotEnd)
+                    }
                 }
             }
             let displayEnd = window.end - baseOffsetSeconds

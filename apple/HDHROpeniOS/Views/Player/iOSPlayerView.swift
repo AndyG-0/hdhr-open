@@ -125,6 +125,10 @@ public struct iOSPlayerView: View {
                                 .font(.title3)
                                 .foregroundColor(playerViewModel.captionController.isEnabled ? .yellow : .white)
                         }
+
+                        // AirPlay Route Picker
+                        AirPlayRoutePickerView()
+                            .frame(width: 24, height: 24)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)

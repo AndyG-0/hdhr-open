@@ -24,8 +24,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.mediarouter.app.MediaRouteButton
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import com.google.android.gms.cast.framework.CastButtonFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,6 +59,7 @@ fun PlayerScreen(
     val transcodeInfo by playerEngine.transcodeInfo.collectAsState()
     val observedBitrateBps by playerEngine.observedBitrateBps.collectAsState()
     val playbackMode by playerViewModel.playbackMode.collectAsState()
+    val isCasting by playerEngine.isCasting.collectAsState()
 
     val captionController = playerViewModel.captionController
     val activeCaptionText by captionController.activeCueText.collectAsState()
@@ -260,14 +263,33 @@ fun PlayerScreen(
                             ),
                             maxLines = 1
                         )
-                        playerViewModel.mediaSubtitle?.let { sub ->
+                        if (isCasting) {
                             Text(
-                                text = sub,
-                                style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.8f)),
+                                text = "Casting to TV",
+                                style = MaterialTheme.typography.bodySmall.copy(color = YellowAccent),
                                 maxLines = 1
                             )
+                        } else {
+                            playerViewModel.mediaSubtitle?.let { sub ->
+                                Text(
+                                    text = sub,
+                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.8f)),
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
+
+                    // Cast Button - self-manages its route icon/state once wired
+                    // to the shared CastContext, so `update` has nothing to sync.
+                    AndroidView(
+                        factory = { ctx ->
+                            MediaRouteButton(ctx).apply {
+                                CastButtonFactory.setUpMediaRouteButton(ctx, this)
+                            }
+                        },
+                        modifier = Modifier.size(48.dp)
+                    )
 
                     // Playback Info Toggle
                     IconButton(onClick = { showPlaybackInfo = true }) {

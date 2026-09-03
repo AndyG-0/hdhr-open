@@ -334,17 +334,41 @@ Each client wires it up differently and incompletely — see below.
   Don't start this before that real-tuner verification, since the whole
   premise depends on it.
 
-- [ ] **CC-11 — Android: simplify live-caption lag-compensation logic once
-  CC-8/CC-9 are verified on real hardware.** Same follow-up as CC-10, for
-  Android's equivalent logic (`LIVE_CUE_STRETCH_SECONDS`, `alignLiveCues`,
-  `stretchedCueDisplay` in `PlayerViewModel.kt`), built during CC-1/CC-6 to
-  cope with the same late-batch-arrival pattern CC-8 addresses server-side.
+- [x] **CC-11 — Android: fix the same permanent live-caption freeze CC-13
+  found and fixed on web.** Scope note: the ticket originally envisioned
+  "simplify lag-compensation logic once CC-8/CC-9 are verified on real
+  hardware" — that broader simplification is **still blocked** on real-tuner
+  verification and was **not** attempted here (same precondition as CC-10,
+  unchanged below). What actually shipped instead: `PlayerViewModel.kt`'s
+  `alignLiveCues` (`~line 453`) had the exact same bug CC-13 found on web —
+  `nextStretchSlotAbsolute` advanced by `LIVE_CUE_STRETCH_SECONDS` per
+  stretched cue but was never reset to "now" at the top of each call, so it
+  drifted monotonically ahead of real time across *separate* polls and
+  pinned every later cue behind an unreachable backlog. This is a live,
+  reproducible bug independent of CC-8/CC-9's real-tuner caveat (CC-13
+  verified its web fix the same way, with a two-separate-polls unit test),
+  so it's fixed now rather than left to wait on hardware that isn't the
+  actual blocker. Fix: reset the cursor to "now" at the top of every
+  `alignLiveCues` call, plus a new `LIVE_CUE_MAX_CATCHUP_SECONDS` (20s,
+  mirroring web's constant) cap so a large backlog burst is left unstretched
+  past that point instead of queuing arbitrarily far into the future.
+  Regression tests added mirroring CC-13's shape (two stale cues delivered
+  on two separate poll-equivalent calls; a 20s+ backlog burst). Full
+  `./gradlew :core:test` suite green.
 
-- [ ] **CC-12 — iOS/tvOS: simplify live-caption lag-compensation logic once
-  CC-8/CC-9 are verified on real hardware.** Same follow-up as CC-10/CC-11,
-  for the Swift port of the same logic in
-  `apple/HDHROpenKit/.../PlayerViewModel.swift`, built during CC-7 to match
-  Android's CC-6 behavior.
+- [x] **CC-12 — iOS/tvOS: fix the same permanent live-caption freeze CC-13
+  found and fixed on web.** Same scope note as CC-11: the broader "simplify
+  lag-compensation" work this ticket originally envisioned is still blocked
+  on CC-8/CC-9's real-tuner verification and wasn't attempted — this ported
+  CC-11's Android freeze-bug fix 1:1 to `apple/HDHROpenKit/Sources/
+  HDHROpenKit/ViewModels/PlayerViewModel.swift`'s `alignLiveCues`
+  (structural parity with Android maintained since CC-7): reset
+  `nextStretchSlotAbsolute` to "now" at the top of every call, plus a
+  `liveCueMaxCatchupSeconds` (20.0) cap. Two new regression tests in
+  `PlayerViewModelSeekResyncTests.swift` mirror CC-11/CC-13's shape
+  (`testStretchCursorReAnchorsToNowEachCallInsteadOfDriftingAcrossSeparatePolls`,
+  `testStaleCuesBeyondTheMaxCatchupCapAreLeftUnstretchedInsteadOfQueuedForever`).
+  Full `swift test --package-path apple/HDHROpenKit` suite green (36/36).
 
 - [x] **CC-13 — Web: fix permanent live-caption freeze; Backend: fix a
   second CC track leaking into the primary caption text.** Two bugs found
@@ -400,65 +424,59 @@ Each client wires it up differently and incompletely — see below.
     that shouldn't) but not against a real dual-language broadcast. See
     CC-14 for the follow-up that actually needs one.
 
-- [ ] **CC-14 — Backend + Web: let the user pick a CC track when a
-  recording/live channel has more than one.** Follow-up to CC-13: now that
-  the primary track leak is fixed, some broadcasts (sports especially)
-  genuinely do carry a second CEA-608 channel (CC3, "usually Spanish" per
-  `ccextractor --help`) or a second CEA-708 service worth exposing, instead
-  of just discarding it. Scoped as backend + web only for the first pass,
-  matching how CC-8 and CC-1/CC-6→CC-7 landed backend/one-client first —
-  native parity (mirroring CC-10/CC-11/CC-12's per-platform follow-up
-  pattern) is a separate future ticket once this is verified on web.
-  - **Open question this needs a spike to answer, not a blind
-    implementation:** how to detect a second track exists without paying
-    full decode cost on every capture. Unlike audio tracks (enumerable
-    cheaply from stream probe metadata, already surfaced via
-    `recording-detail`'s `audio: []`), CEA-608/708 channel occupancy isn't
-    visible without actually decoding — `ffprobe`'s `ATSC A53 Part 4 Closed
-    Captions` side-data (see CC-8's spike) just says *some* CC data is
-    present, not which of CC1-4/708 services carry real content.
-  - **`-12` (combined-channel) ccextractor flag is not a safe shortcut as
-    tested**: piping the same local sample recording through `ccextractor
-    -stdin -12 -out=srt -stdout --quiet` produced ccextractor's own
-    crash-report banner ("Issues? Open a ticket...") straight onto stdout —
-    the exact stream `_parse_srt_block` parses — instead of clean SRT.
-    `-1` and `-2` run separately (each ccextractor's own already-proven
-    single-channel path from CC-8/CC-13) is the safer starting point;
-    `-2` against the same local sample produced zero cues, confirming that
-    recording has no real secondary-channel content and can't validate a
-    picker on its own — this needs either a live tuner capture of a
-    genuinely dual-language broadcast, or synthetic/crafted CC2 test data.
-  - **Recommended approach to spike first:** run the secondary-channel
-    `ccextractor -2` decode lazily/on-demand (started only when a client
-    asks for track availability or selects the second track) rather than
-    unconditionally for every capture, since running it always-on doubles
-    per-capture caption-decode CPU for the common single-track case — a
-    real cost on the Raspberry Pi arm64 target called out in CC-9, not yet
-    measured. If a lazy secondary decode produces no cues within a grace
-    period, the client should treat that track as unavailable rather than
-    showing a permanently blank caption option.
-  - **Backend, once the detection approach is settled**
-    (`backend/app/dvr/media_cache.py`): a second long-lived `ccextractor
-    -2` process per active capture (mirroring `_run_live_caption_
-    ccextractor_process`'s existing `-1` supervision/restart/circuit-
-    breaker logic), writing to its own sidecar file (e.g.
-    `{recording_id}.cc2.live.vtt`) rather than appending to the existing
-    `.live.vtt`. New API surface to expose which tracks exist and let a
-    client select one — likely a query param on
-    `GET /api/dvr/recording-captions.vtt` (e.g. `?track=2`) plus a track-
-    list field on `recording-detail`, mirroring the existing `audio: []`
-    array's shape.
-  - **Web** (`frontend/src/lib/caption-controller.ts`,
-    `HDHomeRunPlayer.svelte`): a track picker mirroring the existing
-    `currentAudioIndex` audio-track selector pattern — only shown when
-    `recording-detail` reports more than one caption track, switching
-    `pollLiveCaptions()`/`loadCaptions()`'s target URL and resetting
-    `captionCues`/the stretch cursor on switch.
-  - Tests: backend coverage in `test_media_cache.py` for the second
-    supervised process (mirroring the existing `-1` process's tests) and
-    track-selection query param; frontend coverage in
-    `HDHomeRunPlayer.test.ts` for the picker UI and track-switch reset
-    behavior.
+- [x] **CC-14 — Backend + Web: let the user pick a CC track when a
+  recording/live channel has more than one.** Follow-up to CC-13: some
+  broadcasts (sports especially) genuinely carry a second CEA-608 channel
+  ("usually Spanish" per `ccextractor --help`) worth exposing instead of
+  just discarding it. Landed the recommended lazy/on-demand approach from
+  this ticket's own spike notes, **scoped to in-progress (live) recordings
+  only** — a deliberate, disclosed cut, not an oversight (see gap below).
+  - **Backend** (`backend/app/dvr/media_cache.py`): threaded a
+    `channel: int = 1` parameter through the existing live-caption
+    pipeline instead of duplicating it — `_live_caption_tasks` and
+    `_live_caption_disabled` are now keyed by `(recording_id, channel)`
+    tuples so channel 1/2 supervision loops for the same recording don't
+    collide; `_run_live_caption_process_once`'s hardcoded `-1` argv flag
+    became `f"-{channel}"`. New channel-2-specific detection: since an
+    absent second track isn't a crash (process stays alive, emits zero
+    cues), a `_LIVE_CAPTION_TRACK2_GRACE_SECONDS` (20.0) timer treats
+    "still alive, zero cues, grace period elapsed" as `"unavailable"`
+    rather than restarting forever — reuses the existing
+    `_live_caption_disabled` set/idempotency check rather than adding a new
+    state store. New `live_caption_track2_status()` accessor for the API
+    layer.
+  - **API** (`backend/app/api/dvr.py`): `GET /api/dvr/recording-
+    captions.vtt` takes `?track=1|2` (400 for anything else); `recording-
+    detail` gained `secondary_captions: "unknown"|"available"|
+    "unavailable"|null` (`null` = finished recording or never requested).
+  - **Finished-recording gap, named as a follow-up, not silently
+    unsupported:** finished recordings still decode via ffmpeg's
+    `movie`/`subcc` filter, which has no verified way to select CEA-608
+    channel 2 in this ffmpeg build, and piping a finished recording through
+    ccextractor instead would mean fetching its (possibly remote) URL to a
+    local byte stream first — bigger than this ticket's scope. A finished
+    recording's `?track=2` request returns an explicit 404 ("Secondary
+    caption track not available for finished recordings") rather than
+    pretending to support it.
+  - **Web** (`frontend/src/lib/api.ts`, `caption-controller.ts`,
+    `HDHomeRunPlayer.svelte`): `hdhomerunRecordingCaptionsUrl` takes an
+    optional `track` option; new `switchCaptionTrack()` on the caption
+    controller resets `captionCues`/the stretch cursor and clears the
+    native TextTrack before the caller re-fetches on the new track. Track
+    picker mirrors the existing `currentAudioIndex` audio-track popover —
+    shown only when `secondary_captions !== null` (i.e., an in-progress
+    recording where a second track is at least conceivable); Track 2
+    renders disabled (not hidden) when `secondary_captions ===
+    'unavailable'`, so the user sees it was checked rather than just
+    missing.
+  - **Testing caveat, consistent with every other CC ticket's real-hardware
+    note:** verified with fakes (the same way CC-8/CC-13's own suites fake
+    ccextractor's stdout), not against a real dual-language broadcast — no
+    such fixture exists locally (confirmed: `ccextractor -2` produces zero
+    output on both local sample recordings, per CC-14's original spike
+    notes). Backend suite green (547/547), frontend suite green (281/281,
+    including new track-picker/track-switch/disabled-when-unavailable
+    tests in `HDHomeRunPlayer.test.ts`).
 
 - [x] **CC-5 — Scheduled Tasks admin, backend primitives.** Backend
   job-registry + runner + status/history API landed; the admin UI page is
@@ -888,4 +906,455 @@ masking the actual client device (e.g. iPhone, Apple TV) using the tuner.
     `asyncssh` connection path are verified only against mocked SSH output/errors, not real
     hardware — same caveat CC-8/CC-9 flagged for real-tuner testing.
 
+## Cast & AirPlay Support
+
+Wireless playback handoff from the player across web, Apple (iOS/tvOS), and Android devices.
+Because external devices (Apple TV via AirPlay 2, Chromecast / Google Cast receivers) cannot
+directly consume raw `mpegts.js` Media Source Extension (MSE) buffer pipes, Google Cast and
+Android re-route to real per-session HLS (there is no static manifest URL — HLS is inherently
+session-based: `POST /api/streaming/hls/{channel_number}` or `POST /api/dvr/recording-stream-hls`
+spins up ffmpeg and returns a dynamic `playlist_url` to `GET`). Apple's native AirPlay doesn't need
+this at all — it relays the sender's own already-authenticated `AVPlayer`, not an independent
+device fetch.
+
+- [x] **CAST-1 — Web: AirPlay (Safari) & Google Cast Web Sender SDK Player Integration.**
+  Done. AirPlay: `x-webkit-airplay="allow"` on the `<video>` element in `HDHomeRunPlayer.svelte`, a
+  feature-detected `webkitplaybacktargetavailabilitychanged` listener toggling the button, and
+  `webkitShowPlaybackTargetPicker()` on click — no source swap needed, since AirPlay mirrors
+  whatever the `<video>` element is currently rendering (mpegts.js keeps decoding locally via MSE
+  and its output is relayed as-is); that's unlike Cast, where the *receiver device* itself has to
+  fetch the stream. Google Cast: new `frontend/src/lib/cast/cast-loader.ts` (lazy Cast Sender SDK
+  load, `CastContext`/`RemotePlayer` wrappers) and `frontend/src/lib/components/player/CastButton.svelte`,
+  wired into the player's header controls. New `api.createChannelHlsSessionForCast`/
+  `createRecordingHlsSessionForCast`/`stopHlsSession` in `api.ts` call the backend's HLS session
+  endpoints with `for_cast: true` and resolve the returned (API-relative) `playlist_url` to an
+  absolute URL — the Cast receiver fetches it directly over the LAN, not through the page, so it
+  can't be page-relative. **Tests**: `HDHomeRunPlayer.test.ts` — AirPlay button visibility/picker
+  invocation, Cast button visibility and loading a `for_cast` session onto a faked receiver
+  session; 284/284 passing, `svelte-check` clean. **Verification ceiling**: real Safari AirPlay
+  picker/route relay and real Chromecast receiver playback of the `for_cast` HLS stream (segment
+  fetch through the new cast-token auth path, `DEFAULT_MEDIA_RECEIVER_APP_ID`'s default receiver
+  handling this content) were not verified against real hardware in this environment.
+  Add wireless casting and AirPlay handoff to the web player (`HDHomeRunPlayer.svelte`):
+  - **AirPlay (WebKit / Safari)**:
+    - Add `x-webkit-airplay="allow"` and `webkit-playsinline` to the `<video>` element.
+    - Track `window.WebKitPlaybackTargetAvailabilityEvent` (`webkitplaybacktargetavailabilitychanged`)
+      to conditionally show the AirPlay button in the player control bar.
+    - Wire button click to `videoElement.webkitShowPlaybackTargetPicker()`.
+    - Handle `webkitcurrentplaybacktargetiswireless`: dynamically switch the video element source
+      from the `mpegts.js` MSE stream to the direct HLS stream URL (`/api/streaming/hls/...`
+      or `/api/dvr/recordings/.../master.m3u8`) with the current viewer's session/token query
+      parameters so the AirPlay receiver can decode and play the native stream seamlessly.
+  - **Google Cast Web Sender SDK**:
+    - Load Cast Framework script (`https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1`)
+      lazily in `frontend/src/lib/cast/cast-loader.ts`.
+    - Initialize `cast.framework.CastContext.getInstance().setOptions({ receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED })`.
+    - Add a Cast launcher button (using `<google-cast-launcher>` or custom Svelte reactive state
+      via `cast.framework.CastContextEventType.CAST_STATE_CHANGED`).
+    - On session start, create `chrome.cast.media.MediaInfo` pointing to the full absolute HLS
+      manifest URL (MIME `application/x-mpegurl`), populating metadata (show title, channel name/number,
+      poster art, and live/vod stream type).
+    - Synchronize remote player state (play, pause, seek, volume, progress) with `cast.framework.RemotePlayerController`.
+  - **Files**:
+    - `frontend/src/lib/cast/cast-loader.ts` (NEW: Cast SDK loader and session management)
+    - `frontend/src/lib/components/player/CastButton.svelte` (NEW: Cast / AirPlay button UI)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: video attributes, HLS stream swap, controls)
+    - `frontend/src/lib/api.ts` (MODIFY: full absolute HLS URL builder helper for external receivers)
+
+- [x] **CAST-2 — iOS/tvOS: Native AirPlay Route Picker & AVPlayer AudioSession Configuration.**
+  Done. `PlayerEngine.swift`: `allowsExternalPlayback`/`usesExternalPlaybackWhileExternalScreenIsActive`
+  set explicitly in `init()`; `AVAudioSession` configured (`.playback`/`.moviePlayback`, previously
+  entirely absent from the codebase) — `.longFormVideo` policy on iOS only, since that enum case
+  doesn't exist on tvOS; new `@Published var isExternalPlaybackActive` driven by a Combine
+  `.publisher(for: \.isExternalPlaybackActive)` observer. New shared
+  `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/AirPlayRoutePickerView.swift`
+  (`UIViewRepresentable` wrapping `AVRoutePickerView`, following `PlayerLayerView.swift`'s bridge
+  pattern) — lives in the Kit package, not iOS-only, since tvOS needs it too. iOS: route picker in
+  the player's top nav bar icon group. tvOS: placed inside `TVPlayerSettingsOverlay` (a new
+  `.airplay` case) rather than the always-visible control bar, since `AVRoutePickerView` is itself
+  focusable and this codebase deliberately keeps AVKit's own chrome from competing with the
+  hand-rolled Siri Remote focus handling (see `PlayerLayerView.swift`'s doc comment). Also fixed a
+  real bug found during planning: both `HDHROpeniOSApp.swift` and `HDHROpenTVApp.swift` called
+  `closePlayer()` unconditionally on `scenePhase == .background`, which would kill an active
+  AirPlay session the instant the app backgrounds — both now skip that teardown specifically when
+  `isExternalPlaybackActive` is true. **Tests**: new `PlayerEngineExternalPlaybackTests.swift`
+  (external-playback flags post-`init()`); `swift test --package-path apple/HDHROpenKit` 36/36,
+  `xcodebuild` clean on both iOS and tvOS simulator targets. **Verification ceiling**: real AirPlay
+  route negotiation, `isExternalPlaybackActive` toggling from actual hardware, and audio surviving
+  backgrounding with the new `AVAudioSession` config were not verified against a real AirPlay
+  receiver.
+
+- [x] **CAST-3 — Android: Google Cast Framework & Media3 CastPlayer Integration.**
+  Done. Added `media3-cast`, `play-services-cast-framework`, and `androidx.mediarouter` (needed for
+  `MediaRouteButton`/`CastButtonFactory`, not in the original scope) to
+  `android/{app,core}/build.gradle.kts`; new `CastOptionsProvider.kt` + manifest
+  `OPTIONS_PROVIDER_CLASS_NAME` meta-data. `PlayerEngine.kt`: a `Player`-typed `CastPlayer` field
+  (not the concrete `CastPlayer` class — its static initializer touches an unmocked Android stub,
+  which broke this module's plain-JUnit/mockk unit tests; every call site only needs the common
+  `Player` interface anyway), `isCasting: StateFlow<Boolean>` via `SessionManagerListener`, a
+  computed `activePlayer` all playback calls route through, real `MediaMetadata` on every
+  `MediaItem`, and a Cast-specific `loadMedia` path that hands the receiver the server's
+  `for_cast=true` `playlist_url` directly (via the new `StreamURLBuilder.resolve()`, never
+  reconstructing the cast-token path from `sessionId` alone). `forCast` threaded through
+  `APIClient`/`APIEndpoints` and all three `PlayerViewModel.kt` HLS-session call sites.
+  `PlayerScreen.kt`: `MediaRouteButton` + "Casting to TV" status text. **Tests**: new
+  `PlayerEngineCastTest.kt`/`PlayerViewModelCastTest.kt` (activePlayer routing, `forCast=true`
+  threading, `MediaMetadata` population), mocking `CastContext`/`CastSession` rather than
+  instantiating real GMS Cast objects; `:core:test` (debug+release) and `:app:test` green, 46/46 in
+  `:core:testDebugUnitTest`, no regressions. **Verification ceiling**: real Chromecast route
+  discovery/negotiation, `SessionManagerListener` callbacks from a live session, and
+  `CastOptionsProvider` resolution were not verified against real hardware.
+
+## Synchronized Playback & SyncPlay (Watch Parties)
+
+Investigation and implementation of synchronized co-watching solutions across platforms,
+enabling shared streaming, room management, and monotonic clock synchronization.
+
+- [ ] **SYNC-1 — Backend: SyncPlay WebSocket Room Coordinator, Monotonic Clock Sync, & State Broadcasting.**
+  Build a high-performance, lightweight SyncPlay hub in FastAPI:
+  - **Room Lifecycle Management** (`backend/app/api/syncplay.py`, `backend/app/syncplay/room_manager.py`):
+    - `POST /api/syncplay/rooms`: Create a watch room with a shareable 6-character code and optional password.
+    - `GET /api/syncplay/rooms`: List active public/household rooms.
+    - `GET /api/syncplay/rooms/{room_id}`: Room details, current stream media reference (channel number, recording ID, or play URL), and participant list.
+  - **WebSocket Real-Time Synchronization Engine** (`WS /api/syncplay/ws/{room_id}`):
+    - Centralized room state broadcasting player actions (`play`, `pause`, `seek`, `change_media`, `buffering_state`) with server-side monotonic timestamps (`monotonic_ns`).
+    - Periodic ping/pong heartbeat to measure Round-Trip Time (RTT) and calculate individual client clock offsets.
+    - Smooth drift correction protocol: Clients adjust playback rate (`playbackRate = 1.02` or `0.98`) for minor clock drifts (<1s) or perform hard seeks for large discrepancies (>2s).
+  - **Files**:
+    - `backend/app/syncplay/__init__.py` (NEW)
+    - `backend/app/syncplay/room_manager.py` (NEW: in-memory / redis room coordinator)
+    - `backend/app/api/syncplay.py` (NEW: FastAPI WebSocket and REST router)
+    - `backend/app/main.py` (MODIFY: mount syncplay router)
+    - `backend/tests/test_syncplay.py` (NEW: unit & WebSocket integration tests)
+
+- [ ] **SYNC-2 — Web: Jellyfin SyncPlay Client Integration, Top-Bar Button, & Watch Party Room Modal.**
+  Implement the full SyncPlay client experience in the web player matching the Jellyfin design:
+  - **Top-Bar SyncPlay Button & Status Indicator**:
+    - Add SyncPlay button (group / two-person icon matching Jellyfin screenshot) in `PlayerHeader.svelte`.
+    - Badge showing current room participant count and synchronization health (green/yellow/red dot).
+  - **Watch Party Modal / Drawer (`SyncPlayModal.svelte`)**:
+    - Create Room or Join by code / invite link.
+    - Active participant list with usernames, playback status (playing/paused), buffer readiness, and ping.
+    - "Ready to watch" toggle and host control options (lock controls to host only).
+  - **Client Synchronization Logic (`syncplay-client.ts`)**:
+    - WebSocket connection management, automatic reconnection with backoff.
+    - Monotonic clock calibration using NTP-style ping/pong filter.
+    - Dynamic video element speed adjustment (`playbackRate` micro-nudges) and hard seek snapping.
+    - Non-intrusive in-player toast alerts ("Alice paused playback", "Bob seeked to 18:45").
+  - **Files**:
+    - `frontend/src/lib/syncplay-client.ts` (NEW)
+    - `frontend/src/lib/components/player/SyncPlayButton.svelte` (NEW)
+    - `frontend/src/lib/components/player/SyncPlayModal.svelte` (NEW)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: integrate syncplay client)
+    - `frontend/src/lib/components/HDHomeRunPlayer.test.ts` (MODIFY: test syncplay integration)
+
+- [ ] **SYNC-3 — Native Clients: Cross-Platform SyncPlay Parity for iOS/tvOS & Android.**
+  Enable cross-platform SyncPlay on Apple and Android apps so all devices can join the same co-watching rooms:
+  - **Apple (`HDHROpenKit`)**:
+    - Add `SyncPlayCoordinator.swift` managing the WebSocket connection and state synchronization with `PlayerEngine.swift`.
+    - `iOSSyncPlayModal.swift` and `TVSyncPlayModal.swift` for room creation, joining, and participant roster.
+  - **Android (`:core` & `app`)**:
+    - Add `SyncPlayCoordinator.kt` in `:core` and `SyncPlayDialog.kt` in Jetpack Compose.
+    - Bind room events to `PlayerEngine.kt`'s ExoPlayer instance (`setPlaybackSpeed`, `seekTo`).
+  - **Files**:
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/SyncPlay/SyncPlayCoordinator.swift` (NEW)
+    - `apple/HDHROpeniOS/Views/Player/iOSSyncPlayModal.swift` (NEW)
+    - `apple/HDHROpenTV/Views/Player/TVSyncPlayModal.swift` (NEW)
+    - `android/core/src/main/kotlin/org/hdhropen/kit/syncplay/SyncPlayCoordinator.kt` (NEW)
+    - `android/app/src/main/kotlin/org/hdhropen/app/ui/screens/player/SyncPlayDialog.kt` (NEW)
+
+- [ ] **SHARE-1 — Apple Platforms: Native SharePlay via GroupActivities & AVPlayerPlaybackCoordinator.**
+  Implement native Apple SharePlay for iOS, iPadOS, and tvOS clients:
+  - **Feasibility & Platform Support**:
+    - SharePlay is an Apple-proprietary framework built on `GroupActivities` and `AVFoundation`,
+      integrated directly into FaceTime and iMessage on iOS 15.1+, tvOS 15.1+, and macOS 12.1+.
+    - **Native Apple Apps**: Fully supported out of the box via `AVPlayerPlaybackCoordinator`.
+  - **Implementation**:
+    - Define `WatchProgramActivity` struct conforming to `GroupActivity`:
+      ```swift
+      struct WatchProgramActivity: GroupActivity {
+          static let activityIdentifier = "org.hdhropen.watch-program"
+          let channelNumber: String?
+          let recordingId: String?
+          let title: String
+          var metadata: GroupActivityMetadata { ... }
+      }
+      ```
+    - Add `com.apple.developer.group-session` entitlement in `apple/HDHROpeniOS` and `apple/HDHROpenTV`.
+    - In `PlayerEngine.swift`, listen for incoming `GroupSession<WatchProgramActivity>` sessions.
+    - Attach `avPlayer.playbackCoordinator.coordinateWithSession(groupSession)` — `AVPlayer`
+      automatically synchronizes time, playback rate, seek events, and buffer state across peers.
+    - Add SharePlay trigger button in `iOSPlayerView.swift` and `TVPlayerView.swift` using
+      `GroupActivitySharingController` / SwiftUI `.sheet`.
+  - **Network & Access Considerations**:
+    - All FaceTime participants must be able to reach the stream URL (e.g. within the same LAN,
+      via Tailscale/VPN, or through a configured public HTTPS reverse proxy).
+  - **Files**:
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/SharePlayActivity.swift` (NEW: GroupActivity definitions)
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/PlayerEngine.swift` (MODIFY: playbackCoordinator session hookup)
+    - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY: SharePlay UI triggers)
+    - `apple/HDHROpenTV/Views/Player/TVPlayerView.swift` (MODIFY: tvOS SharePlay coordination)
+
+## Jellyfin Video Player UI/UX Parity & Controls
+
+Redesign the HDHR Open video player to achieve full visual and functional parity with the modern
+Jellyfin media player (as shown in reference screenshot), modularize player components, and provide
+fluid auto-hiding controls, responsive scrub bar, rich settings, and fullscreen controls.
+
+- [x] **PLAYER-1 — Web: Jellyfin-Style Modern Player Header, Footer Controls, & Auto-Hiding Overlay.**
+  Transform `HDHomeRunPlayer.svelte` into a polished, responsive player interface matching Jellyfin:
+  - **Auto-Hiding Controls Overlay**:
+    - Smoothly fades out header and footer controls after 3.5 seconds of mouse/touch inactivity during playback.
+    - Instantly reappears on mouse movement, touch, or keyboard navigation.
+    - Remains visible when playback is paused or when any popover/modal menu is open.
+  - **Top Header Bar (`PlayerHeader.svelte`)**:
+    - Left: Back / Exit button (`←`), title display (Show Title, Season/Episode if present, or Channel Name/Number).
+    - Right: SyncPlay Watch Party launcher (`👥`), Google Cast launcher (`📺`), AirPlay launcher (`⛶`), and Record action menu.
+    - Semi-transparent gradient backdrop (`rgba(0, 0, 0, 0.75)` with `backdrop-filter: blur(8px)`).
+  - **Bottom Footer Controls Bar (`PlayerFooter.svelte`)**:
+    - **Tier 1 (Timeline / Scrub Bar)**:
+      - Left timestamp: Current playback position (`0:06` / `1:23:45`).
+      - Center track: Interactive scrub bar with buffered ranges track, blue progress fill, circular scrubber thumb knob, and hover thumbnail preview.
+      - Right timestamp: Remaining time (`-4:14:53`), clickable to toggle between negative remaining time and total duration.
+    - **Tier 2 (Action Buttons)**:
+      - Left controls: Skip back 10s (`⏮`), Play/Pause toggle (`▶`/`⏸`), Skip forward 10s (`⏭`), and dynamic **"Ends at hh:mm AM/PM"** estimated completion time based on current wall-clock time plus remaining duration (or "LIVE" indicator for non-seekable live channels).
+      - Right controls: Favorite heart toggle (`♡`/`♥`), Picture-in-Picture (`⧉`), Audio stream selector (`♪`), Volume speaker icon with expandable horizontal volume slider, Bookmark ribbon (`🔖`), Settings gear (`⚙`), Closed Caption toggle (`CC`), and Fullscreen toggle (`⛶`).
+  - **Gesture & Keyboard Controls**:
+    - Single-click video canvas toggles Play/Pause with center ripple indicator; double-click toggles Fullscreen.
+    - Keybindings: Space (`Play/Pause`), `f` (`Fullscreen`), `m` (`Mute`), `p` (`PiP`), `c` (`Captions`), `j`/`Left` (`Rewind 10s`), `l`/`Right` (`Fast Forward 10s`), `Up`/`Down` (`Volume ±5%`), `Esc` (`Close Menu / Exit`).
+  - **Files**:
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: refactor layout and state management)
+    - `frontend/src/lib/components/player/PlayerHeader.svelte` (NEW: top header component)
+    - `frontend/src/lib/components/player/PlayerFooter.svelte` (NEW: bottom footer controls component)
+    - `frontend/src/lib/components/player/PlayerScrubBar.svelte` (NEW: modular scrub bar component)
+    - `frontend/src/lib/i18n/locales/en.json` (MODIFY: player localization strings)
+    - `frontend/src/lib/components/HDHomeRunPlayer.test.ts` (MODIFY: comprehensive component unit tests)
+
+- [x] **PLAYER-2 — Web: Jellyfin Iconography, Volume Slider, Playback Speed, Aspect Ratio, & Settings Menu.**
+  Replace legacy text/emoji icons with clean SVG icons and integrate rich playback settings:
+  - **Material / Jellyfin SVG Icon Set**:
+    - Create dedicated SVG icon components for Play, Pause, Skip Back, Skip Forward, Volume High/Med/Low/Mute, Favorite, PiP, Audio Note, Bookmark, Settings Gear, CC, and Fullscreen.
+  - **Interactive Volume Control (`PlayerVolumeControl.svelte`)**:
+    - Speaker icon toggles mute state; hovering or interacting reveals a horizontal slider with blue accent fill and thumb knob.
+    - Persists volume and muted state in `localStorage`.
+  - **Playback Settings Menu (`PlayerSettingsMenu.svelte`)**:
+    - Playback Speed selector: `0.5x`, `0.75x`, `1.0x`, `1.25x`, `1.5x`, `2.0x`.
+    - Aspect Ratio selector: `Auto (Default)`, `Cover (Fill Screen)`, `Contain`, `16:9`, `4:3`.
+    - Audio stream selector & Closed caption track selector.
+    - Playback Info / Stats for Nerds modal (video codec, resolution, fps, audio layout, transcode hardware).
+  - **Files**:
+    - `frontend/src/lib/components/player/PlayerSettingsMenu.svelte` (NEW)
+    - `frontend/src/lib/components/player/PlayerVolumeControl.svelte` (NEW)
+    - `frontend/src/lib/components/player/icons/*.svelte` (NEW: SVG icon set)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY)
+
+- [x] **PLAYER-3 — Web & Native: Fullscreen Mode & Immersive Experience.**
+  Implement seamless fullscreen support across web browsers and native apps:
+  - **Web Fullscreen API**:
+    - Wire fullscreen button and `f` shortcut to `container.requestFullscreen()` and `document.exitFullscreen()`.
+    - Safari / WebKit prefix support (`webkitRequestFullscreen`, `webkitEnterFullscreen` on iOS video element).
+    - Listen for `fullscreenchange` / `webkitfullscreenchange` to update the icon state (`fullscreen` vs `fullscreen_exit`).
+    - Adapt CSS layout for true full-bleed borderless playback with safe-area insets.
+  - **Android & Apple Immersive Fullscreen**:
+    - Android (`PlayerScreen.kt`): Enforce `WindowInsetsControllerCompat.hide(WindowInsetsCompat.Type.systemBars())` with `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`.
+    - iOS/tvOS (`iOSPlayerView.swift`): Auto-hide status bars and home indicator (`.persistentSystemOverlays(.hidden)`).
+  - **Files**:
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY)
+    - `frontend/src/lib/fullscreen-controller.ts` (NEW: cross-browser fullscreen helper)
+    - `android/app/src/main/kotlin/org/hdhropen/app/ui/screens/player/PlayerScreen.kt` (MODIFY)
+    - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY)
+
+## AI Intelligence & Natural Language Assistant
+
+Integrate generative AI capabilities into HDHR Open to provide intelligent TV guide querying,
+conversational recommendations, smart scheduling, and automated DVR management with support for
+all major AI providers.
+
+- [ ] **AI-1 — Backend: Multi-Provider LLM Integration Layer & Encrypted Settings.**
+  Build a unified async LLM client abstraction supporting all major AI providers:
+  - **Supported Providers**:
+    - **OpenAI**: GPT-4o, GPT-4o-mini (`https://api.openai.com/v1`)
+    - **Anthropic Claude**: Claude 3.5 Sonnet, Claude 3.5 Haiku (`https://api.anthropic.com/v1`)
+    - **Google Gemini**: Gemini 1.5 Flash, Gemini 1.5 Pro, Gemini 2.0 Flash (`https://generativelanguage.googleapis.com/v1beta`)
+    - **Ollama / Local LLMs / Custom OpenAI-Compatible**: Configurable `base_url` and `model`
+      (supports self-hosted Ollama, vLLM, LM Studio, OpenRouter, DeepSeek).
+  - **Lightweight Implementation**:
+    - Implemented with pure `httpx` async calls matching existing codebase patterns (no heavy
+      proprietary SDK bloat).
+    - Normalized function/tool calling schema across OpenAI function format, Anthropic tool use,
+      and Gemini function declarations.
+  - **Settings & Security**:
+    - Add `ai` to `KNOWN_INTEGRATION_TYPES` in `backend/app/api/network_settings.py`.
+    - Store `api_key` encrypted at rest via `app.crypto` (write-only / masked).
+    - Fields: `provider`, `api_key`, `base_url`, `model`, `system_prompt_custom`, `temperature`,
+      `enable_recording_tools` (permission gate for mutating DVR actions).
+    - Add `POST /api/ai/test-connection` endpoint to validate provider credentials and model availability.
+  - **Files**:
+    - `backend/app/integrations/ai/__init__.py` (NEW: provider factory and base class)
+    - `backend/app/integrations/ai/openai_client.py` (NEW: OpenAI & OpenAI-compatible client)
+    - `backend/app/integrations/ai/anthropic_client.py` (NEW: Anthropic Claude client)
+    - `backend/app/integrations/ai/gemini_client.py` (NEW: Google Gemini client)
+    - `backend/app/api/network_settings.py` (MODIFY: add `ai` integration type & defaults)
+    - `backend/app/storage/db/settings.py` (MODIFY: add `api_key` to secret keys)
+
+- [ ] **AI-2 — Backend: Guide & Recording Tool Calling Registry.**
+  Define and implement structured tools for the LLM to interact with the guide and DVR subsystems:
+  - **Guide Intelligence Tools** (`backend/app/ai/tools/guide.py`):
+    - `search_guide(query: str, category: str | None, is_new: bool | None, start_after: int | None, end_before: int | None, limit: int = 10)`:
+      Queries cached `guide_programs` for matching titles, synopses, and genre categories.
+    - `get_now_playing(favorites_only: bool = False)`:
+      Returns currently airing shows across all channels or favorites with start/end progress.
+    - `get_program_details(series_id: str | None, title: str | None)`:
+      Retrieves rich synopsis, episode numbers, original airdate, and upcoming broadcast schedule.
+    - `get_channel_lineup()`:
+      Returns configured channel numbers, station names, and tuner availability.
+  - **DVR Recording Tools** (`backend/app/ai/tools/recording.py`):
+    - `schedule_recording(title: str, series_id: str = "auto", channel: str | None = None, start_padding_minutes: int = 0, end_padding_minutes: int = 0, recent_only: bool = False, max_episodes: int | None = None, server: str = "builtin", title_match_mode: str = "exact", keyword_query: str | None = None)`:
+      Creates one-off, series, or keyword recording rules with natural language parameters.
+    - `list_recording_rules()`:
+      Queries all active recording rules and their configuration.
+    - `cancel_recording_rule(rule_id: str)`:
+      Deletes an active recording rule.
+    - `list_recordings(filter: str | None = None, limit: int = 20)`:
+      Lists completed and in-progress DVR recordings from disk/DB.
+    - `delete_recording(recording_id: str)`:
+      Removes a recorded file and updates DB state.
+    - `check_recording_conflicts(start_ts: int, end_ts: int)`:
+      Checks overlapping scheduled recordings against tuner count to warn about potential tuner contention.
+  - **Tool Registry & Execution Engine** (`backend/app/ai/tools/registry.py`):
+    - Central registry converting tool signatures to JSON schemas and dispatching tool calls safely
+      with permission checks (`enable_recording_tools`).
+  - **Files**:
+    - `backend/app/ai/tools/registry.py` (NEW)
+    - `backend/app/ai/tools/guide.py` (NEW)
+    - `backend/app/ai/tools/recording.py` (NEW)
+
+- [ ] **AI-3 — Backend: Conversational Assistant Orchestration & Streaming API.**
+  Create the conversational API endpoint with tool calling loops:
+  - **Endpoint**: `POST /api/ai/chat` (accepts conversation history, user query, and optional context
+    such as current time, timezone, and selected channel).
+  - **Tool Loop Orchestration**:
+    - Iterates model responses, detects tool call requests, executes authorized tools against
+      the local database/DVR engine, feeds tool results back to the LLM, and produces the final answer.
+    - Supports Server-Sent Events (SSE) streaming (`text/event-stream`) to stream response tokens,
+      tool execution statuses ("Searching TV guide…", "Checking recording schedule…"), and structured
+      action preview cards.
+  - **Files**:
+    - `backend/app/api/ai.py` (NEW: FastAPI router for AI chat & tool execution)
+    - `backend/app/main.py` (MODIFY: mount AI router)
+
+- [ ] **AI-4 — Frontend: AI Assistant Drawer, Natural Language Search, & Admin Settings UI.**
+  Build user-facing AI interfaces in SvelteKit:
+  - **Admin Settings (`AISettingsSection.svelte`)**:
+    - Added to `frontend/src/routes/settings/+page.svelte` under Integrations.
+    - Fields: Provider selector (OpenAI, Anthropic, Gemini, Ollama/Custom), API Key input (with
+      write-only masked toggle), Base URL (for Ollama/local), Model selector / custom model input,
+      Temperature slider, Recording Tools permission toggle.
+    - "Test Connection" button with live status feedback.
+  - **AI Assistant Drawer / Modal (`AIAssistantDrawer.svelte`)**:
+    - Global accessible assistant launcher in the navigation bar and Guide page ("Ask AI" / ✨ icon).
+    - Conversational chat interface with markdown formatting, code/time chips, and show cards.
+    - **Interactive Action Confirmation Cards**: When the AI proposes scheduling or canceling a
+      recording rule, render an interactive preview card with show details, airtime, and "[Confirm Recording]" /
+      "[Cancel]" buttons so mutating actions are always user-approved.
+  - **Files**:
+    - `frontend/src/lib/components/settings/AISettingsSection.svelte` (NEW)
+    - `frontend/src/lib/components/ai/AIAssistantDrawer.svelte` (NEW)
+    - `frontend/src/lib/components/ai/AIAssistantMessage.svelte` (NEW)
+    - `frontend/src/routes/settings/+page.svelte` (MODIFY: add AI settings section)
+    - `frontend/src/routes/+layout.svelte` (MODIFY: assistant trigger button and drawer host)
+    - `frontend/src/lib/api.ts` (MODIFY: AI client endpoints and types)
+
+- [ ] **AI-5 — Native Clients: AI Assistant Feature Parity (iOS/tvOS & Android).**
+  Expose AI assistant capabilities in native client apps:
+  - **Shared Core (`HDHROpenKit` & `:core`)**:
+    - Add AI models and networking methods (`APIClient.sendAIChat`, `APIClient.testAIConnection`).
+  - **iOS (`HDHROpeniOS`)**:
+    - SwiftUI `iOSAIAssistantSheet.swift` with conversational interface, quick suggestion chips
+      ("What's on tonight?", "Upcoming live sports"), and recording confirmation dialogs.
+  - **tvOS (`HDHROpenTV`)**:
+    - 10-foot Siri Remote optimized voice/text AI guide search modal.
+  - **Android (`android/app`)**:
+    - Jetpack Compose `AIAssistantBottomSheet.kt` with chat feed and action cards.
+  - **Files**:
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/Networking/APIClient+AI.swift` (NEW)
+    - `apple/HDHROpeniOS/Views/AI/iOSAIAssistantSheet.swift` (NEW)
+    - `apple/HDHROpenTV/Views/AI/TVAIAssistantModal.swift` (NEW)
+    - `android/core/src/main/kotlin/org/hdhropen/kit/networking/APIClient+AI.kt` (NEW)
+    - `android/app/src/main/kotlin/org/hdhropen/app/ui/screens/ai/AIAssistantBottomSheet.kt` (NEW)
+
+## Picture-in-Picture (PiP) & Popout Player
+
+Multitasking and detached viewing options across web browsers and native mobile/desktop platforms.
+
+- [x] **PIP-1 — Web: HTML5 Video Picture-in-Picture & Document Picture-in-Picture API.**
+  Integrate native browser Picture-in-Picture (PiP) and the modern Document PiP API into the web player:
+  - **Standard HTML5 Video PiP**:
+    - Feature detection via `document.pictureInPictureEnabled && !videoElement.disablePictureInPicture`.
+    - Add a dedicated PiP button in `PlayerFooter.svelte` / `HDHomeRunPlayer.svelte` and map shortcut key `p`.
+    - Wire button to `videoElement.requestPictureInPicture()` and `document.exitPictureInPicture()`.
+    - Track PiP state via `enterpictureinpicture` / `leavepictureinpicture` events.
+    - **Captions in PiP**: When entering video PiP, switch `capTextTrack.mode` in `caption-controller.ts`
+      from `'hidden'` to `'showing'` so WebVTT cues render in the floating OS PiP window; restore to
+      `'hidden'` when returning to in-page overlay rendering on PiP exit.
+    - **Media Session API**: Configure `navigator.mediaSession.metadata` (title, channel name, episode subtitle,
+      artwork) and bind action handlers (`play`, `pause`, `seekbackward`, `seekforward`) so floating PiP controls
+      and keyboard media keys operate playback.
+  - **Document Picture-in-Picture (Chromium 111+)**:
+    - Detect `window.documentPictureInPicture?.requestWindow`.
+    - Support opening a floating DOM window holding the video player container, preserving custom styled caption
+      overlays, scrub bar, and channel badges.
+    - Copy styles / link stylesheets into the PiP document; smoothly restore the player DOM to the main page
+      on `pagehide` without interrupting the active `mpegts.js` / HLS stream buffer.
+  - **Files**:
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: PiP button, keybinding, PiP event handlers)
+    - `frontend/src/lib/components/player/PlayerFooter.svelte` (MODIFY: PiP control button)
+    - `frontend/src/lib/caption-controller.ts` (MODIFY: PiP text track display mode hook)
+    - `frontend/src/lib/i18n/locales/en.json` (MODIFY: translation strings for PiP)
+    - `frontend/src/lib/components/HDHomeRunPlayer.test.ts` (MODIFY: unit tests for PiP toggle & events)
+
+- [ ] **PIP-2 — Web: Standalone Popout Player Route & Window Handoff.**
+  Add a dedicated frameless popout player window and route for detached desktop viewing:
+  - **Dedicated Popout Route (`/player`)**:
+    - Create `frontend/src/routes/player/+page.svelte` that renders `HDHomeRunPlayer.svelte` full-bleed (100vw/100vh).
+    - `+layout.svelte`: suppress the top navigation bar (`.app-nav`) when navigating to `/player`.
+    - Accepts URL params: `?channel={number}` or `?recording={id}` or `?play_url={url}`.
+    - Manages its own watch-session lifecycle (auto-start capture, `api.heartbeatWatch` interval, `api.stopWatch` on `pagehide`)
+      so closing the popup window immediately releases tuners and terminates backend ffmpeg processes.
+  - **Popout Launcher & Handoff**:
+    - Add a "Popout" button (↗) to `PlayerHeader.svelte` and Guide/Recording action menus.
+    - Triggers `window.open('/player?...', 'hdhr_popout_player', 'width=960,height=540,menubar=no,toolbar=no,location=no,status=no,resizable=yes')`.
+    - Automatically closes or pauses the in-page player when transferring an active watch session to prevent duplicate tuner consumption.
+  - **Files**:
+    - `frontend/src/routes/player/+page.svelte` (NEW: standalone player route)
+    - `frontend/src/routes/+layout.svelte` (MODIFY: hide navigation on `/player`)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: popout button & handoff logic)
+    - `frontend/src/lib/i18n/locales/en.json` (MODIFY: translation strings for popout)
+
+- [ ] **PIP-3 — Android: Native Picture-in-Picture (PiP) with Auto-Enter & Playback Remote Actions.**
+  Bring native system PiP support to Android (`android/app`):
+  - **Manifest & Activity Lifecycle**:
+    - Add `android:supportsPictureInPicture="true"` and `android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"` to `MainActivity` in `AndroidManifest.xml`.
+    - Implement `enterPictureInPictureMode(params)` in `MainActivity.kt` and `PlayerScreen.kt`.
+    - Android 12+ (API 31+): Configure `setSourceRectHint` and `setAutoEnterEnabled(true)` on `PictureInPictureParams.Builder` so swiping home smoothly transitions directly into PiP.
+  - **Playback Remote Actions**:
+    - Register `RemoteAction` entries for Play/Pause, Rewind 10s, and Forward 10s with `PendingIntent` broadcasts to `PlayerEngine.kt`.
+    - Update `PictureInPictureParams` actions dynamically when playback pauses or resumes.
+  - **Files**:
+    - `android/app/src/main/AndroidManifest.xml` (MODIFY: PiP activity flags)
+    - `android/app/src/main/kotlin/org/hdhropen/app/MainActivity.kt` (MODIFY: PiP lifecycle & broadcast receiver)
+    - `android/app/src/main/kotlin/org/hdhropen/app/ui/screens/player/PlayerScreen.kt` (MODIFY: PiP button & remote action state)
+
+- [ ] **PIP-4 — iOS/iPadOS/macOS: Native AVPictureInPictureController Integration & Background Playback.**
+  Bring native PiP support to Apple platforms (`apple/HDHROpenKit` & `apple/HDHROpeniOS`):
+  - **AVPictureInPictureController & AudioSession**:
+    - Integrate `AVPictureInPictureController` in `PlayerEngine.swift` / `PlayerLayerView.swift` with `isPictureInPictureSupported()` guard.
+    - Set `AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)` and configure `canStartPictureInPictureAutomaticallyFromInline = true` (iOS 14.2+).
+    - Implement `AVPictureInPictureControllerDelegate` to handle lifecycle transitions (`willStart`, `didStop`, `restoreUserInterfaceForPictureInPictureStop`).
+  - **UI Integration**:
+    - Add PiP action button in `iOSPlayerView.swift` toolbar.
+  - **Files**:
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/PlayerEngine.swift` (MODIFY: PiP controller and delegate)
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/PlayerLayerView.swift` (MODIFY: AVPlayerLayer PiP hookup)
+    - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY: PiP toggle button)
 

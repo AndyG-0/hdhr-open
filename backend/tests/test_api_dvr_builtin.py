@@ -552,8 +552,10 @@ def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tm
     )
     capture_pipeline._active_captures["rec_live"] = active_capture
 
-    def fake_ensure_live_captions(recording_id, file_path, is_source_alive, capture_start_ts=None):
-        media_cache.live_captions_path(recording_id).write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n")
+    def fake_ensure_live_captions(recording_id, file_path, is_source_alive, capture_start_ts=None, channel=1):
+        media_cache.live_captions_path(recording_id, channel).write_text(
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n"
+        )
 
     monkeypatch.setattr(media_cache, "ensure_live_captions", fake_ensure_live_captions)
 
@@ -575,6 +577,132 @@ def test_recording_captions_404_when_capture_gone(client, tmp_db, tmp_path):
         params={"url": str(tmp_path / "gone.ts"), "recording_id": "rec_gone", "record_end": time.time() + 600},
     )
     assert response.status_code == 404
+
+
+def test_recording_captions_track2_routes_to_channel2_path(client, tmp_db, tmp_path, monkeypatch):
+    from app.dvr import media_cache
+    from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+
+    video_file = tmp_path / "in_progress.ts"
+    video_file.write_bytes(b"MPEG-TS data")
+
+    now = time.time()
+    active_capture = ActiveCapture(
+        recording_id="rec_live",
+        scheduled_id=None,
+        rule_id=None,
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Live Show",
+        episode_title=None,
+        season_number=None,
+        episode_number=None,
+        start_ts=now - 60,
+        end_ts=now + 600,
+        file_path=video_file,
+        image_url=None,
+        process=None,
+    )
+    capture_pipeline._active_captures["rec_live"] = active_capture
+
+    received_channels: list[int] = []
+
+    def fake_ensure_live_captions(recording_id, file_path, is_source_alive, capture_start_ts=None, channel=1):
+        received_channels.append(channel)
+        media_cache.live_captions_path(recording_id, channel).write_text(
+            "WEBVTT\n\n00:00:05.000 --> 00:00:06.000\nSegunda\n"
+        )
+
+    monkeypatch.setattr(media_cache, "ensure_live_captions", fake_ensure_live_captions)
+
+    try:
+        response = client.get(
+            "/api/dvr/recording-captions.vtt",
+            params={"url": str(video_file), "recording_id": "rec_live", "record_end": now + 600, "track": 2},
+        )
+        assert response.status_code == 200
+        assert "Segunda" in response.text
+        assert received_channels == [2]
+    finally:
+        capture_pipeline._active_captures.pop("rec_live", None)
+        media_cache.live_captions_path("rec_live", channel=2).unlink(missing_ok=True)
+
+
+def test_recording_captions_invalid_track_returns_400(client, tmp_db, tmp_path):
+    response = client.get(
+        "/api/dvr/recording-captions.vtt",
+        params={
+            "url": str(tmp_path / "whatever.ts"),
+            "recording_id": "rec_x",
+            "record_end": time.time() + 600,
+            "track": 3,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_recording_captions_track2_404_for_finished_recording(client, tmp_db, tmp_path):
+    video_file = tmp_path / "done.ts"
+    video_file.write_bytes(b"MPEG-TS data")
+
+    response = client.get(
+        "/api/dvr/recording-captions.vtt",
+        params={
+            "url": str(video_file),
+            "recording_id": "rec_done",
+            "record_end": time.time() - 10,
+            "track": 2,
+        },
+    )
+    assert response.status_code == 404
+
+
+def test_recording_detail_secondary_captions_reflects_track2_status(client, tmp_db, tmp_path, monkeypatch):
+    from app import media_probe as media_probe_module
+    from app.dvr import media_cache
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "in_progress.ts"
+    video_file.write_bytes(b"MPEG-TS data" * 10000)
+
+    now = time.time()
+    probe_result = {"video": None, "audio": [], "has_captions": False}
+    monkeypatch.setattr(media_probe_module, "probe_in_progress", AsyncMock(return_value=probe_result))
+    monkeypatch.setattr(media_cache, "live_caption_track2_status", lambda recording_id: "unknown")
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={"url": str(video_file), "recording_id": "rec_live_secondary", "start": now - 60},
+    )
+    assert response.status_code == 200
+    assert response.json()["secondary_captions"] == "unknown"
+
+    # Finished recordings never report a secondary track, regardless of
+    # media_cache state - only live recordings run the channel-2 pipeline.
+    db.create_recording(
+        {
+            "id": "rec_done_secondary",
+            "title": "Finished Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+    response2 = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": str(video_file),
+            "recording_id": "rec_done_secondary",
+            "start": 1000.0,
+            "record_end": 2000.0,
+        },
+    )
+    assert response2.status_code == 200
+    assert response2.json()["secondary_captions"] is None
 
 
 def _fake_transcode_process() -> MagicMock:
@@ -1044,6 +1172,81 @@ def test_recording_stream_hls_uses_live_style_packaging_for_active_capture(clien
         assert captured_kwargs["hls_vod"] is False
     finally:
         capture_pipeline._active_captures.pop("rec_live_hls", None)
+
+
+def test_recording_stream_hls_for_cast_returns_token_scoped_playlist_url(client, tmp_db, tmp_path, monkeypatch):
+    """A Google Cast sender passes for_cast=true on the DVR HLS entry point
+    too - same cast-token scoping as api/streaming.py's stream_channel_hls."""
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "finished.ts"
+    video_file.write_bytes(b"x" * 1024)
+
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_cast",
+            "title": "Cast Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 3600,
+            "end_ts": now - 3000,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_dvr_cast"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post(
+        "/api/dvr/recording-stream-hls",
+        json={"url": str(video_file), "recording_id": "rec_cast", "for_cast": True},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    cast_token = create_session_mock.await_args.kwargs["cast_token"]
+    assert cast_token is not None
+    assert body["playlist_url"] == f"/api/hls/sess_dvr_cast/{cast_token}/playlist.m3u8"
+
+
+def test_recording_stream_hls_without_for_cast_omits_cast_token(client, tmp_db, tmp_path, monkeypatch):
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "finished.ts"
+    video_file.write_bytes(b"x" * 1024)
+
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_no_cast",
+            "title": "No Cast Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 3600,
+            "end_ts": now - 3000,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_dvr_native"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post(
+        "/api/dvr/recording-stream-hls",
+        json={"url": str(video_file), "recording_id": "rec_no_cast"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["playlist_url"] == "/api/hls/sess_dvr_native/playlist.m3u8"
+    assert create_session_mock.await_args.kwargs["cast_token"] is None
 
 
 def test_estimate_byte_offset_aligns_to_ts_packet_boundary(tmp_path, monkeypatch):

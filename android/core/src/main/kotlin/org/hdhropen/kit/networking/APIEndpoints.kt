@@ -58,7 +58,8 @@ object APIEndpoints {
     fun recordingRules(): String = "/api/dvr/recording-rules"
     fun deleteRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
 
-    fun hlsChannelSession(channelNumber: String): String = "/api/streaming/hls/$channelNumber"
+    fun hlsChannelSession(channelNumber: String, forCast: Boolean = false): String =
+        if (forCast) "/api/streaming/hls/$channelNumber?for_cast=true" else "/api/streaming/hls/$channelNumber"
     fun hlsRecordingSession(): String = "/api/dvr/recording-stream-hls"
     fun stopHLSSession(sessionId: String): String = "/api/hls/$sessionId/stop"
 

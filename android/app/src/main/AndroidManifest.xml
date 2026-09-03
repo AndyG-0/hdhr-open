@@ -14,6 +14,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.HDHROpen"
         android:usesCleartextTraffic="true">
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="org.hdhropen.app.cast.CastOptionsProvider" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

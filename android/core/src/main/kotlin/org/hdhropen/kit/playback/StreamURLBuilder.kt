@@ -40,6 +40,19 @@ object StreamURLBuilder {
         return "$base/api/hls/$sessionId/playlist.m3u8"
     }
 
+    /**
+     * Resolves a server-returned relative path (e.g. an HLS session's
+     * cast-token-scoped `playlist_url`) against [baseURL]. Unlike
+     * [hlsPlaylistURL], this never reconstructs the path itself - the server
+     * is the sole authority on cast-token-scoped URLs.
+     */
+    fun resolve(baseURL: String, relativePath: String): String {
+        if (relativePath.startsWith("http://") || relativePath.startsWith("https://")) return relativePath
+        val base = baseURL.trimEnd('/')
+        val path = if (relativePath.startsWith("/")) relativePath else "/$relativePath"
+        return "$base$path"
+    }
+
     fun thumbnailSpriteURL(
         baseURL: String,
         recordingId: String,

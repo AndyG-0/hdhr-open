@@ -355,7 +355,7 @@ async def stream_channel(channel_number: str, request: Request, direct: bool = F
 
 
 @router.post("/hls/{channel_number}")
-async def stream_channel_hls(channel_number: str):
+async def stream_channel_hls(channel_number: str, request: Request, for_cast: bool = False):
     """Busy-tuner-fallback HLS entry point for native (Apple) clients — the
     primary playback path is `/api/dvr/recording-stream-hls` (every live
     watch goes through a builtin-DVR capture first); this exists for the
@@ -368,6 +368,13 @@ async def stream_channel_hls(channel_number: str):
     and this response's recording metadata, exist here at all. Only when
     even that unmanaged capture can't be started does this fall back to the
     bare raw-URL pipe this endpoint used exclusively before.
+
+    `for_cast=True` is set by a Google Cast sender (web, Android) instead of
+    a native Apple client - the returned `playlist_url` (and every segment
+    URI ffmpeg writes into that playlist) is scoped to a per-session cast
+    token instead of this app's normal cookie/bearer auth, since the actual
+    fetcher is the Cast *receiver* device, which can't carry either. See
+    `app.hls_streaming.new_cast_token` and `api/hls.py`'s cast-token routes.
     """
     settings = await get_hdhomerun_settings()
     if not hdhomerun_client.is_tuner_configured(settings):
@@ -390,6 +397,7 @@ async def stream_channel_hls(channel_number: str):
     raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
     input_url = "pipe:0" if active_capture is not None else raw_url
     session_id, tmp_dir = hls_streaming.allocate_session_dir()
+    cast_token = hls_streaming.new_cast_token() if for_cast else None
     try:
         ffmpeg_args = transcoding.build_ffmpeg_args(
             settings,
@@ -397,6 +405,7 @@ async def stream_channel_hls(channel_number: str):
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
+            hls_base_url=hls_streaming.cast_base_url(session_id, cast_token) if cast_token else None,
         )
     except transcoding.InvalidCustomFfmpegArgsError as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -440,6 +449,7 @@ async def stream_channel_hls(channel_number: str):
             on_process_spawned=_start_pump,
             min_segments=hls_streaming.HLS_READY_MIN_SEGMENTS,
             on_teardown=_on_teardown,
+            cast_token=cast_token,
         )
     except hls_streaming.HLSStartupError as exc:
         if pump_stop_event is not None:
@@ -463,7 +473,11 @@ async def stream_channel_hls(channel_number: str):
         # one field they treat as required) has to be present regardless.
         body = {"title": f"Channel {channel_number}"}
     body["session_id"] = session.session_id
-    body["playlist_url"] = f"/api/hls/{session.session_id}/playlist.m3u8"
+    body["playlist_url"] = (
+        hls_streaming.cast_playlist_url_for_request(str(request.base_url), session.session_id, cast_token)
+        if cast_token
+        else f"/api/hls/{session.session_id}/playlist.m3u8"
+    )
     return body
 
 

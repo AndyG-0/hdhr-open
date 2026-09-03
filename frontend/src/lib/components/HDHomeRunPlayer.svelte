@@ -13,23 +13,20 @@
 	import { parseThumbnailVtt, type CaptionCue, type ThumbnailCue } from '$lib/vtt-parser';
 	import { createCaptionController } from '$lib/caption-controller';
 	import { createMpegtsPlayer } from '$lib/mpegts-player';
-	import HDHomeRunPlayerRecordMenu from './player/HDHomeRunPlayerRecordMenu.svelte';
+	import PlayerHeader from './player/PlayerHeader.svelte';
+	import PlayerFooter from './player/PlayerFooter.svelte';
+	import SyncPlayModal from './player/SyncPlayModal.svelte';
+	import PlayerIcon from './player/icons/PlayerIcon.svelte';
 
 	interface Props {
 		src: string;
 		title: string;
 		playUrl?: string;
 		recordingId?: string | null;
-		// This viewer's own watch-session lifecycle token, used for
-		// promote/heartbeat/stop - distinct from recordingId, which is the
-		// shared capture identity used for stream/detail/caption URLs.
 		watchSessionId?: string | null;
 		startTimestamp?: number | null;
 		recordEndTimestamp?: number | null;
 		seekable?: boolean;
-		// True when recordingId is an auto-started live-watch capture (see
-		// backend/app/dvr/builtin/watch.py) rather than a genuine recordings-
-		// library entry - controls whether the Record button promotes it.
 		isWatchSession?: boolean;
 		onClose: () => void;
 		channel?: HDHomeRunChannel | null;
@@ -61,7 +58,7 @@
 		watchSessionId,
 		startTimestamp,
 		recordEndTimestamp,
-		seekable,
+		seekable = false,
 		isWatchSession = false,
 		onClose,
 		channel = null,
@@ -79,11 +76,23 @@
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
 	const CAPTION_POLL_INTERVAL_MS = 1_000;
 
+	let overlayEl = $state<HTMLDivElement | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
 	let videoCurrentTime = $state(0);
 	let baseOffsetSeconds = $state(0);
 	let duration = $state<number | null>(null);
 	let isInProgress = $state(false);
+	let videoPaused = $state(false);
+	let isFullscreen = $state(false);
+	let pipSupported = $state(false);
+	let isPipActive = $state(false);
+	let volume = $state(1.0);
+	let muted = $state(false);
+	let playbackRate = $state(1.0);
+	let aspectRatio = $state<'contain' | 'cover' | 'fill' | '16:9' | '4:3'>('contain');
+	let isFavorited = $state(false);
+	let isBookmarked = $state(false);
+
 	let videoInfo = $state<{
 		codec: string | null;
 		width: number | null;
@@ -94,39 +103,57 @@
 		[],
 	);
 	let hasCaptions = $state(false);
-	let transcodeInfo = $state<HDHomeRunTranscodeInfo | null>(null);
+	let secondaryCaptions = $state<'unknown' | 'available' | 'unavailable' | null>(null);
+	let currentCaptionTrack = $state<1 | 2>(1);
 	let currentAudioIndex = $state<number | null>(null);
 	let captionsEnabled = $state(false);
 	let thumbnailsAvailable = $state(false);
-	let thumbnailCues: ThumbnailCue[] = [];
+	let thumbnailCues = $state<ThumbnailCue[]>([]);
 	let thumbSpriteUrl = $state('');
 
-	// Captions are extracted once for the whole recording, so their cue
-	// timestamps are absolute (0 = start of the recording). But each seek
-	// tears down and recreates the mpegts player against a freshly
-	// `-ss`-seeked ffmpeg stream, which resets the video element's own
-	// currentTime back to 0 - so the native VTT cue times would only ever
-	// line up with playback when baseOffsetSeconds is 0. A plain
-	// `<track src>` can't be re-timed after the browser parses it, so
-	// cues are parsed here and re-added to a managed TextTrack (owned by
-	// captionController below), shifted by -baseOffsetSeconds, every time
-	// the playback origin changes.
 	let captionCues = $state<CaptionCue[]>([]);
+	let transcodeInfo = $state<HDHomeRunTranscodeInfo | null>(null);
 
+	// Menus & Modals
+	let showControls = $state(true);
+	let autoHideTimer: ReturnType<typeof setTimeout> | undefined;
 	let showAudioMenu = $state(false);
+	let showSettingsMenu = $state(false);
 	let showPlaybackInfo = $state(false);
 	let showRecordMenu = $state(false);
 	let showOptionsDialog = $state(false);
-	let internalRecordingLoading = $state(false);
-	let hoverPreview = $state<{ x: number; cue: ThumbnailCue } | null>(null);
+	let showSyncPlayModal = $state(false);
+	let syncPlayActive = $state(false);
+	let syncPlayRoomCode = $state<string | null>(null);
+	let syncPlayParticipants = $state<
+		Array<{ id: string; name: string; isReady: boolean; pingMs: number; isHost: boolean }>
+	>([]);
 
+	let centerFlash = $state<'play' | 'pause' | null>(null);
+	let centerFlashTimer: ReturnType<typeof setTimeout> | undefined;
+
+	let internalRecordingLoading = $state(false);
 	let errorMessage = $state<string | null>(null);
 	let errorDetail = $state<string | null>(null);
 	let destroyed = false;
 	let detailPollHandle: ReturnType<typeof setInterval> | undefined;
 	let captionPollHandle: ReturnType<typeof setInterval> | undefined;
 	let captionsPollInFlight = false;
-	let scrubBarEl: HTMLDivElement | null = $state(null);
+	let airplayAvailable = $state(false);
+	let airplaySessionId: string | null = null;
+	let airplayResumeFrom = 0;
+
+	// Load stored volume settings
+	if (typeof localStorage !== 'undefined') {
+		try {
+			const savedVol = localStorage.getItem('hdhr_player_volume');
+			if (savedVol !== null) volume = Math.max(0, Math.min(1, Number(savedVol)));
+			const savedMuted = localStorage.getItem('hdhr_player_muted');
+			if (savedMuted !== null) muted = savedMuted === 'true';
+		} catch {
+			// ignore localStorage errors
+		}
+	}
 
 	const effectiveAiring = $derived.by<HDHomeRunGuideEntry | null>(() => {
 		if (airing) return airing;
@@ -146,6 +173,7 @@
 
 	const channelNumber = $derived(channel?.channel_number ?? effectiveAiring?.channel_number);
 	const channelName = $derived(channel?.name ?? channelNumber ?? title);
+	const episodeSubtitle = $derived(effectiveAiring?.episode_title ?? undefined);
 
 	const currentRule = $derived(findMatchingRecordingRule(recordingRules, channelNumber, effectiveAiring));
 
@@ -165,115 +193,14 @@
 					: recordingLoading === (effectiveAiring?.series_id || channelNumber || 'now'))),
 	);
 
-	async function handleRecordEpisode(options?: RecordingRuleOptions) {
-		showRecordMenu = false;
-		showOptionsDialog = false;
-		internalRecordingLoading = true;
-		try {
-			if (isWatchSession && watchSessionId) {
-				// Promote the auto-capture that's been running since the channel
-				// was opened, so the resulting recording covers from then, not
-				// from this button press.
-				await api.promoteWatch(watchSessionId, {
-					title: effectiveAiring?.title ?? channelName,
-					episode_title: effectiveAiring?.episode_title ?? undefined,
-				});
-				return;
-			}
-			if (onRecordEpisode) {
-				await onRecordEpisode(
-					effectiveAiring?.series_id,
-					channelNumber,
-					effectiveAiring?.start,
-					options,
-				);
-			} else {
-				await api.addHDHomeRunRecordingRule({
-					series_id: effectiveAiring?.series_id || 'auto',
-					channel: channelNumber,
-					date_time: effectiveAiring?.start ?? undefined,
-					start_padding: options?.startPadding,
-					end_padding: options?.endPadding,
-					recent_only: options?.recentOnly,
-					max_episodes_to_keep: options?.maxEpisodesToKeep,
-					server: options?.server,
-				});
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
-
-	async function handleRecordSeries(options?: RecordingRuleOptions) {
-		if (!effectiveAiring?.series_id) return;
-		showRecordMenu = false;
-		showOptionsDialog = false;
-		internalRecordingLoading = true;
-		try {
-			if (isWatchSession && watchSessionId) {
-				// Promote the current capture so this episode is covered from
-				// channel-open time; the rule below still gets created so future
-				// episodes keep getting scheduled.
-				await api.promoteWatch(watchSessionId, {
-					title: effectiveAiring?.title ?? channelName,
-					episode_title: effectiveAiring?.episode_title ?? undefined,
-				});
-			}
-			if (onRecordSeries) {
-				await onRecordSeries(effectiveAiring.series_id, channelNumber, options);
-			} else {
-				await api.addHDHomeRunRecordingRule({
-					series_id: effectiveAiring.series_id,
-					channel: channelNumber,
-					start_padding: options?.startPadding,
-					end_padding: options?.endPadding,
-					recent_only: options?.recentOnly,
-					max_episodes_to_keep: options?.maxEpisodesToKeep,
-					server: options?.server,
-				});
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
-
-	async function handleCancelRecording() {
-		if (!currentRule) return;
-		showRecordMenu = false;
-		internalRecordingLoading = true;
-		try {
-			if (onCancelRule) {
-				await onCancelRule(currentRule.RecordingRuleID);
-			} else {
-				await api.deleteHDHomeRunRecordingRule(currentRule.RecordingRuleID);
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
-
-	function handleConfirmOptions(mode: 'episode' | 'series', options: RecordingRuleOptions) {
-		if (mode === 'series') {
-			handleRecordSeries(options);
-		} else {
-			handleRecordEpisode(options);
-		}
-	}
-
 	const displayedPosition = $derived(baseOffsetSeconds + videoCurrentTime);
-	const progressPercent = $derived(duration ? Math.min(100, (displayedPosition / duration) * 100) : 0);
 	const captionsUrl = $derived(
 		playUrl
 			? api.hdhomerunRecordingCaptionsUrl({
 					url: playUrl,
 					recordingId: recordingId ?? '',
 					recordEnd: recordEndTimestamp,
+					track: currentCaptionTrack,
 				})
 			: '',
 	);
@@ -352,11 +279,10 @@
 			videoInfo = detail.video;
 			audioTracks = detail.audio;
 			hasCaptions = detail.has_captions;
+			secondaryCaptions = detail.secondary_captions;
 			transcodeInfo = detail.transcode;
 		} catch {
-			// Detail is an enhancement (duration/menus/captions) — playback
-			// itself doesn't depend on it, so a failed fetch just means those
-			// stay unavailable.
+			// Detail is an enhancement
 		}
 	}
 
@@ -381,7 +307,7 @@
 			});
 			thumbnailsAvailable = true;
 		} catch {
-			// No thumbnails: hover preview stays off, scrub bar still works.
+			// No thumbnails: hover preview stays off
 		}
 	}
 
@@ -402,16 +328,6 @@
 		}
 		return lines;
 	});
-
-	function findCueAt(seconds: number): ThumbnailCue | null {
-		if (thumbnailCues.length === 0) return null;
-		let found = thumbnailCues[0];
-		for (const cue of thumbnailCues) {
-			if (cue.startSeconds > seconds) break;
-			found = cue;
-		}
-		return found;
-	}
 
 	function stopPolling() {
 		if (detailPollHandle !== undefined) {
@@ -469,6 +385,7 @@
 		captionController.resetStretchCursor();
 		captionController.refreshCaptionCues();
 		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(clamped, currentAudioIndex));
+		resetAutoHideTimer();
 	}
 
 	function rewind(seconds = 10) {
@@ -477,6 +394,7 @@
 		} else if (videoElement) {
 			videoElement.currentTime = Math.max(0, videoElement.currentTime - seconds);
 		}
+		resetAutoHideTimer();
 	}
 
 	function fastForward(seconds = 10) {
@@ -485,6 +403,7 @@
 		} else if (videoElement) {
 			videoElement.currentTime = videoElement.currentTime + seconds;
 		}
+		resetAutoHideTimer();
 	}
 
 	function safePlay() {
@@ -493,22 +412,36 @@
 			const res = videoElement.play();
 			if (res && typeof res.catch === 'function') res.catch(() => {});
 		} catch {
-			// ignore play errors in non-media environments
+			// ignore
 		}
+	}
+
+	function triggerCenterFlash(type: 'play' | 'pause') {
+		centerFlash = type;
+		if (centerFlashTimer) clearTimeout(centerFlashTimer);
+		centerFlashTimer = setTimeout(() => {
+			centerFlash = null;
+		}, 550);
 	}
 
 	function togglePlay() {
 		if (!videoElement) return;
 		if (videoElement.paused) {
 			safePlay();
+			videoPaused = false;
+			triggerCenterFlash('play');
 		} else {
 			videoElement.pause();
+			videoPaused = true;
+			triggerCenterFlash('pause');
 		}
+		resetAutoHideTimer();
 	}
 
 	function toggleCaptions() {
 		captionsEnabled = !captionsEnabled;
 		captionController.ensureCaptionTrack();
+		resetAutoHideTimer();
 	}
 
 	function selectAudioTrack(index: number) {
@@ -518,52 +451,184 @@
 		seekTo(displayedPosition);
 	}
 
-	function handleScrubClick(e: MouseEvent) {
-		if (!seekable || duration === null || !scrubBarEl) return;
-		const rect = scrubBarEl.getBoundingClientRect();
-		const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-		seekTo(fraction * duration);
-	}
-
-	function handleScrubHover(e: MouseEvent) {
-		if (!seekable || duration === null || !scrubBarEl || !thumbnailsAvailable) return;
-		const rect = scrubBarEl.getBoundingClientRect();
-		const fraction = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-		const cue = findCueAt(fraction * duration);
-		if (cue) hoverPreview = { x: e.clientX - rect.left, cue };
-	}
-
-	function handleScrubKeydown(e: KeyboardEvent) {
-		if (!seekable || duration === null) return;
-		if (e.key === 'ArrowLeft') {
-			e.preventDefault();
-			seekTo(Math.max(0, displayedPosition - 10));
-		} else if (e.key === 'ArrowRight') {
-			e.preventDefault();
-			seekTo(Math.min(duration, displayedPosition + 10));
+	async function selectCaptionTrack(track: 1 | 2) {
+		if (!seekable || track === currentCaptionTrack) return;
+		if (track === 2 && secondaryCaptions === 'unavailable') return;
+		currentCaptionTrack = track;
+		captionController.switchCaptionTrack();
+		if (isInProgress) {
+			await captionController.pollLiveCaptions();
+		} else {
+			await captionController.loadCaptions();
 		}
 	}
 
+	function handleVolumeChange(newVol: number) {
+		volume = Math.max(0, Math.min(1, newVol));
+		if (muted && volume > 0) muted = false;
+		if (videoElement) {
+			videoElement.volume = volume;
+			videoElement.muted = muted;
+		}
+		if (typeof localStorage !== 'undefined') {
+			try {
+				localStorage.setItem('hdhr_player_volume', String(volume));
+				localStorage.setItem('hdhr_player_muted', String(muted));
+			} catch {}
+		}
+		resetAutoHideTimer();
+	}
+
+	function handleMuteToggle() {
+		muted = !muted;
+		if (videoElement) {
+			videoElement.muted = muted;
+		}
+		if (typeof localStorage !== 'undefined') {
+			try {
+				localStorage.setItem('hdhr_player_muted', String(muted));
+			} catch {}
+		}
+		resetAutoHideTimer();
+	}
+
+	function handlePlaybackRateChange(rate: number) {
+		playbackRate = rate;
+		if (videoElement) {
+			videoElement.playbackRate = rate;
+		}
+		resetAutoHideTimer();
+	}
+
+	function handleAspectRatioChange(ratio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3') {
+		aspectRatio = ratio;
+		resetAutoHideTimer();
+	}
+
+	function handleToggleFavorite() {
+		isFavorited = !isFavorited;
+		resetAutoHideTimer();
+	}
+
+	function handleToggleBookmark() {
+		isBookmarked = !isBookmarked;
+		resetAutoHideTimer();
+	}
+
+	async function toggleFullscreen() {
+		if (typeof document === 'undefined') return;
+		try {
+			if (isFullscreen) {
+				if (document.exitFullscreen) {
+					await document.exitFullscreen();
+				} else if ((document as unknown as { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen) {
+					await (document as unknown as { webkitExitFullscreen: () => Promise<void> }).webkitExitFullscreen();
+				}
+			} else {
+				const target = overlayEl ?? videoElement;
+				if (target?.requestFullscreen) {
+					await target.requestFullscreen();
+				} else if (
+					(target as unknown as { webkitRequestFullscreen?: () => Promise<void> })?.webkitRequestFullscreen
+				) {
+					await (
+						target as unknown as { webkitRequestFullscreen: () => Promise<void> }
+					).webkitRequestFullscreen();
+				} else if (
+					(videoElement as unknown as { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen
+				) {
+					(videoElement as unknown as { webkitEnterFullscreen: () => void }).webkitEnterFullscreen();
+				}
+			}
+		} catch {
+			// ignore
+		}
+		resetAutoHideTimer();
+	}
+
+	async function togglePip() {
+		if (!videoElement || typeof document === 'undefined') return;
+		try {
+			if (document.pictureInPictureElement) {
+				await document.exitPictureInPicture();
+			} else if (videoElement.requestPictureInPicture) {
+				await videoElement.requestPictureInPicture();
+			}
+		} catch {
+			// ignore
+		}
+		resetAutoHideTimer();
+	}
+
+	function resetAutoHideTimer() {
+		showControls = true;
+		if (autoHideTimer) {
+			clearTimeout(autoHideTimer);
+			autoHideTimer = undefined;
+		}
+		const hasActiveMenu =
+			showRecordMenu ||
+			showOptionsDialog ||
+			showAudioMenu ||
+			showSettingsMenu ||
+			showPlaybackInfo ||
+			showSyncPlayModal;
+
+		if (!videoPaused && !hasActiveMenu) {
+			autoHideTimer = setTimeout(() => {
+				showControls = false;
+			}, 3500);
+		}
+	}
+
+	function handleMouseMove() {
+		resetAutoHideTimer();
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
+		resetAutoHideTimer();
 		if (e.key === 'Escape') {
 			if (showPlaybackInfo) {
 				showPlaybackInfo = false;
 			} else if (showAudioMenu) {
 				showAudioMenu = false;
+			} else if (showSettingsMenu) {
+				showSettingsMenu = false;
 			} else if (showRecordMenu) {
 				showRecordMenu = false;
 			} else if (showOptionsDialog) {
 				showOptionsDialog = false;
+			} else if (showSyncPlayModal) {
+				showSyncPlayModal = false;
+			} else if (isFullscreen) {
+				toggleFullscreen();
 			} else {
 				onClose();
 			}
 		} else if (e.key === ' ') {
 			e.preventDefault();
 			togglePlay();
+		} else if (e.key === 'f' || e.key === 'F') {
+			e.preventDefault();
+			toggleFullscreen();
+		} else if (e.key === 'm' || e.key === 'M') {
+			e.preventDefault();
+			handleMuteToggle();
+		} else if (e.key === 'p' || e.key === 'P') {
+			if (pipSupported) {
+				e.preventDefault();
+				togglePip();
+			}
 		} else if (e.key === 'ArrowLeft' || e.key === 'j') {
 			rewind(10);
 		} else if (e.key === 'ArrowRight' || e.key === 'l') {
 			fastForward(10);
+		} else if (e.key === 'ArrowUp') {
+			e.preventDefault();
+			handleVolumeChange(volume + 0.05);
+		} else if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			handleVolumeChange(volume - 0.05);
 		} else if (e.key === 'c' && hasCaptions) {
 			toggleCaptions();
 		} else if (e.key === 'r' && canRecord) {
@@ -571,7 +636,101 @@
 		}
 	}
 
-	// See JellyfinPlayer.svelte for why this overlay is portaled to <body>.
+	async function handleRecordEpisode(options?: RecordingRuleOptions) {
+		showRecordMenu = false;
+		showOptionsDialog = false;
+		internalRecordingLoading = true;
+		try {
+			if (isWatchSession && watchSessionId) {
+				await api.promoteWatch(watchSessionId, {
+					title: effectiveAiring?.title ?? channelName,
+					episode_title: effectiveAiring?.episode_title ?? undefined,
+				});
+				return;
+			}
+			if (onRecordEpisode) {
+				await onRecordEpisode(
+					effectiveAiring?.series_id,
+					channelNumber,
+					effectiveAiring?.start,
+					options,
+				);
+			} else {
+				await api.addHDHomeRunRecordingRule({
+					series_id: effectiveAiring?.series_id || 'auto',
+					channel: channelNumber,
+					date_time: effectiveAiring?.start ?? undefined,
+					start_padding: options?.startPadding,
+					end_padding: options?.endPadding,
+					recent_only: options?.recentOnly,
+					max_episodes_to_keep: options?.maxEpisodesToKeep,
+					server: options?.server,
+				});
+			}
+		} catch (err) {
+			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			internalRecordingLoading = false;
+		}
+	}
+
+	async function handleRecordSeries(options?: RecordingRuleOptions) {
+		if (!effectiveAiring?.series_id) return;
+		showRecordMenu = false;
+		showOptionsDialog = false;
+		internalRecordingLoading = true;
+		try {
+			if (isWatchSession && watchSessionId) {
+				await api.promoteWatch(watchSessionId, {
+					title: effectiveAiring?.title ?? channelName,
+					episode_title: effectiveAiring?.episode_title ?? undefined,
+				});
+			}
+			if (onRecordSeries) {
+				await onRecordSeries(effectiveAiring.series_id, channelNumber, options);
+			} else {
+				await api.addHDHomeRunRecordingRule({
+					series_id: effectiveAiring.series_id,
+					channel: channelNumber,
+					start_padding: options?.startPadding,
+					end_padding: options?.endPadding,
+					recent_only: options?.recentOnly,
+					max_episodes_to_keep: options?.maxEpisodesToKeep,
+					server: options?.server,
+				});
+			}
+		} catch (err) {
+			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			internalRecordingLoading = false;
+		}
+	}
+
+	async function handleCancelRecording() {
+		if (!currentRule) return;
+		showRecordMenu = false;
+		internalRecordingLoading = true;
+		try {
+			if (onCancelRule) {
+				await onCancelRule(currentRule.RecordingRuleID);
+			} else {
+				await api.deleteHDHomeRunRecordingRule(currentRule.RecordingRuleID);
+			}
+		} catch (err) {
+			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			internalRecordingLoading = false;
+		}
+	}
+
+	function handleConfirmOptions(mode: 'episode' | 'series', options: RecordingRuleOptions) {
+		if (mode === 'series') {
+			handleRecordSeries(options);
+		} else {
+			handleRecordEpisode(options);
+		}
+	}
+
 	function portal(node: HTMLElement) {
 		document.body.appendChild(node);
 		return {
@@ -583,6 +742,9 @@
 
 	function attachPlayer(node: HTMLVideoElement) {
 		videoElement = node;
+		node.volume = volume;
+		node.muted = muted;
+		node.playbackRate = playbackRate;
 
 		(async () => {
 			if (seekable) {
@@ -607,101 +769,189 @@
 
 		return {
 			destroy() {
-				// Closes the underlying HTTP connection — this is what lets the
-				// backend's stream route notice the disconnect and kill its
-				// ffmpeg process. Skipping this leaks it indefinitely.
 				destroyed = true;
 				stopPolling();
 				stopCaptionPolling();
+				if (autoHideTimer) clearTimeout(autoHideTimer);
+				if (centerFlashTimer) clearTimeout(centerFlashTimer);
 				mpegtsPlayer.teardownPlayer();
+				if (airplaySessionId) {
+					api.stopHlsSession(airplaySessionId);
+					airplaySessionId = null;
+				}
 				videoElement = null;
 				captionController.teardown();
 				captionCues = [];
 			},
 		};
 	}
+
+	// Fullscreen & PiP Event Listeners
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		const updateFullscreen = () => {
+			isFullscreen = Boolean(
+				document.fullscreenElement ||
+					(document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement,
+			);
+		};
+		document.addEventListener('fullscreenchange', updateFullscreen);
+		document.addEventListener('webkitfullscreenchange', updateFullscreen);
+
+		if ('pictureInPictureEnabled' in document) {
+			pipSupported = Boolean(document.pictureInPictureEnabled);
+		}
+
+		return () => {
+			document.removeEventListener('fullscreenchange', updateFullscreen);
+			document.removeEventListener('webkitfullscreenchange', updateFullscreen);
+		};
+	});
+
+	// AirPlay Setup
+	$effect(() => {
+		const video = videoElement as
+			| (HTMLVideoElement & {
+					webkitShowPlaybackTargetPicker?: () => void;
+					webkitCurrentPlaybackTargetIsWireless?: boolean;
+			  })
+			| null;
+		const hasAirplay =
+			typeof window !== 'undefined' &&
+			('WebKitPlaybackTargetAvailabilityEvent' in window ||
+				'WebKitPlaybackTargetAvailabilityEvent' in (globalThis as unknown as Record<string, unknown>));
+
+		if (!video || !hasAirplay) return;
+
+		const handleAvailabilityChange = (event: Event) => {
+			airplayAvailable = (event as unknown as { availability: string }).availability === 'available';
+		};
+
+		const handleWirelessChange = () => {
+			if (video.webkitCurrentPlaybackTargetIsWireless) {
+				startAirPlayPlayback();
+			} else {
+				stopAirPlayPlayback();
+			}
+		};
+
+		video.addEventListener('webkitplaybacktargetavailabilitychanged', handleAvailabilityChange);
+		video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', handleWirelessChange);
+		return () => {
+			video.removeEventListener('webkitplaybacktargetavailabilitychanged', handleAvailabilityChange);
+			video.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', handleWirelessChange);
+		};
+	});
+
+	async function showAirPlayPicker() {
+		if (!airplaySessionId) {
+			await startAirPlayPlayback();
+		}
+		(videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null)
+			?.webkitShowPlaybackTargetPicker?.();
+	}
+
+	async function buildCastContentUrl(): Promise<{ url: string; sessionId: string }> {
+		const session =
+			seekable && playUrl
+				? await api.createRecordingHlsSessionForCast({
+						url: playUrl,
+						recordingId,
+						start: baseOffsetSeconds + videoCurrentTime,
+						audioIndex: currentAudioIndex ?? undefined,
+					})
+				: await api.createChannelHlsSessionForCast(channelNumber ?? '');
+		return { url: session.playlist_url, sessionId: session.session_id };
+	}
+
+	async function startAirPlayPlayback() {
+		if (!videoElement || airplaySessionId) return;
+		try {
+			airplayResumeFrom = seekable ? baseOffsetSeconds + videoCurrentTime : 0;
+			const { url, sessionId } = await buildCastContentUrl();
+			if (!videoElement || destroyed) {
+				api.stopHlsSession(sessionId);
+				return;
+			}
+			airplaySessionId = sessionId;
+			mpegtsPlayer.teardownPlayer();
+			videoElement.src = url;
+			videoElement.load();
+			safePlay();
+		} catch {
+			// ignore
+		}
+	}
+
+	function stopAirPlayPlayback() {
+		if (!airplaySessionId) return;
+		api.stopHlsSession(airplaySessionId);
+		airplaySessionId = null;
+		if (!videoElement || destroyed) return;
+		videoElement.removeAttribute('src');
+		videoElement.load();
+		if (seekable) {
+			const resumeAt = airplayResumeFrom + videoElement.currentTime;
+			baseOffsetSeconds = resumeAt;
+			videoCurrentTime = 0;
+			captionController.resetStretchCursor();
+			captionController.refreshCaptionCues();
+			mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(resumeAt, currentAudioIndex));
+		} else {
+			mpegtsPlayer.createPlayerAt(videoElement, src);
+		}
+	}
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="overlay" role="dialog" aria-label={title} use:portal>
-	<div class="header">
-		<h2>{title}</h2>
-		<div class="controls">
-			{#if canRecord}
-				<HDHomeRunPlayerRecordMenu
-					{currentRule}
-					{isPending}
-					{isActionLoading}
-					{channelName}
-					{channels}
-					{effectiveAiring}
-					{officialDvrActive}
-					bind:showRecordMenu
-					bind:showOptionsDialog
-					onRecordEpisode={handleRecordEpisode}
-					onRecordSeries={handleRecordSeries}
-					onCancelRecording={handleCancelRecording}
-					onConfirmOptions={handleConfirmOptions}
-				/>
-			{/if}
-			{#if seekable && (videoInfo || audioTracks.length > 0 || transcodeInfo)}
-				<button
-					class="control-btn"
-					class:active={showPlaybackInfo}
-					onclick={() => (showPlaybackInfo = !showPlaybackInfo)}
-					aria-label={$_('player.playback_info')}
-					title={$_('player.playback_info')}
-				>
-					ℹ
-				</button>
-			{/if}
-			{#if seekable && hasCaptions}
-				<button
-					class="control-btn"
-					class:active={captionsEnabled}
-					onclick={toggleCaptions}
-					aria-label={$_('player.subtitles')}
-					title={$_('player.subtitles')}
-				>
-					💬 CC
-				</button>
-			{/if}
-			{#if seekable && audioTracks.length > 1}
-				<div class="menu-popover-wrap">
-					<button
-						class="control-btn"
-						class:active={showAudioMenu}
-						onclick={() => (showAudioMenu = !showAudioMenu)}
-						aria-label={$_('player.audio_tracks')}
-					>
-						🔊 {$_('player.audio_tracks')}
-					</button>
-					{#if showAudioMenu}
-						<div class="popover-menu">
-							<div class="menu-header">{$_('player.audio_tracks')}</div>
-							<div class="menu-items">
-								{#each audioTracks as track (track.index)}
-									<button
-										class="menu-item"
-										class:selected={currentAudioIndex === track.index ||
-											(currentAudioIndex === null && track.index === 0)}
-										onclick={() => selectAudioTrack(track.index)}
-									>
-										{track.language ? track.language.toUpperCase() : `Track ${track.index + 1}`}
-										{#if track.channels}({track.channels}ch){/if}
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/if}
-				</div>
-			{/if}
-			<button class="control-btn" onclick={() => rewind(10)} aria-label={$_('player.rewind')}>↺ 10s</button>
-			<button class="control-btn" onclick={() => fastForward(10)} aria-label={$_('player.fast_forward')}>↻ 10s</button>
-			<button class="close" onclick={onClose} aria-label={$_('player.close')}>✕</button>
-		</div>
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+	class="overlay"
+	class:hide-cursor={!showControls && !videoPaused}
+	role="dialog"
+	aria-label={title}
+	tabindex="-1"
+	bind:this={overlayEl}
+	onmousemove={handleMouseMove}
+	use:portal
+>
+	<!-- Top Header -->
+	<div class="header-wrap" class:visible={showControls || videoPaused}>
+		<PlayerHeader
+			{title}
+			subtitle={episodeSubtitle}
+			{channelNumber}
+			{channelName}
+			{canRecord}
+			{currentRule}
+			{isPending}
+			{isActionLoading}
+			{channels}
+			{effectiveAiring}
+			{officialDvrActive}
+			{airplayAvailable}
+			{syncPlayActive}
+			syncPlayUserCount={syncPlayParticipants.length}
+			bind:showRecordMenu
+			bind:showOptionsDialog
+			{showAirPlayPicker}
+			{buildCastContentUrl}
+			onCastingChange={(casting) => {
+				if (videoElement) {
+					if (casting) videoElement.pause();
+					else safePlay();
+				}
+			}}
+			onRecordEpisode={handleRecordEpisode}
+			onRecordSeries={handleRecordSeries}
+			onCancelRecording={handleCancelRecording}
+			onConfirmOptions={handleConfirmOptions}
+			onOpenSyncPlay={() => (showSyncPlayModal = true)}
+			{onClose}
+		/>
 	</div>
+
 	{#if errorMessage}
 		<p class="error">
 			{errorMessage}
@@ -711,106 +961,138 @@
 		</p>
 	{/if}
 
-	<div class="video-container">
+	<!-- Video Area -->
+	<div
+		class="video-container"
+		class:aspect-16-9={aspectRatio === '16:9'}
+		class:aspect-4-3={aspectRatio === '4:3'}
+		onclick={togglePlay}
+		ondblclick={toggleFullscreen}
+		role="button"
+		tabindex="0"
+		onkeydown={(e) => e.key === ' ' && togglePlay()}
+	>
 		<!-- svelte-ignore a11y_media_has_caption -->
 		<video
 			autoplay
 			playsinline
-			controls={!seekable}
+			controls={false}
 			class="video"
+			class:fit-cover={aspectRatio === 'cover'}
+			class:fit-fill={aspectRatio === 'fill'}
+			class:fit-contain={aspectRatio === 'contain' || aspectRatio === '16:9' || aspectRatio === '4:3'}
 			use:attachPlayer
 			bind:currentTime={videoCurrentTime}
+			onplay={() => (videoPaused = false)}
+			onpause={() => (videoPaused = true)}
 			crossorigin="use-credentials"
+			{...{ 'x-webkit-airplay': 'allow' }}
 		></video>
 
+		<!-- Center Play/Pause Flash Ripple Animation -->
+		{#if centerFlash}
+			<div class="center-flash-ripple" aria-hidden="true">
+				<PlayerIcon name={centerFlash} size={48} />
+			</div>
+		{/if}
+
+		<!-- Custom Caption Overlay -->
 		{#if captionsEnabled && activeCaptionLines.length > 0}
-			<div class="caption-overlay" class:with-scrub={seekable} aria-live="polite">
+			<div class="caption-overlay" class:with-footer={showControls} aria-live="polite">
 				{#each activeCaptionLines as line, i (i + line)}
 					<div class="caption-line">{line}</div>
 				{/each}
 			</div>
 		{/if}
-
-		{#if seekable}
-			<div class="scrub-container">
-				<div class="scrub-time">{formatTime(displayedPosition)}</div>
-				<div
-					class="scrub-bar"
-					class:disabled={duration === null}
-					bind:this={scrubBarEl}
-					onclick={handleScrubClick}
-					onmousemove={handleScrubHover}
-					onmouseleave={() => (hoverPreview = null)}
-					onkeydown={handleScrubKeydown}
-					role="slider"
-					aria-label={$_('player.playback_info')}
-					aria-valuemin="0"
-					aria-valuemax={duration ?? 0}
-					aria-valuenow={displayedPosition}
-					tabindex="0"
-				>
-					<div class="scrub-track">
-						<div class="scrub-fill" style:width="{progressPercent}%"></div>
-					</div>
-					{#if hoverPreview}
-						<div
-							class="thumb-preview"
-							style:left="{hoverPreview.x}px"
-							style:width="{hoverPreview.cue.w}px"
-							style:height="{hoverPreview.cue.h}px"
-							style:background-image="url({thumbSpriteUrl})"
-							style:background-position="-{hoverPreview.cue.x}px -{hoverPreview.cue.y}px"
-						>
-							<span class="thumb-time">{formatTime(hoverPreview.cue.startSeconds)}</span>
-						</div>
-					{/if}
-				</div>
-				<div class="scrub-time">
-					{isInProgress ? $_('hdhomerun.detail.recording_in_progress') : formatTime(duration ?? 0)}
-				</div>
-			</div>
-		{/if}
 	</div>
 
-	{#if showPlaybackInfo && seekable}
-		<div class="info-overlay-modal" role="dialog" aria-label={$_('player.playback_info')}>
+	<!-- Bottom Footer -->
+	<div class="footer-wrap" class:visible={showControls || videoPaused}>
+		<PlayerFooter
+			{displayedPosition}
+			{duration}
+			{isInProgress}
+			{seekable}
+			{thumbnailsAvailable}
+			{thumbSpriteUrl}
+			{thumbnailCues}
+			paused={videoPaused}
+			{volume}
+			{muted}
+			{isFavorited}
+			{isBookmarked}
+			{pipSupported}
+			{isPipActive}
+			{isFullscreen}
+			{captionsEnabled}
+			{hasCaptions}
+			{audioTracks}
+			{currentAudioIndex}
+			{currentCaptionTrack}
+			{secondaryCaptions}
+			{playbackRate}
+			{aspectRatio}
+			bind:showAudioMenu
+			bind:showSettingsMenu
+			onSeek={seekTo}
+			onTogglePlay={togglePlay}
+			onRewind={rewind}
+			onFastForward={fastForward}
+			onVolumeChange={handleVolumeChange}
+			onMuteToggle={handleMuteToggle}
+			onToggleFavorite={handleToggleFavorite}
+			onToggleBookmark={handleToggleBookmark}
+			onTogglePip={togglePip}
+			onToggleFullscreen={toggleFullscreen}
+			onToggleCaptions={toggleCaptions}
+			onSelectAudioTrack={selectAudioTrack}
+			onSelectCaptionTrack={selectCaptionTrack}
+			onPlaybackRateChange={handlePlaybackRateChange}
+			onAspectRatioChange={handleAspectRatioChange}
+			onTogglePlaybackInfo={() => (showPlaybackInfo = !showPlaybackInfo)}
+		/>
+	</div>
+
+	<!-- Playback Info Modal (Stats for Nerds) -->
+	{#if showPlaybackInfo}
+		<div class="info-overlay-modal" role="dialog" aria-label={$_('player.playback_info', { default: 'Playback Info' })}>
 			<div class="info-card">
 				<div class="info-header">
-					<h3>{$_('player.playback_info')}</h3>
-					<button class="info-close" onclick={() => (showPlaybackInfo = false)}>✕</button>
+					<h3>{$_('player.playback_info', { default: 'Playback Info' })}</h3>
+					<button type="button" class="info-close" onclick={() => (showPlaybackInfo = false)}>✕</button>
 				</div>
 				<div class="info-body">
 					<div class="info-row">
-						<span class="label">{$_('player.container')}:</span>
+						<span class="label">{$_('player.container', { default: 'Container' })}:</span>
 						<span class="value uppercase">MPEG-TS</span>
 					</div>
 					{#if transcodeInfo}
 						<div class="info-row">
-							<span class="label">{$_('player.transcoding')}:</span>
+							<span class="label">{$_('player.transcoding', { default: 'Transcoding' })}:</span>
 							<span class="value">
 								{#if transcodeInfo.transcoding}
-									{$_('player.transcoding_via', { values: { preset: transcodeInfo.preset_label } })}
+									{$_('player.transcoding_via', { values: { preset: transcodeInfo.preset_label }, default: `Transcoding (${transcodeInfo.preset_label})` })}
 									{#if transcodeInfo.hardware}<span class="hw-badge">HW</span>{/if}
 								{:else}
-									{$_('player.direct_passthrough')}
+									{$_('player.direct_passthrough', { default: 'Direct Passthrough' })}
 								{/if}
 							</span>
 						</div>
 					{/if}
 					{#if isInProgress && !videoInfo && audioTracks.length === 0}
 						<div class="info-row">
-							<span class="value">{$_('player.analyzing_stream')}</span>
+							<span class="value">{$_('player.analyzing_stream', { default: 'Analyzing stream…' })}</span>
 						</div>
 					{/if}
 					{#if videoInfo}
-						<div class="info-section-heading">{$_('player.video')}</div>
+						<div class="info-section-heading">{$_('player.video', { default: 'Video' })}</div>
 						<div class="info-row">
 							<span class="label">Codec:</span>
-							<span class="value uppercase">{videoInfo.codec ?? $_('common.unknown')}</span>
+							<span class="value uppercase">{videoInfo.codec ?? $_('common.unknown', { default: 'Unknown' })}</span>
 						</div>
 						{#if videoInfo.width && videoInfo.height}
 							<div class="info-row">
-								<span class="label">{$_('player.resolution')}:</span>
+								<span class="label">{$_('player.resolution', { default: 'Resolution' })}:</span>
 								<span class="value">{videoInfo.width}×{videoInfo.height}</span>
 							</div>
 						{/if}
@@ -822,23 +1104,43 @@
 						{/if}
 					{/if}
 					{#if audioTracks.length > 0}
-						<div class="info-section-heading">{$_('player.audio')}</div>
+						<div class="info-section-heading">{$_('player.audio', { default: 'Audio' })}</div>
 						{#each audioTracks as track (track.index)}
 							<div class="info-row">
 								<span class="label">Track {track.index + 1}:</span>
-								<span class="value uppercase">{track.codec ?? $_('common.unknown')} · {track.channels ?? '?'}ch</span>
+								<span class="value uppercase">{track.codec ?? $_('common.unknown', { default: 'Unknown' })} · {track.channels ?? '?'}ch</span>
 							</div>
 						{/each}
 					{/if}
 					<div class="info-row">
-						<span class="label">{$_('player.duration')}:</span>
-						<span class="value">{duration !== null ? formatTime(duration) : $_('common.unknown')}</span>
+						<span class="label">{$_('player.duration', { default: 'Duration' })}:</span>
+						<span class="value">{duration !== null ? formatTime(duration) : $_('common.unknown', { default: 'Live / Unknown' })}</span>
 					</div>
 				</div>
 			</div>
 		</div>
 	{/if}
 
+	<!-- SyncPlay Modal -->
+	<SyncPlayModal
+		isOpen={showSyncPlayModal}
+		roomCode={syncPlayRoomCode}
+		participants={syncPlayParticipants}
+		isConnected={syncPlayActive}
+		onCreateRoom={() => {
+			syncPlayRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+			syncPlayActive = true;
+		}}
+		onJoinRoom={(code) => {
+			syncPlayRoomCode = code;
+			syncPlayActive = true;
+		}}
+		onLeaveRoom={() => {
+			syncPlayRoomCode = null;
+			syncPlayActive = false;
+		}}
+		onClose={() => (showSyncPlayModal = false)}
+	/>
 </div>
 
 <style>
@@ -849,71 +1151,40 @@
 		background: #000;
 		display: flex;
 		flex-direction: column;
-	}
-
-	.header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
-		padding: 0.75rem 1rem;
-		background: rgba(0, 0, 0, 0.6);
-	}
-
-	.header h2 {
-		margin: 0;
-		color: #fff;
-		font-size: 1rem;
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		user-select: none;
 	}
 
-	.controls {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+	.overlay.hide-cursor {
+		cursor: none;
 	}
 
-	.control-btn {
-		background: rgba(255, 255, 255, 0.15);
-		border: 1px solid rgba(255, 255, 255, 0.3);
-		border-radius: 0.4rem;
-		padding: 0.3rem 0.6rem;
-		color: #fff;
-		font-size: 0.85rem;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 0.25rem;
+	.header-wrap,
+	.footer-wrap {
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.25s ease-in-out;
 	}
 
-	.control-btn:hover {
-		background: rgba(255, 255, 255, 0.25);
-	}
-
-	.control-btn.active {
-		background: rgba(56, 189, 248, 0.25);
-		border-color: #38bdf8;
-		color: #38bdf8;
-	}
-
-	.close {
-		flex-shrink: 0;
-		background: none;
-		border: 1px solid rgba(255, 255, 255, 0.4);
-		border-radius: 50%;
-		width: 2rem;
-		height: 2rem;
-		color: #fff;
-		cursor: pointer;
+	.header-wrap.visible,
+	.footer-wrap.visible {
+		opacity: 1;
+		pointer-events: auto;
 	}
 
 	.error {
+		position: absolute;
+		top: 4.5rem;
+		left: 1rem;
+		right: 1rem;
+		z-index: 140;
 		margin: 0;
 		padding: 0.75rem 1rem;
 		color: #ffb4b4;
-		background: rgba(224, 90, 90, 0.15);
+		background: rgba(224, 90, 90, 0.25);
+		border: 1px solid rgba(224, 90, 90, 0.5);
+		border-radius: 0.5rem;
+		backdrop-filter: blur(8px);
 	}
 
 	.error-detail {
@@ -932,22 +1203,82 @@
 		position: relative;
 		flex: 1;
 		display: flex;
-		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		min-height: 0;
+		background: #000;
+		outline: none;
+		cursor: pointer;
+	}
+
+	.video {
+		width: 100%;
+		height: 100%;
 		min-height: 0;
 		background: #000;
 	}
 
-	.video {
-		flex: 1;
-		width: 100%;
-		min-height: 0;
+	.video.fit-contain {
 		object-fit: contain;
-		background: #000;
+	}
+
+	.video.fit-cover {
+		object-fit: cover;
+	}
+
+	.video.fit-fill {
+		object-fit: fill;
+	}
+
+	.video-container.aspect-16-9 .video {
+		aspect-ratio: 16 / 9;
+		max-height: 100%;
+		width: auto;
+	}
+
+	.video-container.aspect-4-3 .video {
+		aspect-ratio: 4 / 3;
+		max-height: 100%;
+		width: auto;
+	}
+
+	.center-flash-ripple {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: 5rem;
+		height: 5rem;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.65);
+		color: #ffffff;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		pointer-events: none;
+		z-index: 110;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+		animation: flash-pulse 0.5s ease-out forwards;
+	}
+
+	@keyframes flash-pulse {
+		0% {
+			opacity: 0;
+			transform: translate(-50%, -50%) scale(0.7);
+		}
+		30% {
+			opacity: 1;
+			transform: translate(-50%, -50%) scale(1.1);
+		}
+		100% {
+			opacity: 0;
+			transform: translate(-50%, -50%) scale(1.3);
+		}
 	}
 
 	.caption-overlay {
 		position: absolute;
-		bottom: 1.5rem;
+		bottom: 2rem;
 		left: 50%;
 		transform: translateX(-50%);
 		max-width: 85%;
@@ -956,158 +1287,34 @@
 		align-items: center;
 		gap: 0.25rem;
 		pointer-events: none;
-		z-index: 10;
+		z-index: 105;
 		text-align: center;
+		transition: bottom 0.25s ease;
 	}
 
-	.caption-overlay.with-scrub {
-		bottom: 4rem;
+	.caption-overlay.with-footer {
+		bottom: 6rem;
 	}
 
 	.caption-line {
 		display: inline-block;
-		background: rgba(0, 0, 0, 0.82);
+		background: rgba(0, 0, 0, 0.85);
 		color: #ffffff;
-		padding: 0.25rem 0.6rem;
+		padding: 0.25rem 0.65rem;
 		border-radius: 0.25rem;
-		font-size: 1.1rem;
+		font-size: 1.15rem;
 		line-height: 1.4;
 		font-weight: 500;
 		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
-		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 		white-space: pre-wrap;
 		word-break: break-word;
-	}
-
-	.scrub-container {
-		display: flex;
-		align-items: center;
-		gap: 0.6rem;
-		padding: 0.5rem 1rem;
-		background: rgba(0, 0, 0, 0.85);
-		border-top: 1px solid rgba(255, 255, 255, 0.1);
-	}
-
-	.scrub-time {
-		color: rgba(255, 255, 255, 0.75);
-		font-size: 0.8rem;
-		font-family: ui-monospace, SFMono-Regular, monospace;
-		white-space: nowrap;
-	}
-
-	.scrub-bar {
-		position: relative;
-		flex: 1;
-		cursor: pointer;
-		padding: 0.5rem 0;
-	}
-
-	.scrub-bar.disabled {
-		cursor: default;
-		opacity: 0.5;
-		pointer-events: none;
-	}
-
-	.scrub-track {
-		position: relative;
-		height: 0.35rem;
-		border-radius: 0.2rem;
-		background: rgba(255, 255, 255, 0.2);
-		overflow: hidden;
-	}
-
-	.scrub-fill {
-		height: 100%;
-		background: #38bdf8;
-	}
-
-	.thumb-preview {
-		position: absolute;
-		bottom: 100%;
-		margin-bottom: 0.5rem;
-		transform: translateX(-50%);
-		border: 2px solid rgba(255, 255, 255, 0.9);
-		border-radius: 0.3rem;
-		background-repeat: no-repeat;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-		display: flex;
-		align-items: flex-end;
-		justify-content: center;
-	}
-
-	.thumb-time {
-		background: rgba(0, 0, 0, 0.75);
-		color: #fff;
-		font-size: 0.65rem;
-		padding: 0.05rem 0.25rem;
-		border-radius: 0.2rem;
-		margin: 0.2rem;
-	}
-
-	.menu-popover-wrap {
-		position: relative;
-	}
-
-	.popover-menu {
-		position: absolute;
-		top: 100%;
-		right: 0;
-		margin-top: 0.5rem;
-		width: 12rem;
-		max-height: 16rem;
-		background: rgba(20, 20, 20, 0.95);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		border-radius: 0.6rem;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-		backdrop-filter: blur(12px);
-		z-index: 120;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-	}
-
-	.menu-header {
-		padding: 0.5rem 0.75rem;
-		font-size: 0.75rem;
-		font-weight: 600;
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		color: rgba(255, 255, 255, 0.5);
-		border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-	}
-
-	.menu-items {
-		overflow-y: auto;
-		display: flex;
-		flex-direction: column;
-		padding: 0.25rem 0;
-	}
-
-	.menu-item {
-		background: none;
-		border: none;
-		color: rgba(255, 255, 255, 0.85);
-		padding: 0.5rem 0.75rem;
-		text-align: left;
-		font-size: 0.85rem;
-		cursor: pointer;
-	}
-
-	.menu-item:hover {
-		background: rgba(255, 255, 255, 0.15);
-		color: #fff;
-	}
-
-	.menu-item.selected {
-		color: #38bdf8;
-		font-weight: 600;
-		background: rgba(56, 189, 248, 0.15);
 	}
 
 	.info-overlay-modal {
 		position: absolute;
 		inset: 0;
-		z-index: 150;
+		z-index: 160;
 		background: rgba(0, 0, 0, 0.65);
 		backdrop-filter: blur(6px);
 		display: flex;
@@ -1117,7 +1324,7 @@
 	}
 
 	.info-card {
-		background: rgba(30, 30, 35, 0.95);
+		background: rgba(28, 28, 34, 0.96);
 		border: 1px solid rgba(255, 255, 255, 0.2);
 		border-radius: 0.75rem;
 		width: 100%;
@@ -1145,6 +1352,10 @@
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 1.1rem;
 		cursor: pointer;
+	}
+
+	.info-close:hover {
+		color: #ffffff;
 	}
 
 	.info-body {
@@ -1194,5 +1405,4 @@
 		background: rgba(56, 189, 248, 0.2);
 		color: #38bdf8;
 	}
-
 </style>

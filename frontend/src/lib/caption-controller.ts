@@ -228,6 +228,21 @@ export function createCaptionController(options: CaptionControllerOptions) {
 		nextStretchSlotAbsolute = 0;
 	}
 
+	// CC-14: switching between caption tracks (e.g. CEA-608 channel 1/2)
+	// points getCaptionsUrl() at a different sidecar entirely, so the old
+	// track's cue history and stretch cursor are meaningless on the new one -
+	// clear both, plus whatever's already rendered on the native TextTrack,
+	// before the caller re-fetches via loadCaptions().
+	function switchCaptionTrack() {
+		options.setCaptionCues([]);
+		resetStretchCursor();
+		if (capTextTrack) {
+			while (capTextTrack.cues && capTextTrack.cues.length > 0) {
+				capTextTrack.removeCue(capTextTrack.cues[0]);
+			}
+		}
+	}
+
 	return {
 		ensureCaptionTrack,
 		refreshCaptionCues,
@@ -235,6 +250,7 @@ export function createCaptionController(options: CaptionControllerOptions) {
 		pollLiveCaptions,
 		maybeResyncBaseOffset,
 		resetStretchCursor,
+		switchCaptionTrack,
 		teardown,
 	};
 }

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import hls_streaming, jobs
@@ -82,6 +83,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The cast-token routes in app/api/hls.py (`/api/hls/{session_id}/{cast_token}/...`)
+# are fetched directly by a Chromecast/Google Cast *receiver* device - a
+# different origin than the frontend's own, and one that can never be added
+# to `settings.cors_origins` since it isn't known/stable. Without this, the
+# CORSMiddleware above (correctly) never grants that foreign origin access,
+# so the receiver's manifest/segment fetches get blocked client-side even
+# though the route itself is already access-controlled by the per-session
+# cast_token in the path (see `verify_cast_token`) - unlike the cookie/
+# bearer-gated routes, there's no session/credential leak risk in allowing
+# any origin here, so this permissive handling is scoped to just those two
+# routes. Starlette's `add_middleware` prepends to the middleware list and
+# the stack is built by wrapping in reverse, so the middleware registered
+# *last* ends up outermost - registering this one after CORSMiddleware
+# means it runs first on the way in, so it can fully own preflight requests
+# for cast-token paths before CORSMiddleware's origin allow-list ever
+# rejects them.
+_CAST_RECEIVER_PATH_RE = re.compile(r"^/api/hls/[^/]+/[^/]+/[^/]+$")
+
+
+@app.middleware("http")
+async def add_cast_receiver_cors_headers(request: Request, call_next):
+    if not _CAST_RECEIVER_PATH_RE.match(request.url.path):
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        response = Response(status_code=204)
+    else:
+        response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Range"
+    response.headers["Access-Control-Expose-Headers"] = "Content-Range, Content-Length, Accept-Ranges"
+    return response
 
 
 @app.middleware("http")
