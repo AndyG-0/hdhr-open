@@ -5,6 +5,7 @@
 		api,
 		type HDHomeRunChannel,
 		type HDHomeRunGuideEntry,
+		type HDHomeRunRecordingAudioInfo,
 		type HDHomeRunRecordingRule,
 		type HDHomeRunTranscodeInfo,
 		type RecordingRuleOptions,
@@ -15,7 +16,6 @@
 	import { createMpegtsPlayer } from '$lib/mpegts-player';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import PlayerFooter from './player/PlayerFooter.svelte';
-	import SyncPlayModal from './player/SyncPlayModal.svelte';
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
 	import LoadingQuipOverlay from './player/LoadingQuipOverlay.svelte';
 
@@ -33,6 +33,7 @@
 		channel?: HDHomeRunChannel | null;
 		airing?: HDHomeRunGuideEntry | null;
 		channels?: HDHomeRunChannel[];
+		favoriteChannels?: Set<string>;
 		recordingRules?: HDHomeRunRecordingRule[];
 		pendingRuleIds?: Set<string>;
 		officialDvrActive?: boolean;
@@ -49,6 +50,7 @@
 			options?: RecordingRuleOptions,
 		) => Promise<void> | void;
 		onCancelRule?: (ruleId: string) => Promise<void> | void;
+		onToggleFavorite?: (channelNumber: string) => Promise<void> | void;
 	}
 
 	let {
@@ -65,6 +67,7 @@
 		channel = null,
 		airing = null,
 		channels = [],
+		favoriteChannels = new Set<string>(),
 		recordingRules = [],
 		pendingRuleIds = new Set<string>(),
 		officialDvrActive = false,
@@ -72,6 +75,7 @@
 		onRecordEpisode,
 		onRecordSeries,
 		onCancelRule,
+		onToggleFavorite,
 	}: Props = $props();
 
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
@@ -91,8 +95,6 @@
 	let muted = $state(false);
 	let playbackRate = $state(1.0);
 	let aspectRatio = $state<'contain' | 'cover' | 'fill' | '16:9' | '4:3'>('contain');
-	let isFavorited = $state(false);
-	let isBookmarked = $state(false);
 
 	let videoInfo = $state<{
 		codec: string | null;
@@ -100,9 +102,7 @@
 		height: number | null;
 		fps: number | null;
 	} | null>(null);
-	let audioTracks = $state<{ index: number; codec: string | null; channels: number | null; language: string | null }[]>(
-		[],
-	);
+	let audioTracks = $state<HDHomeRunRecordingAudioInfo[]>([]);
 	let hasCaptions = $state(false);
 	let secondaryCaptions = $state<'unknown' | 'available' | 'unavailable' | null>(null);
 	let currentCaptionTrack = $state<1 | 2>(1);
@@ -123,12 +123,6 @@
 	let showPlaybackInfo = $state(false);
 	let showRecordMenu = $state(false);
 	let showOptionsDialog = $state(false);
-	let showSyncPlayModal = $state(false);
-	let syncPlayActive = $state(false);
-	let syncPlayRoomCode = $state<string | null>(null);
-	let syncPlayParticipants = $state<
-		Array<{ id: string; name: string; isReady: boolean; pingMs: number; isHost: boolean }>
-	>([]);
 
 	let centerFlash = $state<'play' | 'pause' | null>(null);
 	let centerFlashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -188,6 +182,10 @@
 	);
 
 	const isLive = $derived(isWatchSession || isInProgress || !seekable || channel !== null);
+
+	const isFavorited = $derived(
+		Boolean(channelNumber && favoriteChannels.has(channelNumber)),
+	);
 
 	const isActionLoading = $derived(
 		internalRecordingLoading ||
@@ -515,12 +513,9 @@
 	}
 
 	function handleToggleFavorite() {
-		isFavorited = !isFavorited;
-		resetAutoHideTimer();
-	}
-
-	function handleToggleBookmark() {
-		isBookmarked = !isBookmarked;
+		if (channelNumber && onToggleFavorite) {
+			onToggleFavorite(channelNumber);
+		}
 		resetAutoHideTimer();
 	}
 
@@ -580,8 +575,7 @@
 			showOptionsDialog ||
 			showAudioMenu ||
 			showSettingsMenu ||
-			showPlaybackInfo ||
-			showSyncPlayModal;
+			showPlaybackInfo;
 
 		if (!videoPaused && !hasActiveMenu) {
 			autoHideTimer = setTimeout(() => {
@@ -607,8 +601,6 @@
 				showRecordMenu = false;
 			} else if (showOptionsDialog) {
 				showOptionsDialog = false;
-			} else if (showSyncPlayModal) {
-				showSyncPlayModal = false;
 			} else if (isFullscreen) {
 				toggleFullscreen();
 			} else {
@@ -628,9 +620,9 @@
 				e.preventDefault();
 				togglePip();
 			}
-		} else if (e.key === 'ArrowLeft' || e.key === 'j') {
+		} else if ((e.key === 'ArrowLeft' || e.key === 'j') && seekable) {
 			rewind(10);
-		} else if (e.key === 'ArrowRight' || e.key === 'l') {
+		} else if ((e.key === 'ArrowRight' || e.key === 'l') && seekable) {
 			fastForward(10);
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
@@ -997,8 +989,6 @@
 			{effectiveAiring}
 			{officialDvrActive}
 			{airplayAvailable}
-			{syncPlayActive}
-			syncPlayUserCount={syncPlayParticipants.length}
 			bind:showRecordMenu
 			bind:showOptionsDialog
 			{showAirPlayPicker}
@@ -1013,7 +1003,6 @@
 			onRecordSeries={handleRecordSeries}
 			onCancelRecording={handleCancelRecording}
 			onConfirmOptions={handleConfirmOptions}
-			onOpenSyncPlay={() => (showSyncPlayModal = true)}
 			{onClose}
 		/>
 	</div>
@@ -1090,7 +1079,7 @@
 			{volume}
 			{muted}
 			{isFavorited}
-			{isBookmarked}
+			{channelNumber}
 			{pipSupported}
 			{isPipActive}
 			{isFullscreen}
@@ -1113,7 +1102,6 @@
 			onVolumeChange={handleVolumeChange}
 			onMuteToggle={handleMuteToggle}
 			onToggleFavorite={handleToggleFavorite}
-			onToggleBookmark={handleToggleBookmark}
 			onTogglePip={togglePip}
 			onToggleFullscreen={toggleFullscreen}
 			onToggleCaptions={toggleCaptions}
@@ -1192,27 +1180,6 @@
 			</div>
 		</div>
 	{/if}
-
-	<!-- SyncPlay Modal -->
-	<SyncPlayModal
-		isOpen={showSyncPlayModal}
-		roomCode={syncPlayRoomCode}
-		participants={syncPlayParticipants}
-		isConnected={syncPlayActive}
-		onCreateRoom={() => {
-			syncPlayRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-			syncPlayActive = true;
-		}}
-		onJoinRoom={(code) => {
-			syncPlayRoomCode = code;
-			syncPlayActive = true;
-		}}
-		onLeaveRoom={() => {
-			syncPlayRoomCode = null;
-			syncPlayActive = false;
-		}}
-		onClose={() => (showSyncPlayModal = false)}
-	/>
 </div>
 
 <style>

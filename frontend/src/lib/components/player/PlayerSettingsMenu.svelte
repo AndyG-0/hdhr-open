@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
+	import type { HDHomeRunRecordingAudioInfo } from '$lib/api';
 	import PlayerIcon from './icons/PlayerIcon.svelte';
 
 	interface Props {
@@ -7,7 +8,7 @@
 		playbackRate: number;
 		aspectRatio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3';
 		seekable?: boolean;
-		audioTracks?: { index: number; codec: string | null; channels: number | null; language: string | null }[];
+		audioTracks?: HDHomeRunRecordingAudioInfo[];
 		currentAudioIndex?: number | null;
 		hasCaptions?: boolean;
 		currentCaptionTrack?: 1 | 2;
@@ -91,10 +92,12 @@
 
 		<div class="menu-items">
 			{#if currentSubmenu === 'main'}
-				<button type="button" class="menu-item nav" onclick={() => (currentSubmenu = 'speed')}>
-					<span>{$_('player.playback_speed', { default: 'Speed' })}</span>
-					<span class="item-value">{playbackRate}x ›</span>
-				</button>
+				{#if seekable}
+					<button type="button" class="menu-item nav" onclick={() => (currentSubmenu = 'speed')}>
+						<span>{$_('player.playback_speed', { default: 'Speed' })}</span>
+						<span class="item-value">{playbackRate}x ›</span>
+					</button>
+				{/if}
 
 				<button type="button" class="menu-item nav" onclick={() => (currentSubmenu = 'aspect')}>
 					<span>{$_('player.aspect_ratio', { default: 'Aspect Ratio' })}</span>

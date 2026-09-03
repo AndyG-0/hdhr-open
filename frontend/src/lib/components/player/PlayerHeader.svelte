@@ -23,8 +23,6 @@
 		effectiveAiring?: HDHomeRunGuideEntry | null;
 		officialDvrActive?: boolean;
 		airplayAvailable?: boolean;
-		syncPlayActive?: boolean;
-		syncPlayUserCount?: number;
 		showRecordMenu?: boolean;
 		showOptionsDialog?: boolean;
 		showAirPlayPicker: () => void | Promise<void>;
@@ -34,7 +32,6 @@
 		onRecordSeries?: (options?: RecordingRuleOptions) => Promise<void> | void;
 		onCancelRecording?: () => Promise<void> | void;
 		onConfirmOptions?: (mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
-		onOpenSyncPlay?: () => void;
 		onClose: () => void;
 	}
 
@@ -51,8 +48,6 @@
 		effectiveAiring = null,
 		officialDvrActive = false,
 		airplayAvailable = false,
-		syncPlayActive = false,
-		syncPlayUserCount = 0,
 		showRecordMenu = $bindable(false),
 		showOptionsDialog = $bindable(false),
 		showAirPlayPicker,
@@ -62,7 +57,6 @@
 		onRecordSeries = () => {},
 		onCancelRecording = () => {},
 		onConfirmOptions = () => {},
-		onOpenSyncPlay,
 		onClose,
 	}: Props = $props();
 </script>
@@ -95,21 +89,6 @@
 	</div>
 
 	<div class="right-section">
-		{#if onOpenSyncPlay}
-			<button
-				type="button"
-				class="header-btn syncplay-btn"
-				class:active={syncPlayActive}
-				onclick={onOpenSyncPlay}
-				aria-label={$_('player.syncplay', { default: 'SyncPlay / Watch Party' })}
-				title={$_('player.syncplay', { default: 'SyncPlay / Watch Party' })}
-			>
-				<PlayerIcon name="syncplay" size={22} />
-				{#if syncPlayActive && syncPlayUserCount > 1}
-					<span class="syncplay-badge">{syncPlayUserCount}</span>
-				{/if}
-			</button>
-		{/if}
 
 		{#if airplayAvailable}
 			<button
@@ -206,11 +185,6 @@
 		transform: scale(0.92);
 	}
 
-	.header-btn.active {
-		color: #38bdf8;
-		background: rgba(56, 189, 248, 0.2);
-	}
-
 	.back-btn {
 		margin-right: 0.25rem;
 	}
@@ -251,21 +225,5 @@
 		border-radius: 0.25rem;
 		font-size: 0.75rem;
 		font-weight: 600;
-	}
-
-	.syncplay-badge {
-		position: absolute;
-		top: 0.15rem;
-		right: 0.15rem;
-		background: #38bdf8;
-		color: #000000;
-		font-size: 0.65rem;
-		font-weight: 700;
-		width: 1rem;
-		height: 1rem;
-		border-radius: 50%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
 	}
 </style>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
+	import type { HDHomeRunRecordingAudioInfo } from '$lib/api';
 	import PlayerIcon from './icons/PlayerIcon.svelte';
 	import PlayerScrubBar from './PlayerScrubBar.svelte';
 	import PlayerVolumeControl from './PlayerVolumeControl.svelte';
@@ -18,13 +19,13 @@
 		volume?: number;
 		muted?: boolean;
 		isFavorited?: boolean;
-		isBookmarked?: boolean;
+		channelNumber?: string | null;
 		pipSupported?: boolean;
 		isPipActive?: boolean;
 		isFullscreen?: boolean;
 		captionsEnabled?: boolean;
 		hasCaptions?: boolean;
-		audioTracks?: { index: number; codec: string | null; channels: number | null; language: string | null }[];
+		audioTracks?: HDHomeRunRecordingAudioInfo[];
 		currentAudioIndex?: number | null;
 		currentCaptionTrack?: 1 | 2;
 		secondaryCaptions?: 'unknown' | 'available' | 'unavailable' | null;
@@ -41,7 +42,6 @@
 		onVolumeChange: (vol: number) => void;
 		onMuteToggle: () => void;
 		onToggleFavorite?: () => void;
-		onToggleBookmark?: () => void;
 		onTogglePip?: () => void;
 		onToggleFullscreen: () => void;
 		onToggleCaptions: () => void;
@@ -64,7 +64,7 @@
 		volume = 1,
 		muted = false,
 		isFavorited = false,
-		isBookmarked = false,
+		channelNumber = null,
 		pipSupported = false,
 		isPipActive = false,
 		isFullscreen = false,
@@ -87,7 +87,6 @@
 		onVolumeChange,
 		onMuteToggle,
 		onToggleFavorite,
-		onToggleBookmark,
 		onTogglePip,
 		onToggleFullscreen,
 		onToggleCaptions,
@@ -142,15 +141,17 @@
 	<div class="controls-tier">
 		<!-- Left Cluster -->
 		<div class="controls-left">
-			<button
-				type="button"
-				class="ctrl-btn"
-				onclick={() => onRewind(10)}
-				aria-label={$_('player.rewind', { default: 'Rewind 10s' })}
-				title={$_('player.rewind', { default: 'Rewind 10s (Left Arrow)' })}
-			>
-				<PlayerIcon name="previous" size={22} />
-			</button>
+			{#if seekable}
+				<button
+					type="button"
+					class="ctrl-btn"
+					onclick={() => onRewind(10)}
+					aria-label={$_('player.rewind', { default: 'Rewind 10s' })}
+					title={$_('player.rewind', { default: 'Rewind 10s (Left Arrow)' })}
+				>
+					<PlayerIcon name="previous" size={22} />
+				</button>
+			{/if}
 
 			<button
 				type="button"
@@ -162,15 +163,17 @@
 				<PlayerIcon name={paused ? 'play' : 'pause'} size={26} />
 			</button>
 
-			<button
-				type="button"
-				class="ctrl-btn"
-				onclick={() => onFastForward(10)}
-				aria-label={$_('player.fast_forward', { default: 'Fast Forward 10s' })}
-				title={$_('player.fast_forward', { default: 'Fast Forward 10s (Right Arrow)' })}
-			>
-				<PlayerIcon name="next" size={22} />
-			</button>
+			{#if seekable}
+				<button
+					type="button"
+					class="ctrl-btn"
+					onclick={() => onFastForward(10)}
+					aria-label={$_('player.fast_forward', { default: 'Fast Forward 10s' })}
+					title={$_('player.fast_forward', { default: 'Fast Forward 10s (Right Arrow)' })}
+				>
+					<PlayerIcon name="next" size={22} />
+				</button>
+			{/if}
 
 			{#if endsAtText}
 				<div class="ends-at-label">
@@ -181,14 +184,18 @@
 
 		<!-- Right Cluster -->
 		<div class="controls-right">
-			{#if onToggleFavorite}
+			{#if (isLive || channelNumber) && onToggleFavorite}
 				<button
 					type="button"
 					class="ctrl-btn"
 					class:active={isFavorited}
 					onclick={onToggleFavorite}
-					aria-label={$_('player.favorite', { default: 'Favorite' })}
-					title={$_('player.favorite', { default: 'Toggle Favorite' })}
+					aria-label={isFavorited
+						? $_('hdhomerun.detail.remove_favorite', { default: 'Remove from favorites' })
+						: $_('hdhomerun.detail.add_favorite', { default: 'Add to favorites' })}
+					title={isFavorited
+						? $_('hdhomerun.detail.remove_favorite', { default: 'Remove from favorites' })
+						: $_('hdhomerun.detail.add_favorite', { default: 'Add to favorites' })}
 				>
 					<PlayerIcon name={isFavorited ? 'heart-filled' : 'heart'} size={20} />
 				</button>
@@ -258,19 +265,6 @@
 				{onVolumeChange}
 				{onMuteToggle}
 			/>
-
-			{#if onToggleBookmark}
-				<button
-					type="button"
-					class="ctrl-btn"
-					class:active={isBookmarked}
-					onclick={onToggleBookmark}
-					aria-label={$_('player.bookmark', { default: 'Bookmark' })}
-					title={$_('player.bookmark', { default: 'Bookmark Position' })}
-				>
-					<PlayerIcon name={isBookmarked ? 'bookmark-filled' : 'bookmark'} size={20} />
-				</button>
-			{/if}
 
 			<!-- Settings Gear -->
 			<div class="popover-wrapper">

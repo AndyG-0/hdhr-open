@@ -1379,3 +1379,58 @@ Multitasking and detached viewing options across web browsers and native mobile/
     - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/PlayerLayerView.swift` (MODIFY: AVPlayerLayer PiP hookup)
     - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY: PiP toggle button)
 
+## Video Player Experience & Contextualization
+
+- [x] **PLYR-1 — Web: Player Controls Audit & Contextualization (Live TV vs. Stored Recordings).**
+  Audited all controls inherited from the Jellyfin player refactor and contextualized them between linear Live TV (direct tuner streams and live watch sessions) and stored DVR Recordings:
+  - **Eliminated Dead Stubs**:
+    - Removed `SyncPlayModal.svelte`, syncplay header icon/button, and mock watch room generation (no backend sync room server exists in HDHR Open).
+    - Removed Bookmark button and unused local state from `PlayerFooter.svelte` and `HDHomeRunPlayer.svelte` (HDHR Open relies on timestamp-based resume progress rather than manual bookmarks).
+  - **Live TV Channel Favoriting**:
+    - Connected the player's favorite button directly to `favoriteChannels: Set<string>` and `onToggleFavorite` in `HDHomeRunPlayer.svelte` and `PlayerFooter.svelte`. Clicking favorite while watching a live channel now toggles and persists the channel in HDHomeRun network settings (`api.updateNetworkIntegration`).
+    - Hid favorite button when playing recorded media without a channel context.
+  - **Playback Speed & Skips Contextualization**:
+    - Guarded Speed submenu in `PlayerSettingsMenu.svelte` with `{#if seekable}` so live tuner streaming does not stall or suffer buffer underruns from speed alteration.
+    - Guarded Rewind 10s and Fast Forward 10s buttons in `PlayerFooter.svelte` and arrow key keyboard shortcuts in `HDHomeRunPlayer.svelte` with `seekable` (matching Android `PlayerScreen.kt`'s `if (isSeekable)` skip control guards).
+  - **Files**:
+    - `frontend/src/lib/components/player/SyncPlayModal.svelte` (DELETE)
+    - `frontend/src/lib/components/player/PlayerHeader.svelte` (MODIFY: remove SyncPlay button and props)
+    - `frontend/src/lib/components/player/PlayerFooter.svelte` (MODIFY: conditional skips, channel favorite wiring, remove bookmark)
+    - `frontend/src/lib/components/player/PlayerSettingsMenu.svelte` (MODIFY: conditional playback speed)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: favorite channels wiring, keyboard shortcut guards, cleanup)
+    - `frontend/src/routes/+page.svelte` (MODIFY: pass favoriteChannels & onToggleFavorite)
+    - `frontend/src/lib/components/player/icons/PlayerIcon.svelte` (MODIFY: remove syncplay & bookmark icon definitions)
+    - `frontend/src/lib/components/HDHomeRunPlayer.test.ts` (MODIFY: test favorite toggle, non-seekable controls hiding, speed context)
+
+- [ ] **PLYR-2 — In-Player Quick Channel Switcher (Live TV).**
+  Add a quick slide-up or overlay channel lineup switcher during Live TV playback:
+  - Overlay or drawer listing enabled channels with current airing title without leaving full-screen playback.
+  - Allows seamless zap-style channel changing directly from the player.
+  - **Files**:
+    - `frontend/src/lib/components/player/PlayerChannelDrawer.svelte` (NEW)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: drawer integration)
+
+- [ ] **PLYR-3 — Commercial Skip & Chapter Markers (Recorded Media).**
+  Support EDL / comskip chapter markers on recorded DVR media:
+  - Render chapter / commercial segments on `PlayerScrubBar.svelte`.
+  - Add quick "Skip Commercial" action prompt when playback enters a detected commercial block.
+  - **Files**:
+    - `frontend/src/lib/components/player/PlayerScrubBar.svelte` (MODIFY: marker tier)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: commercial skip controller)
+
+- [ ] **PLYR-4 — SyncPlay Watch Party (Multi-Client Synchronized Playback).**
+  Implement real, coordinated multi-client watch parties across Web, Android, iOS, and tvOS:
+  - **Backend Synchronization Engine**:
+    - Add WebSocket room hub (`backend/app/api/syncplay.py`) supporting room creation, joining via 6-character room codes, host election, and participant presence tracking.
+    - Synchronize playback state machine: shared playback clock, play/pause broadcasts, seek orchestration, and dynamic drift correction (catching up slow clients via micro-speed adjustments).
+  - **Client UI & Player Integration**:
+    - Web (`PlayerHeader.svelte`, `SyncPlayModal.svelte`): room management dialog with participant list, latency ping, and sync status indicator.
+    - Android (`PlayerScreen.kt`) & Apple (`TVPlaybackControlsView.swift`, `iOSPlayerView.swift`): native watch room joining and shared controls.
+  - **Files**:
+    - `backend/app/api/syncplay.py` (NEW: WebSocket room hub & sync coordination)
+    - `frontend/src/lib/components/player/SyncPlayModal.svelte` (NEW: full WebSocket-connected modal)
+    - `frontend/src/lib/components/player/PlayerHeader.svelte` (MODIFY: SyncPlay button & participant badge)
+    - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: sync play controller & drift adjustment)
+
+
+

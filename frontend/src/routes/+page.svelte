@@ -393,6 +393,7 @@
 		channel={playingMedia.channel}
 		airing={playingMedia.airing}
 		{channels}
+		{favoriteChannels}
 		recordingRules={displayedRecordingRules}
 		{pendingRuleIds}
 		{officialDvrActive}
@@ -400,6 +401,7 @@
 		onRecordEpisode={recordShowEpisode}
 		onRecordSeries={recordShowSeries}
 		onCancelRule={cancelRecordingRule}
+		onToggleFavorite={toggleFavorite}
 		onClose={closePlayer}
 	/>
 {/if}

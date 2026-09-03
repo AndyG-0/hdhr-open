@@ -1761,7 +1761,7 @@ describe('HDHomeRunPlayer', () => {
 			expect(screen.getByRole('button', { name: /Mute/i })).toBeInTheDocument();
 		});
 
-		it('opens Settings menu and allows changing playback rate', async () => {
+		it('opens Settings menu and allows changing playback rate on seekable playback', async () => {
 			render(HDHomeRunPlayer, { props: seekableProps });
 
 			const settingsBtn = screen.getByRole('button', { name: /Settings/i });
@@ -1775,19 +1775,57 @@ describe('HDHomeRunPlayer', () => {
 			await fireEvent.click(speed15);
 		});
 
-		it('opens and closes SyncPlay modal', async () => {
+		it('hides speed menu and rewind/fast-forward buttons on direct live playback', async () => {
+			render(HDHomeRunPlayer, { props });
+
+			// Rewind and Fast Forward should be hidden when !seekable
+			expect(screen.queryByRole('button', { name: /Rewind 10s/i })).not.toBeInTheDocument();
+			expect(screen.queryByRole('button', { name: /Fast Forward 10s/i })).not.toBeInTheDocument();
+
+			// Play/Pause is still available
+			expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument();
+
+			// Settings menu should not show Speed option
+			const settingsBtn = screen.getByRole('button', { name: /Settings/i });
+			await fireEvent.click(settingsBtn);
+			expect(screen.queryByRole('button', { name: /Speed/i })).not.toBeInTheDocument();
+		});
+
+		it('toggles channel favorite during live TV and calls onToggleFavorite', async () => {
+			const onToggleFavoriteMock = vi.fn();
+			const liveProps = {
+				...props,
+				channel: {
+					channel_number: '4.1',
+					name: 'KDFW',
+					guide_number: '4.1',
+					guide_name: 'KDFW',
+					is_favorite: false,
+					enabled: true,
+					is_hd: true,
+					is_drm: false,
+					stream_url: 'http://192.168.1.100:5004/auto/v4.1',
+					playback_url: 'http://192.168.1.100:5004/auto/v4.1',
+					now: null,
+					next: null,
+				},
+				favoriteChannels: new Set<string>(['5.1']),
+				onToggleFavorite: onToggleFavoriteMock,
+			};
+
+			render(HDHomeRunPlayer, { props: liveProps });
+
+			// Initially not favorited (Set only has 5.1)
+			const favBtn = screen.getByRole('button', { name: /Add to favorites/i });
+			expect(favBtn).toBeInTheDocument();
+
+			await fireEvent.click(favBtn);
+			expect(onToggleFavoriteMock).toHaveBeenCalledWith('4.1');
+		});
+
+		it('hides favorite button during recorded file playback without a channel', () => {
 			render(HDHomeRunPlayer, { props: seekableProps });
-
-			const syncplayBtn = screen.getByRole('button', { name: /SyncPlay/i });
-			await fireEvent.click(syncplayBtn);
-
-			expect(screen.getByText('SyncPlay Watch Party')).toBeInTheDocument();
-			const createBtn = screen.getByRole('button', { name: /Create New Watch Room/i });
-			await fireEvent.click(createBtn);
-
-			expect(screen.getByText(/Room Code:/i)).toBeInTheDocument();
-			const leaveBtn = screen.getByRole('button', { name: /Leave Room/i });
-			await fireEvent.click(leaveBtn);
+			expect(screen.queryByRole('button', { name: /favorites/i })).not.toBeInTheDocument();
 		});
 
 		it('renders the loading quip overlay while video is loading and hides when playing', async () => {
