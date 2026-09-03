@@ -33,6 +33,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.hdhropen.app.ui.screens.guide.RecordingOptionsBottomSheet
 import org.hdhropen.app.ui.theme.*
+import org.hdhropen.kit.playback.LoadingQuips
 import org.hdhropen.kit.playback.PlaybackState
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
@@ -91,6 +92,18 @@ fun PlayerScreen(
     var showPlaybackInfo by remember { mutableStateOf(false) }
     var showRecordMenu by remember { mutableStateOf(false) }
     var showRecordingOptionsSheet by remember { mutableStateOf(false) }
+    var loadingQuip by remember { mutableStateOf(LoadingQuips.getRandomQuip()) }
+
+    // Auto-rotate funny loading quips while loading/buffering
+    LaunchedEffect(state) {
+        if (state == PlaybackState.Loading || state == PlaybackState.Buffering) {
+            loadingQuip = LoadingQuips.getRandomQuip(exclude = loadingQuip)
+            while (isActive) {
+                delay(2800)
+                loadingQuip = LoadingQuips.getRandomQuip(exclude = loadingQuip)
+            }
+        }
+    }
 
     // Auto-hide controls timer
     LaunchedEffect(showControls, state) {
@@ -156,14 +169,39 @@ fun PlayerScreen(
             }
         }
 
-        // Loading / Buffering Indicator
+        // Loading / Buffering Indicator with Rotating Funny Quips
         if (state == PlaybackState.Loading || state == PlaybackState.Buffering) {
-            CircularProgressIndicator(
-                color = Color.White,
+            Column(
                 modifier = Modifier
-                    .size(56.dp)
                     .align(Alignment.Center)
-            )
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(
+                    color = BluePrimary,
+                    modifier = Modifier.size(56.dp),
+                    strokeWidth = 4.dp
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                AnimatedContent(
+                    targetState = loadingQuip,
+                    transitionSpec = {
+                        fadeIn() togetherWith fadeOut()
+                    },
+                    label = "loadingQuipAnimation"
+                ) { quip ->
+                    Text(
+                        text = quip,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center
+                        ),
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                }
+            }
         }
 
         // Error Card

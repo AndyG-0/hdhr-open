@@ -10,6 +10,7 @@ public struct TVPlayerView: View {
     @State private var showControls: Bool = true
     @State private var controlsTimer: Task<Void, Never>?
     @State private var showRecordingOptionsSheet: Bool = false
+    @State private var loadingQuip: String = LoadingQuips.random()
     // SwiftUI doesn't automatically retarget focus onto the ZStack just
     // because `.focusable(!showControls)` makes it newly eligible the
     // instant `TVPlaybackControlsView` (and its own focused button) leaves
@@ -68,8 +69,17 @@ public struct TVPlayerView: View {
                 .background(Theme.appSurface)
                 .cornerRadius(16)
             } else if playerViewModel.playerEngine.state == .loading || playerViewModel.playerEngine.state == .buffering {
-                ProgressView()
-                    .scaleEffect(2.0)
+                VStack(spacing: 24) {
+                    ProgressView()
+                        .scaleEffect(2.0)
+                    Text(loadingQuip)
+                        .font(.headline)
+                        .foregroundColor(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 48)
+                        .id(loadingQuip)
+                }
+                .padding(32)
             }
 
             // Controls Overlay
@@ -263,6 +273,19 @@ public struct TVPlayerView: View {
         .task {
             if recordingsViewModel.dvrInfo == nil {
                 await recordingsViewModel.loadDvrInfo()
+            }
+        }
+        .task(id: playerViewModel.playerEngine.state) {
+            if playerViewModel.playerEngine.state == .loading || playerViewModel.playerEngine.state == .buffering {
+                loadingQuip = LoadingQuips.random(excluding: loadingQuip)
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_800_000_000)
+                    if !Task.isCancelled {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            loadingQuip = LoadingQuips.random(excluding: loadingQuip)
+                        }
+                    }
+                }
             }
         }
         .fullScreenCover(isPresented: $showRecordingOptionsSheet) {

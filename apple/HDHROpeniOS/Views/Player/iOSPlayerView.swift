@@ -11,6 +11,7 @@ public struct iOSPlayerView: View {
     @State private var controlsTimer: Task<Void, Never>?
     @State private var showPlaybackInfo: Bool = false
     @State private var showRecordingOptionsSheet: Bool = false
+    @State private var loadingQuip: String = LoadingQuips.random()
 
     public init() {}
 
@@ -71,9 +72,18 @@ public struct iOSPlayerView: View {
                 .cornerRadius(16)
                 .padding(.horizontal, 32)
             } else if playerViewModel.playerEngine.state == .loading || playerViewModel.playerEngine.state == .buffering {
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.white)
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                    Text(loadingQuip)
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                        .id(loadingQuip)
+                }
+                .padding(24)
             }
 
             // Controls Overlay
@@ -287,6 +297,19 @@ public struct iOSPlayerView: View {
         .task {
             if recordingsViewModel.dvrInfo == nil {
                 await recordingsViewModel.loadDvrInfo()
+            }
+        }
+        .task(id: playerViewModel.playerEngine.state) {
+            if playerViewModel.playerEngine.state == .loading || playerViewModel.playerEngine.state == .buffering {
+                loadingQuip = LoadingQuips.random(excluding: loadingQuip)
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_800_000_000)
+                    if !Task.isCancelled {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            loadingQuip = LoadingQuips.random(excluding: loadingQuip)
+                        }
+                    }
+                }
             }
         }
         .sheet(isPresented: $showRecordingOptionsSheet) {

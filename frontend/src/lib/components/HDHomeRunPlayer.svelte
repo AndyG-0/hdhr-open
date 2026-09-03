@@ -17,6 +17,7 @@
 	import PlayerFooter from './player/PlayerFooter.svelte';
 	import SyncPlayModal from './player/SyncPlayModal.svelte';
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
+	import LoadingQuipOverlay from './player/LoadingQuipOverlay.svelte';
 
 	interface Props {
 		src: string;
@@ -133,6 +134,7 @@
 	let centerFlashTimer: ReturnType<typeof setTimeout> | undefined;
 
 	let internalRecordingLoading = $state(false);
+	let isVideoLoading = $state(true);
 	let errorMessage = $state<string | null>(null);
 	let errorDetail = $state<string | null>(null);
 	let destroyed = false;
@@ -381,6 +383,7 @@
 		if (!seekable || !videoElement) return;
 		let clamped = Math.max(0, targetSeconds);
 		if (duration !== null) clamped = Math.min(clamped, duration);
+		isVideoLoading = true;
 		mpegtsPlayer.teardownPlayer();
 		baseOffsetSeconds = clamped;
 		videoCurrentTime = 0;
@@ -747,6 +750,23 @@
 		node.volume = volume;
 		node.muted = muted;
 		node.playbackRate = playbackRate;
+		isVideoLoading = true;
+
+		const handleLoadStart = () => { isVideoLoading = true; };
+		const handleWaiting = () => { isVideoLoading = true; };
+		const handleSeeking = () => { isVideoLoading = true; };
+		const handlePlaying = () => { isVideoLoading = false; videoPaused = false; };
+		const handleCanPlay = () => { isVideoLoading = false; };
+		const handleLoadedData = () => { isVideoLoading = false; };
+		const handleTimeUpdate = () => { if (isVideoLoading && node.currentTime > 0) isVideoLoading = false; };
+
+		node.addEventListener('loadstart', handleLoadStart);
+		node.addEventListener('waiting', handleWaiting);
+		node.addEventListener('seeking', handleSeeking);
+		node.addEventListener('playing', handlePlaying);
+		node.addEventListener('canplay', handleCanPlay);
+		node.addEventListener('loadeddata', handleLoadedData);
+		node.addEventListener('timeupdate', handleTimeUpdate);
 
 		(async () => {
 			if (seekable) {
@@ -772,6 +792,13 @@
 		return {
 			destroy() {
 				destroyed = true;
+				node.removeEventListener('loadstart', handleLoadStart);
+				node.removeEventListener('waiting', handleWaiting);
+				node.removeEventListener('seeking', handleSeeking);
+				node.removeEventListener('playing', handlePlaying);
+				node.removeEventListener('canplay', handleCanPlay);
+				node.removeEventListener('loadeddata', handleLoadedData);
+				node.removeEventListener('timeupdate', handleTimeUpdate);
 				stopPolling();
 				stopCaptionPolling();
 				if (autoHideTimer) clearTimeout(autoHideTimer);
@@ -812,12 +839,7 @@
 
 	// AirPlay Setup
 	$effect(() => {
-		const video = videoElement as
-			| (HTMLVideoElement & {
-					webkitShowPlaybackTargetPicker?: () => void;
-					webkitCurrentPlaybackTargetIsWireless?: boolean;
-			  })
-			| null;
+		const video = videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null;
 		const hasAirplay =
 			typeof window !== 'undefined' &&
 			('WebKitPlaybackTargetAvailabilityEvent' in window ||
@@ -825,12 +847,27 @@
 
 		if (!video || !hasAirplay) return;
 
+		// Swapping to the real for_cast HLS URL as soon as a route becomes
+		// available - not deferred until the route actually connects - is
+		// required, not just an optimization: confirmed against real
+		// Safari/Apple TV hardware, WebKit negotiates an AirPlay connection as
+		// audio-only (remote-control works, sound-waves "Now Playing" icon
+		// shows, but no picture ever reaches the TV) whenever the video's src
+		// was still the mpegts.js MSE blob: URL at the moment the route was
+		// picked - swapping the src afterwards doesn't upgrade an
+		// already-negotiated audio-only session to video. The video element
+		// has to already be on a directly-fetchable HTTP(S) URL *before* the
+		// picker ever opens, which - combined with webkitShowPlaybackTargetPicker()
+		// needing to fire with no await ahead of it (see showAirPlayPicker
+		// below) - means the swap can't be triggered by the click at all. So
+		// it happens here instead, the moment a nearby route is discovered:
+		// by the time the user actually clicks, the video is already playing
+		// from a URL an Apple TV can pull directly, whether they click at all
+		// or (per real hardware) Safari auto-reconnects a previously-picked
+		// route on its own.
 		const handleAvailabilityChange = (event: Event) => {
 			airplayAvailable = (event as unknown as { availability: string }).availability === 'available';
-		};
-
-		const handleWirelessChange = () => {
-			if (video.webkitCurrentPlaybackTargetIsWireless) {
+			if (airplayAvailable) {
 				startAirPlayPlayback();
 			} else {
 				stopAirPlayPlayback();
@@ -838,22 +875,18 @@
 		};
 
 		video.addEventListener('webkitplaybacktargetavailabilitychanged', handleAvailabilityChange);
-		video.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', handleWirelessChange);
 		return () => {
 			video.removeEventListener('webkitplaybacktargetavailabilitychanged', handleAvailabilityChange);
-			video.removeEventListener('webkitcurrentplaybacktargetiswirelesschanged', handleWirelessChange);
 		};
 	});
 
-	// Must call webkitShowPlaybackTargetPicker() synchronously, with nothing
-	// awaited first - Safari only honors it while the click's transient user
-	// activation is still live, the same constraint Chrome's Cast picker has
-	// (see requestCastSession() in cast-loader.ts). Minting the for_cast HLS
-	// session first (as this used to do) burns through that window before the
-	// picker call ever runs, so the picker silently never opens at all. The
-	// actual source swap happens later, reactively, once
-	// webkitcurrentplaybacktargetiswirelesschanged confirms a route is
-	// actually live (see startAirPlayPlayback below).
+	// By the time this runs, the video is already on the for_cast HLS URL
+	// (swapped in reactively as soon as the route became available - see
+	// handleAvailabilityChange above), so all this needs to do is open the
+	// native picker. Must stay synchronous, with nothing awaited first -
+	// Safari only honors webkitShowPlaybackTargetPicker() while the click's
+	// transient user activation is still live, the same constraint Chrome's
+	// Cast picker has (see requestCastSession() in cast-loader.ts).
 	function showAirPlayPicker() {
 		(videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null)
 			?.webkitShowPlaybackTargetPicker?.();
@@ -877,7 +910,7 @@
 		try {
 			airplayResumeFrom = seekable ? baseOffsetSeconds + videoCurrentTime : 0;
 			const { url, sessionId } = await buildCastContentUrl();
-			if (!videoElement || destroyed) {
+			if (!videoElement || destroyed || !airplayAvailable) {
 				api.stopHlsSession(sessionId);
 				return;
 			}
@@ -978,6 +1011,7 @@
 		ondblclick={toggleFullscreen}
 		role="button"
 		tabindex="0"
+		aria-label="Video playback"
 		onkeydown={(e) => e.key === ' ' && togglePlay()}
 	>
 		<!-- svelte-ignore a11y_media_has_caption -->
@@ -1012,6 +1046,9 @@
 				{/each}
 			</div>
 		{/if}
+
+		<!-- Loading Quip & Spinner Overlay -->
+		<LoadingQuipOverlay visible={isVideoLoading && !errorMessage} />
 	</div>
 
 	<!-- Bottom Footer -->
