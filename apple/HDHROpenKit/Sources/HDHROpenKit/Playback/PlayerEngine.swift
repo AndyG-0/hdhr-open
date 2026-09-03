@@ -198,9 +198,11 @@ public final class PlayerEngine: ObservableObject {
         seek(to: max(0, currentTime - seconds))
     }
 
-    public func setAudioTracks(_ tracks: [HDHomeRunRecordingAudioInfo]) {
+    public func setAudioTracks(_ tracks: [HDHomeRunRecordingAudioInfo], selectedTrack: HDHomeRunRecordingAudioInfo? = nil) {
         self.availableAudioTracks = tracks
-        if self.currentAudioTrack == nil, let first = tracks.first {
+        if let selected = selectedTrack {
+            self.currentAudioTrack = selected
+        } else if self.currentAudioTrack == nil, let first = tracks.first {
             self.currentAudioTrack = first
         }
     }

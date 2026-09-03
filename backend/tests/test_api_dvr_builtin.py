@@ -1337,3 +1337,28 @@ def test_recording_stream_hls_aligns_resume_offset_to_ts_packet_boundary(client,
         assert offset % dvr_api._TS_PACKET_SIZE == 0
     finally:
         capture_pipeline._active_captures.pop("rec_resume", None)
+
+
+def test_recording_stream_direct_mode_forces_transcode_when_audio_index_provided(client, tmp_db, tmp_path, monkeypatch):
+    """When playback_mode is external/direct, requesting audio_index must route
+    through ffmpeg transcoding so the stream mapping actually occurs."""
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local", "playback_mode": "external"}
+    )
+    video_file = tmp_path / "finished_direct.ts"
+    video_file.write_bytes(b"MPEG-TS data" * 100)
+
+    spawn_mock = AsyncMock(side_effect=lambda *a, **kw: _fake_transcode_process())
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
+
+    response = client.get(
+        "/api/dvr/recording-stream",
+        params={"url": str(video_file), "audio_index": 1},
+    )
+    assert response.status_code == 200
+    assert spawn_mock.called
+    args = list(spawn_mock.call_args[0])
+    assert "-map" in args
+    assert "0:v:0" in args
+    assert "0:a:1" in args
+

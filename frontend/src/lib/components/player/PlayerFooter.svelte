@@ -231,17 +231,17 @@
 									<button
 										type="button"
 										class="popover-item"
-										class:selected={currentAudioIndex === track.index || (currentAudioIndex === null && track.index === 0)}
+										class:selected={(currentAudioIndex ?? 0) === track.index}
 										onclick={() => {
 											onSelectAudioTrack(track.index);
 											showAudioMenu = false;
 										}}
 									>
 										<span>
-											{track.language ? track.language.toUpperCase() : `Track ${track.index + 1}`}
+											{track.title || (track.language ? track.language.toUpperCase() : `Track ${track.index + 1}`)}
 											{#if track.channels}({track.channels}ch){/if}
 										</span>
-										{#if currentAudioIndex === track.index || (currentAudioIndex === null && track.index === 0)}
+										{#if (currentAudioIndex ?? 0) === track.index}
 											<span>✓</span>
 										{/if}
 									</button>

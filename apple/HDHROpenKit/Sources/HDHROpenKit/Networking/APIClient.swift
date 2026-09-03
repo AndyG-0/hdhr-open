@@ -204,8 +204,8 @@ public actor APIClient {
 
     // MARK: - HLS Packaging APIs
 
-    public func createChannelHLSSession(channelNumber: String) async throws -> HDHomeRunRecording {
-        try await request(path: APIEndpoints.hlsChannelSession(channelNumber: channelNumber), method: "POST")
+    public func createChannelHLSSession(channelNumber: String, audioIndex: Int? = nil) async throws -> HDHomeRunRecording {
+        try await request(path: APIEndpoints.hlsChannelSession(channelNumber: channelNumber, audioIndex: audioIndex), method: "POST")
     }
 
     public func createRecordingHLSSession(

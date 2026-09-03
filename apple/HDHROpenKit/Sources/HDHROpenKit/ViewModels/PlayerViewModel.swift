@@ -243,7 +243,6 @@ public final class PlayerViewModel: ObservableObject {
     /// resuming playback at the current position.
     public func selectAudioTrack(_ track: HDHomeRunRecordingAudioInfo) async {
         guard !isSwitchingAudioTrack, track.index != playerEngine.currentAudioTrack?.index else { return }
-        guard let recording = activeRecording, let playUrl = recording.playUrl, !playUrl.isEmpty else { return }
 
         isSwitchingAudioTrack = true
         defer { isSwitchingAudioTrack = false }
@@ -258,27 +257,38 @@ public final class PlayerViewModel: ObservableObject {
         let baseURL = await apiClient.baseURL
 
         do {
-            let hlsSession = try await apiClient.createRecordingHLSSession(
-                url: playUrl,
-                recordingId: recording.recordingId,
-                start: resumeTime,
-                audioIndex: track.index
-            )
-            guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
+            let sessionId: String
+            if let recording = activeRecording, let playUrl = recording.playUrl, !playUrl.isEmpty {
+                let hlsSession = try await apiClient.createRecordingHLSSession(
+                    url: playUrl,
+                    recordingId: recording.recordingId,
+                    start: resumeTime,
+                    audioIndex: track.index
+                )
+                sessionId = hlsSession.sessionId
+            } else if let channel = activeChannel {
+                let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber, audioIndex: track.index)
+                guard let recSessionId = rec.sessionId else {
+                    Log.player.error("Audio track switch failed: no session id for channel HLS.")
+                    return
+                }
+                sessionId = recSessionId
+            } else {
+                return
+            }
+
+            guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: sessionId) else {
                 Log.player.error("Audio track switch failed: could not build stream URL.")
                 return
             }
-            Log.player.info("Audio track switch: sessionId=\(hlsSession.sessionId, privacy: .public) audioIndex=\(track.index)")
-            activeHLSSessionId = hlsSession.sessionId
+            Log.player.info("Audio track switch: sessionId=\(sessionId, privacy: .public) audioIndex=\(track.index)")
+            activeHLSSessionId = sessionId
             // loadMedia() calls reset() internally, which wipes the audio
-            // track list/video specs - restore them since they describe the
-            // underlying recording and don't change when only the mapped
-            // audio stream does.
+            // track list/video specs - restore them with the selected track atomically.
             playerEngine.loadMedia(url: playlistURL, isLive: isLive, isSeekable: isSeekable, headers: await hlsAuthHeaders())
-            playerEngine.setAudioTracks(previousAudioTracks)
+            playerEngine.setAudioTracks(previousAudioTracks, selectedTrack: track)
             playerEngine.setVideoSpecs(previousVideoSpecs)
             playerEngine.setTranscodeInfo(previousTranscodeInfo)
-            playerEngine.selectAudioTrack(track)
 
             if let previousSessionId {
                 let apiClient = self.apiClient

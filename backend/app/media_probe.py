@@ -90,6 +90,68 @@ async def probe_in_progress(url: str, min_bytes: int = _MIN_IN_PROGRESS_PROBE_BY
     return result
 
 
+_LANGUAGE_NAMES: dict[str, str] = {
+    "eng": "English",
+    "en": "English",
+    "spa": "Spanish",
+    "es": "Spanish",
+    "fre": "French",
+    "fra": "French",
+    "fr": "French",
+    "ger": "German",
+    "deu": "German",
+    "de": "German",
+    "ita": "Italian",
+    "it": "Italian",
+    "por": "Portuguese",
+    "pt": "Portuguese",
+    "jpn": "Japanese",
+    "ja": "Japanese",
+    "kor": "Korean",
+    "ko": "Korean",
+    "zho": "Chinese",
+    "chi": "Chinese",
+    "zh": "Chinese",
+    "rus": "Russian",
+    "ru": "Russian",
+    "ara": "Arabic",
+    "ar": "Arabic",
+    "hin": "Hindi",
+    "hi": "Hindi",
+}
+
+
+def _resolve_audio_title(stream: dict[str, Any], index: int) -> str:
+    tags = stream.get("tags") or {}
+    disposition = stream.get("disposition") or {}
+
+    raw_title = tags.get("title") or tags.get("handler_name")
+    if raw_title and raw_title.strip() and not raw_title.strip().lower().startswith("soundhandler"):
+        return raw_title.strip()
+
+    is_dvs = bool(disposition.get("visual_impaired") or disposition.get("descriptions"))
+    is_hi = bool(disposition.get("hearing_impaired"))
+    is_comment = bool(disposition.get("comment"))
+
+    lang_code = (tags.get("language") or "").strip().lower()
+    lang_name = _LANGUAGE_NAMES.get(lang_code, lang_code.upper() if lang_code else "")
+
+    if is_dvs:
+        # In North American ATSC broadcasts, secondary audio streams with visual_impaired
+        # disposition contain English Descriptive Video Service (DVS), even if the stream's
+        # language tag was nominally set to 'spa' by the broadcast station.
+        return "Descriptive Audio" if not lang_name or lang_code == "spa" else f"Descriptive Audio ({lang_name})"
+    if is_hi:
+        return f"{lang_name} (Hearing Impaired)" if lang_name else "Hearing Impaired"
+    if is_comment:
+        return f"{lang_name} (Commentary)" if lang_name else "Commentary"
+
+    if lang_name:
+        return lang_name
+
+    return f"Track {index + 1}"
+
+
 def _parse(payload: dict[str, Any]) -> dict[str, Any] | None:
     streams = payload.get("streams") or []
     fmt = payload.get("format") or {}
@@ -118,6 +180,14 @@ def _parse(payload: dict[str, Any]) -> dict[str, Any] | None:
             "codec": stream.get("codec_name"),
             "channels": stream.get("channels"),
             "language": (stream.get("tags") or {}).get("language"),
+            "title": _resolve_audio_title(stream, index),
+            "is_descriptive": bool(
+                (stream.get("disposition") or {}).get("visual_impaired")
+                or (stream.get("disposition") or {}).get("descriptions")
+            ),
+            "is_hearing_impaired": bool((stream.get("disposition") or {}).get("hearing_impaired")),
+            "is_commentary": bool((stream.get("disposition") or {}).get("comment")),
+            "is_default": bool((stream.get("disposition") or {}).get("default")),
         }
         for index, stream in enumerate(audio_streams)
     ]

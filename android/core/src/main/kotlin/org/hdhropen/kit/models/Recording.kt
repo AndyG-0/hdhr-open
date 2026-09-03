@@ -16,12 +16,19 @@ data class HDHomeRunRecordingAudioInfo(
     val index: Int,
     val codec: String? = null,
     val channels: Int? = null,
-    val language: String? = null
+    val language: String? = null,
+    val title: String? = null,
+    val is_descriptive: Boolean? = null,
+    val is_hearing_impaired: Boolean? = null,
+    val is_commentary: Boolean? = null,
+    val is_default: Boolean? = null
 ) {
     val displayLabel: String
         get() {
             val parts = mutableListOf<String>()
-            if (!language.isNullOrEmpty()) {
+            if (!title.isNullOrEmpty()) {
+                parts.add(title)
+            } else if (!language.isNullOrEmpty()) {
                 parts.add(language.uppercase())
             } else {
                 parts.add("Track ${index + 1}")

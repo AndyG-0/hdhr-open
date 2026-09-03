@@ -105,7 +105,8 @@
 					<button type="button" class="menu-item nav" onclick={() => (currentSubmenu = 'audio')}>
 						<span>{$_('player.audio_tracks', { default: 'Audio' })}</span>
 						<span class="item-value">
-							{audioTracks.find((t) => t.index === currentAudioIndex)?.language?.toUpperCase() ??
+							{audioTracks.find((t) => t.index === (currentAudioIndex ?? 0))?.title ??
+								audioTracks.find((t) => t.index === (currentAudioIndex ?? 0))?.language?.toUpperCase() ??
 								`Track ${(currentAudioIndex ?? 0) + 1}`} ›
 						</span>
 					</button>
@@ -162,17 +163,17 @@
 					<button
 						type="button"
 						class="menu-item"
-						class:selected={currentAudioIndex === track.index || (currentAudioIndex === null && track.index === 0)}
+						class:selected={(currentAudioIndex ?? 0) === track.index}
 						onclick={() => {
 							onSelectAudioTrack(track.index);
 							currentSubmenu = 'main';
 						}}
 					>
 						<span>
-							{track.language ? track.language.toUpperCase() : `Track ${track.index + 1}`}
+							{track.title || (track.language ? track.language.toUpperCase() : `Track ${track.index + 1}`)}
 							{#if track.channels}({track.channels}ch){/if}
 						</span>
-						{#if currentAudioIndex === track.index || (currentAudioIndex === null && track.index === 0)}
+						{#if (currentAudioIndex ?? 0) === track.index}
 							<span>✓</span>
 						{/if}
 					</button>

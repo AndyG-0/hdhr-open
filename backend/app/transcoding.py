@@ -342,9 +342,9 @@ def build_ffmpeg_args(
         input_options[:0] = ["-ss", f"{seek_seconds:.3f}"]
 
     output_args = _substitute_device(_output_args(settings), device)
-    if audio_index is not None:
+    if audio_index is not None and "-map" not in output_args:
         # Explicit stream mapping is only needed once we're picking a
-        # non-default audio stream (e.g. an ATSC SAP track) - ffmpeg's
+        # specific audio stream (e.g. an ATSC SAP track) - ffmpeg's
         # default stream selection is otherwise left alone.
         output_args = ["-map", "0:v:0", "-map", f"0:a:{audio_index}", *output_args]
 

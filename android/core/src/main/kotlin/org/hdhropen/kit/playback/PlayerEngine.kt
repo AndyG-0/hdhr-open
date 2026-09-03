@@ -320,9 +320,11 @@ class PlayerEngine(
         seek((_currentTime.value - seconds).coerceAtLeast(0.0))
     }
 
-    fun setAudioTracks(tracks: List<HDHomeRunRecordingAudioInfo>) {
+    fun setAudioTracks(tracks: List<HDHomeRunRecordingAudioInfo>, selectedTrack: HDHomeRunRecordingAudioInfo? = null) {
         _availableAudioTracks.value = tracks
-        if (_currentAudioTrack.value == null && tracks.isNotEmpty()) {
+        if (selectedTrack != null) {
+            _currentAudioTrack.value = selectedTrack
+        } else if (_currentAudioTrack.value == null && tracks.isNotEmpty()) {
             _currentAudioTrack.value = tracks.first()
         }
     }

@@ -390,3 +390,38 @@ def test_stream_channel_hls_without_for_cast_omits_cast_token(client, tmp_db, mo
     body = response.json()
     assert body["playlist_url"] == "/api/hls/sess_native/playlist.m3u8"
     assert create_session_mock.await_args.kwargs["cast_token"] is None
+
+
+def test_stream_channel_with_audio_index_passes_mapping(client, tmp_db, monkeypatch):
+    _configure_tuner("software")
+    fake_proc = MagicMock()
+    fake_proc.stdout.read = AsyncMock(side_effect=[b"ts_data", b""])
+    fake_proc.wait = AsyncMock(return_value=0)
+    fake_proc.returncode = 0
+    create_subproc = AsyncMock(return_value=fake_proc)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subproc)
+
+    response = client.get("/api/streaming/stream/4.1?audio_index=1")
+    assert response.status_code == 200
+    cmd_args = list(create_subproc.call_args[0])
+    assert "-map" in cmd_args
+    assert "0:v:0" in cmd_args
+    assert "0:a:1" in cmd_args
+
+
+def test_stream_channel_hls_with_audio_index_passes_mapping(client, tmp_db, monkeypatch):
+    _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
+
+    fake_session = MagicMock()
+    fake_session.session_id = "sess_audio"
+    create_session_mock = AsyncMock(return_value=fake_session)
+    monkeypatch.setattr(streaming_api.hls_streaming, "create_session", create_session_mock)
+
+    response = client.post("/api/streaming/hls/4.1?audio_index=1")
+    assert response.status_code == 200
+    ffmpeg_args = create_session_mock.await_args.args[2]
+    assert "-map" in ffmpeg_args
+    assert "0:v:0" in ffmpeg_args
+    assert "0:a:1" in ffmpeg_args
+

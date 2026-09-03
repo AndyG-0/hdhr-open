@@ -44,7 +44,12 @@ public enum APIEndpoints {
     public static func recordingRules() -> String { "/api/dvr/recording-rules" }
     public static func deleteRecordingRule(_ id: String) -> String { "/api/dvr/recording-rules/\(id)" }
 
-    public static func hlsChannelSession(channelNumber: String) -> String { "/api/streaming/hls/\(channelNumber)" }
+    public static func hlsChannelSession(channelNumber: String, audioIndex: Int? = nil) -> String {
+        if let audio = audioIndex {
+            return "/api/streaming/hls/\(channelNumber)?audio_index=\(audio)"
+        }
+        return "/api/streaming/hls/\(channelNumber)"
+    }
     public static func hlsRecordingSession() -> String { "/api/dvr/recording-stream-hls" }
     public static func stopHLSSession(sessionId: String) -> String { "/api/hls/\(sessionId)/stop" }
 

@@ -269,8 +269,12 @@ class APIClient(
 
     // MARK: - HLS Packaging APIs
 
-    suspend fun createChannelHLSSession(channelNumber: String, forCast: Boolean = false): HDHomeRunRecording =
-        request(APIEndpoints.hlsChannelSession(channelNumber, forCast), method = "POST")
+    suspend fun createChannelHLSSession(
+        channelNumber: String,
+        forCast: Boolean = false,
+        audioIndex: Int? = null
+    ): HDHomeRunRecording =
+        request(APIEndpoints.hlsChannelSession(channelNumber, forCast, audioIndex), method = "POST")
 
     suspend fun createRecordingHLSSession(
         url: String,

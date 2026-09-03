@@ -316,9 +316,6 @@ class PlayerViewModel(
         // requires starting a new HLS session with the new audio index
         // and resuming playback at the current position.
         if (_isSwitchingAudioTrack.value || track.index == playerEngine.currentAudioTrack.value?.index) return
-        val recording = _activeRecording.value ?: return
-        val playUrl = recording.playUrl
-        if (playUrl.isNullOrEmpty()) return
 
         viewModelScope.launch {
             _isSwitchingAudioTrack.value = true
@@ -331,33 +328,47 @@ class PlayerViewModel(
                 val previousVideoSpecs = playerEngine.videoSpecs.value
                 val previousTranscodeInfo = playerEngine.transcodeInfo.value
                 val baseURL = apiClient.baseURL
+                val recording = _activeRecording.value
+                val channel = _activeChannel.value
 
-                val hlsSession = apiClient.createRecordingHLSSession(
-                    url = playUrl,
-                    recordingId = recording.recordingId,
-                    start = resumeTime,
-                    audioIndex = track.index,
-                    provider = recording.provider,
-                    forCast = playerEngine.isCasting.value
-                )
-                val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
-                _activeHLSSessionId.value = hlsSession.sessionId
+                val (sessionId, playlistUrl) = when {
+                    recording?.playUrl?.isNotEmpty() == true -> {
+                        val session = apiClient.createRecordingHLSSession(
+                            url = recording.playUrl,
+                            recordingId = recording.recordingId,
+                            start = resumeTime,
+                            audioIndex = track.index,
+                            provider = recording.provider,
+                            forCast = playerEngine.isCasting.value
+                        )
+                        session.sessionId to session.playlistUrl
+                    }
+                    channel != null -> {
+                        val session = apiClient.createChannelHLSSession(
+                            channelNumber = channel.channelNumber,
+                            forCast = playerEngine.isCasting.value,
+                            audioIndex = track.index
+                        )
+                        (session.sessionId ?: return@launch) to (session.playUrl ?: return@launch)
+                    }
+                    else -> return@launch
+                }
+
+                val playlistURL = StreamURLBuilder.resolve(baseURL, playlistUrl)
+                _activeHLSSessionId.value = sessionId
                 // loadMedia() calls reset() internally, which wipes the audio
-                // track list/video specs - restore them since they describe the
-                // underlying recording and don't change when only the mapped
-                // audio stream does.
+                // track list/video specs - restore them with the selected track atomically.
                 playerEngine.loadMedia(
                     url = playlistURL,
                     isLive = isLive,
                     isSeekable = isSeekable,
                     headers = hlsAuthHeaders(),
-                    title = recording.title,
-                    artworkUrl = recording.imageUrl
+                    title = recording?.title ?: channel?.name,
+                    artworkUrl = recording?.imageUrl
                 )
-                playerEngine.setAudioTracks(previousAudioTracks)
+                playerEngine.setAudioTracks(previousAudioTracks, selectedTrack = track)
                 playerEngine.setVideoSpecs(previousVideoSpecs)
                 playerEngine.setTranscodeInfo(previousTranscodeInfo)
-                playerEngine.selectAudioTrack(track)
 
                 if (previousSessionId != null) {
                     viewModelScope.launch {

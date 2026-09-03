@@ -1812,5 +1812,39 @@ describe('HDHomeRunPlayer', () => {
 			await fireEvent.waiting(video);
 			expect(screen.getByTestId('loading-quip-overlay')).toBeInTheDocument();
 		});
+
+		it('switches between multiple audio feeds and reloads stream with audioIndex', async () => {
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 120,
+				video: { width: 1920, height: 1080, fps: 30, codec: 'h264' },
+				audio: [
+					{ index: 0, codec: 'ac3', channels: 6, language: 'eng' },
+					{ index: 1, codec: 'ac3', channels: 2, language: 'spa' },
+				],
+				has_captions: false,
+				transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+			});
+			vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			// Open audio tracks popover from footer once loaded
+			const audioBtn = await screen.findByRole('button', { name: 'Audio Tracks' });
+			await fireEvent.click(audioBtn);
+
+			// Click Spanish track (Track 2, index 1)
+			const spaTrackBtn = await screen.findByRole('button', { name: /SPA/i });
+			await fireEvent.click(spaTrackBtn);
+
+			// Verify stream URL re-request with audioIndex: 1
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec1', {
+					start: 0,
+					audioIndex: 1,
+					recordingId: 'rec1',
+				}),
+			);
+		});
 	});
 });

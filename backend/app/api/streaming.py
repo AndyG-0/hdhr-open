@@ -219,7 +219,12 @@ async def _probe_after_failure(settings: dict[str, Any]) -> dict[str, Any] | Non
 
 
 @router.get("/stream/{channel_number}")
-async def stream_channel(channel_number: str, request: Request, direct: bool = False):
+async def stream_channel(
+    channel_number: str,
+    request: Request,
+    direct: bool = False,
+    audio_index: int | None = None,
+):
     settings = await get_hdhomerun_settings()
     if not hdhomerun_client.is_tuner_configured(settings):
         raise HTTPException(status_code=404, detail="Tuner not configured")
@@ -230,11 +235,11 @@ async def stream_channel(channel_number: str, request: Request, direct: bool = F
     # client-passed URL) avoids turning this into an open proxy.
     raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
 
-    if direct:
+    if direct and audio_index is None:
         return await _proxy_raw_stream(raw_url, channel_number, request)
 
     try:
-        ffmpeg_args = transcoding.build_ffmpeg_args(settings, raw_url)
+        ffmpeg_args = transcoding.build_ffmpeg_args(settings, raw_url, audio_index=audio_index)
     except transcoding.InvalidCustomFfmpegArgsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -355,7 +360,12 @@ async def stream_channel(channel_number: str, request: Request, direct: bool = F
 
 
 @router.post("/hls/{channel_number}")
-async def stream_channel_hls(channel_number: str, request: Request, for_cast: bool = False):
+async def stream_channel_hls(
+    channel_number: str,
+    request: Request,
+    for_cast: bool = False,
+    audio_index: int | None = None,
+):
     """Busy-tuner-fallback HLS entry point for native (Apple) clients — the
     primary playback path is `/api/dvr/recording-stream-hls` (every live
     watch goes through a builtin-DVR capture first); this exists for the
@@ -402,6 +412,7 @@ async def stream_channel_hls(channel_number: str, request: Request, for_cast: bo
         ffmpeg_args = transcoding.build_ffmpeg_args(
             settings,
             input_url,
+            audio_index=audio_index,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),

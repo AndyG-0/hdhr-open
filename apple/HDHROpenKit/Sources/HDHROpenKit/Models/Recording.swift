@@ -20,17 +20,51 @@ public struct HDHomeRunRecordingAudioInfo: Identifiable, Codable, Sendable, Hash
     public let codec: String?
     public let channels: Int?
     public let language: String?
+    public let title: String?
+    public let isDescriptive: Bool?
+    public let isHearingImpaired: Bool?
+    public let isCommentary: Bool?
+    public let isDefault: Bool?
 
-    public init(index: Int, codec: String? = nil, channels: Int? = nil, language: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case index
+        case codec
+        case channels
+        case language
+        case title
+        case isDescriptive = "is_descriptive"
+        case isHearingImpaired = "is_hearing_impaired"
+        case isCommentary = "is_commentary"
+        case isDefault = "is_default"
+    }
+
+    public init(
+        index: Int,
+        codec: String? = nil,
+        channels: Int? = nil,
+        language: String? = nil,
+        title: String? = nil,
+        isDescriptive: Bool? = nil,
+        isHearingImpaired: Bool? = nil,
+        isCommentary: Bool? = nil,
+        isDefault: Bool? = nil
+    ) {
         self.index = index
         self.codec = codec
         self.channels = channels
         self.language = language
+        self.title = title
+        self.isDescriptive = isDescriptive
+        self.isHearingImpaired = isHearingImpaired
+        self.isCommentary = isCommentary
+        self.isDefault = isDefault
     }
 
     public var displayLabel: String {
         var parts: [String] = []
-        if let lang = language, !lang.isEmpty {
+        if let t = title, !t.isEmpty {
+            parts.append(t)
+        } else if let lang = language, !lang.isEmpty {
             parts.append(lang.uppercased())
         } else {
             parts.append("Track \(index + 1)")
@@ -44,8 +78,8 @@ public struct HDHomeRunRecordingAudioInfo: Identifiable, Codable, Sendable, Hash
                 parts.append("\(ch) ch")
             }
         }
-        if let cod = codec {
-            parts.append(cod.uppercased())
+        if let c = codec, !c.isEmpty {
+            parts.append(c.uppercased())
         }
         return parts.joined(separator: " • ")
     }

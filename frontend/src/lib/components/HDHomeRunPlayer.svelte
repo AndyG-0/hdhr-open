@@ -282,6 +282,9 @@
 			isInProgress = detail.is_in_progress;
 			videoInfo = detail.video;
 			audioTracks = detail.audio;
+			if (currentAudioIndex === null && detail.audio.length > 0) {
+				currentAudioIndex = 0;
+			}
 			hasCaptions = detail.has_captions;
 			secondaryCaptions = detail.secondary_captions;
 			transcodeInfo = detail.transcode;
@@ -450,7 +453,8 @@
 	}
 
 	function selectAudioTrack(index: number) {
-		if (!seekable || index === currentAudioIndex) return;
+		const effectiveCurrentIndex = currentAudioIndex ?? 0;
+		if (!seekable || index === effectiveCurrentIndex) return;
 		currentAudioIndex = index;
 		showAudioMenu = false;
 		seekTo(displayedPosition);

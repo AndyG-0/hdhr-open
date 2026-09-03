@@ -583,7 +583,7 @@ async def stream_recording(
     target_url = await asyncio.to_thread(_resolve_target_media_url, settings, url, recording_id, provider)
 
     mode = settings.get("playback_mode", "server_transcode")
-    if mode == "server_transcode":
+    if mode == "server_transcode" or audio_index is not None or start is not None:
         if active_capture is not None and not await _wait_for_live_capture_data(active_capture, recording_id):
             logger.error(
                 "Recording transcode aborted for %s: capture produced no data within %ss (tuner likely still locking)",

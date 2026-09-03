@@ -259,6 +259,11 @@ export interface HDHomeRunRecordingAudioInfo {
 	codec: string | null;
 	channels: number | null;
 	language: string | null;
+	title?: string | null;
+	is_descriptive?: boolean;
+	is_hearing_impaired?: boolean;
+	is_commentary?: boolean;
+	is_default?: boolean;
 }
 
 /** What /recording-stream will actually do for playback, per current settings. */
