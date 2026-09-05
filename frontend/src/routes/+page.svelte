@@ -9,6 +9,7 @@
 	} from '$lib/api';
 	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
 	import HDHomeRunGuideGrid from '$lib/components/details/HDHomeRunGuideGrid.svelte';
+	import { openPopoutPlayer } from '$lib/popout';
 	import { onDestroy, onMount } from 'svelte';
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
@@ -25,6 +26,7 @@
 	let recordingLoading = $state<string | null>(null);
 	let officialDvrActive = $state(false);
 	let error = $state<string | null>(null);
+	let fallbackNotice = $state<string | null>(null);
 
 	let playingMedia = $state<{
 		title: string;
@@ -247,12 +249,24 @@
 		};
 	}
 
+	function popoutChannel(channel: HDHomeRunChannel) {
+		closePlayer();
+		openPopoutPlayer({ channel: channel.channel_number, title: `${channel.channel_number} ${channel.name}` });
+	}
+
 	async function applyRuleMutation(mutate: () => Promise<HDHomeRunRecordingRule[]>) {
 		const previousIds = new Set(recordingRules.map((r) => r.RecordingRuleID));
 		const knownRules = await mutate();
 		if (!Array.isArray(knownRules)) return;
 		recordingRules = knownRules;
 		const newlyCreated = knownRules.filter((r) => !previousIds.has(r.RecordingRuleID));
+
+		const fallbackRule = newlyCreated.find((r) => r.fallback_reason || r.FallbackReason);
+		if (fallbackRule) {
+			fallbackNotice = get(_)('hdhomerun.detail.fallback_notification', {
+				values: { title: fallbackRule.Title || '' },
+			});
+		}
 
 		await loadRecordingRules();
 
@@ -280,6 +294,7 @@
 					series_id: seriesId || 'auto',
 					channel: effectiveChannel,
 					date_time: startTime ?? undefined,
+					title: options?.title,
 					start_padding: options?.startPadding,
 					end_padding: options?.endPadding,
 					recent_only: options?.recentOnly,
@@ -311,6 +326,32 @@
 					recent_only: options?.recentOnly,
 					max_episodes_to_keep: options?.maxEpisodesToKeep,
 					server: options?.server,
+				}),
+			);
+		} catch (err) {
+			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			recordingLoading = null;
+		}
+	}
+
+	async function updateRecordingRule(
+		ruleId: string,
+		mode: 'episode' | 'series',
+		options: RecordingRuleOptions,
+	) {
+		recordingLoading = ruleId;
+		try {
+			await applyRuleMutation(() =>
+				api.updateHDHomeRunRecordingRule(ruleId, {
+					channel: options.channel,
+					title: options.title,
+					title_match_mode: options.titleMatchMode,
+					keyword_query: options.keywordQuery,
+					start_padding: options.startPadding,
+					end_padding: options.endPadding,
+					recent_only: options.recentOnly,
+					max_episodes_to_keep: options.maxEpisodesToKeep,
 				}),
 			);
 		} catch (err) {
@@ -361,6 +402,12 @@
 		{#if error}
 			<p class="hint error">{error}</p>
 		{/if}
+		{#if fallbackNotice}
+			<div class="banner notice">
+				<span>ℹ️ {fallbackNotice}</span>
+				<button type="button" class="dismiss-notice-btn" onclick={() => (fallbackNotice = null)}>✕</button>
+			</div>
+		{/if}
 		<HDHomeRunGuideGrid
 			{channels}
 			{fullGuide}
@@ -371,8 +418,10 @@
 			{recordingLoading}
 			{officialDvrActive}
 			onWatch={watchChannel}
+			onPopout={popoutChannel}
 			onRecordEpisode={recordShowEpisode}
 			onRecordSeries={recordShowSeries}
+			onUpdateRule={updateRecordingRule}
 			onCancelRule={cancelRecordingRule}
 			onToggleFavorite={toggleFavorite}
 		/>
@@ -400,6 +449,7 @@
 		{recordingLoading}
 		onRecordEpisode={recordShowEpisode}
 		onRecordSeries={recordShowSeries}
+		onUpdateRule={updateRecordingRule}
 		onCancelRule={cancelRecordingRule}
 		onToggleFavorite={toggleFavorite}
 		onClose={closePlayer}
@@ -419,5 +469,33 @@
 
 	.hint.error {
 		color: var(--color-error, #e05a5a);
+	}
+
+	.banner.notice {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		background: rgba(74, 158, 218, 0.12);
+		border: 1px solid rgba(74, 158, 218, 0.35);
+		color: var(--color-text);
+		padding: 0.6rem 0.9rem;
+		border-radius: 0.5rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.88rem;
+	}
+
+	.dismiss-notice-btn {
+		background: transparent;
+		border: none;
+		color: var(--color-text-muted);
+		cursor: pointer;
+		font-size: 1rem;
+		line-height: 1;
+		padding: 0 0.25rem;
+	}
+
+	.dismiss-notice-btn:hover {
+		color: var(--color-text);
 	}
 </style>

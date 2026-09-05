@@ -9,15 +9,20 @@
 		type HDHomeRunRecordingRule,
 		type HDHomeRunTranscodeInfo,
 		type RecordingRuleOptions,
+		type SyncPlayContent,
+		type SyncPlayRoom,
 	} from '$lib/api';
 	import { findMatchingRecordingRule } from '$lib/recording-rules';
 	import { parseThumbnailVtt, type CaptionCue, type ThumbnailCue } from '$lib/vtt-parser';
 	import { createCaptionController } from '$lib/caption-controller';
 	import { createMpegtsPlayer } from '$lib/mpegts-player';
+	import { createSyncPlayController, type SyncPlayStatus } from '$lib/syncplay-controller';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import PlayerFooter from './player/PlayerFooter.svelte';
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
 	import LoadingQuipOverlay from './player/LoadingQuipOverlay.svelte';
+	import SyncPlayModal from './player/SyncPlayModal.svelte';
+	import { openPopoutPlayer } from '$lib/popout';
 
 	interface Props {
 		src: string;
@@ -49,8 +54,15 @@
 			channelNumber?: string,
 			options?: RecordingRuleOptions,
 		) => Promise<void> | void;
+		onUpdateRule?: (
+			ruleId: string,
+			mode: 'episode' | 'series',
+			options: RecordingRuleOptions,
+		) => Promise<void> | void;
 		onCancelRule?: (ruleId: string) => Promise<void> | void;
 		onToggleFavorite?: (channelNumber: string) => Promise<void> | void;
+		allowPopout?: boolean;
+		onPopout?: () => void;
 	}
 
 	let {
@@ -72,8 +84,11 @@
 		pendingRuleIds = new Set<string>(),
 		officialDvrActive = false,
 		recordingLoading = null,
+		allowPopout = true,
+		onPopout,
 		onRecordEpisode,
 		onRecordSeries,
+		onUpdateRule,
 		onCancelRule,
 		onToggleFavorite,
 	}: Props = $props();
@@ -123,6 +138,10 @@
 	let showPlaybackInfo = $state(false);
 	let showRecordMenu = $state(false);
 	let showOptionsDialog = $state(false);
+	let showSyncPlayModal = $state(false);
+	let syncPlayRoom = $state<SyncPlayRoom | null>(null);
+	let syncPlayStatus = $state<SyncPlayStatus>('disconnected');
+	let syncPlayPingMs = $state(0);
 
 	let centerFlash = $state<'play' | 'pause' | null>(null);
 	let centerFlashTimer: ReturnType<typeof setTimeout> | undefined;
@@ -192,7 +211,15 @@
 			(recordingLoading !== null &&
 				(currentRule
 					? recordingLoading === currentRule.RecordingRuleID
-					: recordingLoading === (effectiveAiring?.series_id || channelNumber || 'now'))),
+					: Boolean(
+							recordingLoading &&
+								(recordingLoading === effectiveAiring?.series_id ||
+									recordingLoading === channelNumber ||
+									recordingLoading === effectiveAiring?.title ||
+									recordingLoading === 'now' ||
+									recordingLoading === 'series' ||
+									recordingLoading === 'auto'),
+						))),
 	);
 
 	const displayedPosition = $derived(baseOffsetSeconds + videoCurrentTime);
@@ -391,8 +418,69 @@
 		captionController.resetStretchCursor();
 		captionController.refreshCaptionCues();
 		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(clamped, currentAudioIndex));
+		syncPlayController.sendSeek(clamped);
 		resetAutoHideTimer();
 	}
+
+	const currentSyncContent = $derived.by<SyncPlayContent>(() => {
+		if (channelNumber) {
+			return {
+				type: 'channel',
+				id: channelNumber,
+				title: channelName || title,
+				channel_number: channelNumber,
+				play_url: playUrl || undefined,
+			};
+		}
+		return {
+			type: 'recording',
+			id: recordingId || 'recording',
+			title: title,
+			play_url: playUrl || undefined,
+		};
+	});
+
+	const syncPlayController = createSyncPlayController({
+		getVideoElement: () => videoElement,
+		getLocalCurrentTime: () => displayedPosition,
+		getIsPaused: () => videoPaused,
+		onRemotePlay: (position, rate) => {
+			if (videoElement) {
+				if (seekable && Math.abs(displayedPosition - position) > 1.5) {
+					seekTo(position);
+				}
+				videoElement.playbackRate = rate || 1.0;
+				if (videoElement.paused) {
+					safePlay();
+					videoPaused = false;
+					triggerCenterFlash('play');
+				}
+			}
+		},
+		onRemotePause: (position) => {
+			if (videoElement) {
+				if (seekable && Math.abs(displayedPosition - position) > 1.5) {
+					seekTo(position);
+				}
+				if (!videoElement.paused) {
+					videoElement.pause();
+					videoPaused = true;
+					triggerCenterFlash('pause');
+				}
+			}
+		},
+		onRemoteSeek: (position) => {
+			if (seekable) {
+				seekTo(position);
+			}
+		},
+		onRemoteContentChange: () => {},
+		onRoomStateChange: (updatedRoom) => {
+			syncPlayRoom = updatedRoom;
+			syncPlayStatus = syncPlayController.getStatus();
+			syncPlayPingMs = syncPlayController.getPingMs();
+		},
+	});
 
 	function rewind(seconds = 10) {
 		if (seekable) {
@@ -436,10 +524,12 @@
 			safePlay();
 			videoPaused = false;
 			triggerCenterFlash('play');
+			syncPlayController.sendPlay(displayedPosition);
 		} else {
 			videoElement.pause();
 			videoPaused = true;
 			triggerCenterFlash('pause');
+			syncPlayController.sendPause(displayedPosition);
 		}
 		resetAutoHideTimer();
 	}
@@ -575,7 +665,8 @@
 			showOptionsDialog ||
 			showAudioMenu ||
 			showSettingsMenu ||
-			showPlaybackInfo;
+			showPlaybackInfo ||
+			showSyncPlayModal;
 
 		if (!videoPaused && !hasActiveMenu) {
 			autoHideTimer = setTimeout(() => {
@@ -589,9 +680,19 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		const target = e.target as HTMLElement | null;
+		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+			if (e.key === 'Escape') {
+				(target as HTMLElement).blur();
+			}
+			return;
+		}
+
 		resetAutoHideTimer();
 		if (e.key === 'Escape') {
-			if (showPlaybackInfo) {
+			if (showSyncPlayModal) {
+				showSyncPlayModal = false;
+			} else if (showPlaybackInfo) {
 				showPlaybackInfo = false;
 			} else if (showAudioMenu) {
 				showAudioMenu = false;
@@ -641,6 +742,11 @@
 		showRecordMenu = false;
 		showOptionsDialog = false;
 		internalRecordingLoading = true;
+		const effectiveOptions: RecordingRuleOptions = {
+			title: effectiveAiring?.title ?? channelName,
+			...options,
+		};
+		const targetChannel = effectiveOptions.channel !== undefined ? effectiveOptions.channel : channelNumber;
 		try {
 			if (isWatchSession && watchSessionId) {
 				await api.promoteWatch(watchSessionId, {
@@ -652,21 +758,25 @@
 			if (onRecordEpisode) {
 				await onRecordEpisode(
 					effectiveAiring?.series_id,
-					channelNumber,
+					targetChannel,
 					effectiveAiring?.start,
-					options,
+					effectiveOptions,
 				);
 			} else {
-				await api.addHDHomeRunRecordingRule({
+				const updatedRules = await api.addHDHomeRunRecordingRule({
 					series_id: effectiveAiring?.series_id || 'auto',
-					channel: channelNumber,
+					channel: targetChannel,
 					date_time: effectiveAiring?.start ?? undefined,
-					start_padding: options?.startPadding,
-					end_padding: options?.endPadding,
-					recent_only: options?.recentOnly,
-					max_episodes_to_keep: options?.maxEpisodesToKeep,
-					server: options?.server,
+					title: effectiveOptions.title,
+					start_padding: effectiveOptions.startPadding,
+					end_padding: effectiveOptions.endPadding,
+					recent_only: effectiveOptions.recentOnly,
+					max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
+					server: effectiveOptions.server,
 				});
+				if (Array.isArray(updatedRules)) {
+					recordingRules = updatedRules;
+				}
 			}
 		} catch (err) {
 			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
@@ -676,10 +786,15 @@
 	}
 
 	async function handleRecordSeries(options?: RecordingRuleOptions) {
-		if (!effectiveAiring?.series_id) return;
 		showRecordMenu = false;
 		showOptionsDialog = false;
 		internalRecordingLoading = true;
+		const effectiveOptions: RecordingRuleOptions = {
+			title: effectiveAiring?.title ?? channelName,
+			...options,
+		};
+		const seriesId = effectiveAiring?.series_id || 'auto';
+		const targetChannel = effectiveOptions.channel !== undefined ? effectiveOptions.channel : channelNumber;
 		try {
 			if (isWatchSession && watchSessionId) {
 				await api.promoteWatch(watchSessionId, {
@@ -688,17 +803,23 @@
 				});
 			}
 			if (onRecordSeries) {
-				await onRecordSeries(effectiveAiring.series_id, channelNumber, options);
+				await onRecordSeries(seriesId, targetChannel, effectiveOptions);
 			} else {
-				await api.addHDHomeRunRecordingRule({
-					series_id: effectiveAiring.series_id,
-					channel: channelNumber,
-					start_padding: options?.startPadding,
-					end_padding: options?.endPadding,
-					recent_only: options?.recentOnly,
-					max_episodes_to_keep: options?.maxEpisodesToKeep,
-					server: options?.server,
+				const updatedRules = await api.addHDHomeRunRecordingRule({
+					series_id: seriesId,
+					channel: targetChannel,
+					title: effectiveOptions.title,
+					title_match_mode: effectiveOptions.titleMatchMode,
+					keyword_query: effectiveOptions.keywordQuery,
+					start_padding: effectiveOptions.startPadding,
+					end_padding: effectiveOptions.endPadding,
+					recent_only: effectiveOptions.recentOnly,
+					max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
+					server: effectiveOptions.server,
 				});
+				if (Array.isArray(updatedRules)) {
+					recordingRules = updatedRules;
+				}
 			}
 		} catch (err) {
 			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
@@ -724,12 +845,57 @@
 		}
 	}
 
+	async function handleUpdateRule(ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) {
+		showRecordMenu = false;
+		showOptionsDialog = false;
+		internalRecordingLoading = true;
+		try {
+			if (onUpdateRule) {
+				await onUpdateRule(ruleId, mode, options);
+			} else {
+				await api.updateHDHomeRunRecordingRule(ruleId, {
+					channel: options.channel,
+					title: options.title,
+					title_match_mode: options.titleMatchMode,
+					keyword_query: options.keywordQuery,
+					start_padding: options.startPadding,
+					end_padding: options.endPadding,
+					recent_only: options.recentOnly,
+					max_episodes_to_keep: options.maxEpisodesToKeep,
+				});
+			}
+		} catch (err) {
+			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			internalRecordingLoading = false;
+		}
+	}
+
 	function handleConfirmOptions(mode: 'episode' | 'series', options: RecordingRuleOptions) {
+		if (currentRule) {
+			handleUpdateRule(currentRule.RecordingRuleID, mode, options);
+			return;
+		}
 		if (mode === 'series') {
 			handleRecordSeries(options);
 		} else {
 			handleRecordEpisode(options);
 		}
+	}
+
+	function handlePopout() {
+		if (videoElement) {
+			videoElement.pause();
+		}
+		const chNum = channel?.channel_number ?? (channelNumber || undefined);
+		openPopoutPlayer({
+			channel: chNum,
+			recording: recordingId ?? undefined,
+			playUrl: playUrl ?? undefined,
+			title: title,
+			t: videoCurrentTime > 0 ? videoCurrentTime : undefined,
+		});
+		onClose();
 	}
 
 	function portal(node: HTMLElement) {
@@ -754,7 +920,12 @@
 		const handlePlaying = () => { isVideoLoading = false; videoPaused = false; };
 		const handleCanPlay = () => { isVideoLoading = false; };
 		const handleLoadedData = () => { isVideoLoading = false; };
-		const handleTimeUpdate = () => { if (isVideoLoading && node.currentTime > 0) isVideoLoading = false; };
+		const handleTimeUpdate = () => {
+			if (isVideoLoading && node.currentTime > 0) isVideoLoading = false;
+			if (syncPlayStatus !== 'disconnected') {
+				syncPlayController.checkAndApplyDrift();
+			}
+		};
 
 		node.addEventListener('loadstart', handleLoadStart);
 		node.addEventListener('waiting', handleWaiting);
@@ -788,6 +959,7 @@
 		return {
 			destroy() {
 				destroyed = true;
+				syncPlayController.destroy();
 				node.removeEventListener('loadstart', handleLoadStart);
 				node.removeEventListener('waiting', handleWaiting);
 				node.removeEventListener('seeking', handleSeeking);
@@ -989,6 +1161,9 @@
 			{effectiveAiring}
 			{officialDvrActive}
 			{airplayAvailable}
+			syncPlayActive={Boolean(syncPlayRoom)}
+			syncPlayParticipantsCount={syncPlayRoom?.participants?.length ?? 0}
+			onToggleSyncPlay={() => (showSyncPlayModal = !showSyncPlayModal)}
 			bind:showRecordMenu
 			bind:showOptionsDialog
 			{showAirPlayPicker}
@@ -1003,6 +1178,7 @@
 			onRecordSeries={handleRecordSeries}
 			onCancelRecording={handleCancelRecording}
 			onConfirmOptions={handleConfirmOptions}
+			onPopout={allowPopout ? (onPopout ?? handlePopout) : undefined}
 			{onClose}
 		/>
 	</div>
@@ -1109,6 +1285,9 @@
 			onSelectCaptionTrack={selectCaptionTrack}
 			onPlaybackRateChange={handlePlaybackRateChange}
 			onAspectRatioChange={handleAspectRatioChange}
+			syncPlayActive={Boolean(syncPlayRoom)}
+			syncPlayParticipantsCount={syncPlayRoom?.participants?.length ?? 0}
+			onToggleSyncPlay={() => (showSyncPlayModal = !showSyncPlayModal)}
 			onTogglePlaybackInfo={() => (showPlaybackInfo = !showPlaybackInfo)}
 		/>
 	</div>
@@ -1179,6 +1358,29 @@
 				</div>
 			</div>
 		</div>
+	{/if}
+
+	<!-- SyncPlay Watch Party Modal -->
+	{#if showSyncPlayModal}
+		<SyncPlayModal
+			show={showSyncPlayModal}
+			room={syncPlayRoom}
+			roomCode={syncPlayRoom?.room_code ?? null}
+			participants={syncPlayRoom?.participants ?? []}
+			isHost={syncPlayController.getIsHost()}
+			pingMs={syncPlayPingMs}
+			status={syncPlayStatus}
+			currentContent={currentSyncContent}
+			onJoinRoom={(code) => syncPlayController.joinRoom(code)}
+			onCreateRoom={async () => {
+				await syncPlayController.createRoom(currentSyncContent);
+			}}
+			onLeaveRoom={() => syncPlayController.leaveRoom()}
+			onTransferHost={(targetId) => syncPlayController.transferHost(targetId)}
+			onClose={() => {
+				showSyncPlayModal = false;
+			}}
+		/>
 	{/if}
 </div>
 

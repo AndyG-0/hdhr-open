@@ -18,6 +18,7 @@ vi.mock('$lib/api', () => ({
 		logoutUser: vi.fn(),
 		setupStatus,
 		getPreferences,
+		getNetworkIntegration: vi.fn().mockResolvedValue({ settings: {} }),
 	},
 	describeFetchError: (error: unknown) => (error instanceof TypeError ? 'network' : 'server'),
 }));
@@ -99,5 +100,17 @@ describe('+layout.svelte', () => {
 		expect(screen.getByText('Could not reach the HDHR Open backend')).toBeInTheDocument();
 		expect(screen.queryByTestId('app-content')).not.toBeInTheDocument();
 		expect(goto).not.toHaveBeenCalled();
+	});
+
+	it('suppresses top navigation on /player', async () => {
+		pageState.url = new URL('http://localhost/player');
+		setupStatus.mockResolvedValue({ needs_setup: false });
+		currentUser.mockResolvedValue({ id: 'u1', name: 'Alice', avatar: null, role: 'admin' });
+
+		render(Layout, { props: { children: emptyChildren() } });
+		await flush();
+
+		expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+		expect(screen.getByTestId('app-content')).toBeInTheDocument();
 	});
 });

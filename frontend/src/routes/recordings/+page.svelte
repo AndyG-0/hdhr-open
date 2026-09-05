@@ -12,9 +12,12 @@
 	} from '$lib/api';
 	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
 	import RecordingCard from '$lib/components/RecordingCard.svelte';
+	import { openPopoutPlayer } from '$lib/popout';
 	import HDHomeRunKeywordRuleDialog, {
 		type KeywordRuleOptions,
 	} from '$lib/components/details/HDHomeRunKeywordRuleDialog.svelte';
+	import HDHomeRunRecordingOptionsDialog from '$lib/components/details/HDHomeRunRecordingOptionsDialog.svelte';
+	import HDHomeRunCancelRuleModal from '$lib/components/details/HDHomeRunCancelRuleModal.svelte';
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
 
@@ -24,10 +27,13 @@
 	let recordingsInProgress = $state<HDHomeRunRecording[]>([]);
 	let allRecordings = $state<HDHomeRunRecording[]>([]);
 	let recordingRules = $state<HDHomeRunRecordingRule[]>([]);
+	let editingRule = $state<HDHomeRunRecordingRule | null>(null);
 	let channels = $state<HDHomeRunChannel[]>([]);
 	let recordingLoading = $state<string | null>(null);
 	let deletingRecordingId = $state<string | null>(null);
 	let error = $state<string | null>(null);
+	let fallbackNotice = $state<string | null>(null);
+	let ruleToCancel = $state<HDHomeRunRecordingRule | null>(null);
 	let playbackMode = $state('server_transcode');
 	let tunerInfo = $state<HDHomeRunTunerInfo | null>(null);
 	let tuners = $state<HDHomeRunTuner[]>([]);
@@ -250,6 +256,26 @@
 		};
 	}
 
+	function popoutRecording(recording: HDHomeRunRecording) {
+		if (playingMedia) {
+			playingMedia = null;
+		}
+		let playUrl = recording.play_url;
+		if (!playUrl && recording.recording_id) {
+			playUrl = `/recorded/${recording.recording_id}`;
+		}
+		if (!playUrl && recording.channel_number) {
+			playUrl = `/auto/v${recording.channel_number}`;
+		}
+		const title = recording.episode_title ? `${recording.title} - ${recording.episode_title}` : recording.title;
+		openPopoutPlayer({
+			recording: recording.recording_id ?? undefined,
+			playUrl: playUrl ?? undefined,
+			channel: recording.channel_number ?? undefined,
+			title,
+		});
+	}
+
 	function watchLiveForRecording(recording: HDHomeRunRecording) {
 		if (!recording.channel_number) return;
 		const channel = channels.find((c) => c.channel_number === recording.channel_number);
@@ -277,18 +303,29 @@
 		options?: RecordingRuleOptions,
 	) {
 		const targetId = seriesId || channelNumber || 'now';
+		const effectiveChannel = options?.channel !== undefined ? options.channel : channelNumber;
 		recordingLoading = targetId;
 		try {
-			recordingRules = await api.addHDHomeRunRecordingRule({
+			const previousIds = new Set(recordingRules.map((r) => r.RecordingRuleID));
+			const updated = await api.addHDHomeRunRecordingRule({
 				series_id: seriesId || 'auto',
-				channel: channelNumber,
+				channel: effectiveChannel,
 				date_time: startTime ?? undefined,
+				title: options?.title,
 				start_padding: options?.startPadding,
 				end_padding: options?.endPadding,
 				recent_only: options?.recentOnly,
 				max_episodes_to_keep: options?.maxEpisodesToKeep,
 				server: options?.server,
 			});
+			recordingRules = updated;
+			const newlyCreated = updated.filter((r) => !previousIds.has(r.RecordingRuleID));
+			const fallbackRule = newlyCreated.find((r) => r.fallback_reason || r.FallbackReason);
+			if (fallbackRule) {
+				fallbackNotice = get(_)('hdhomerun.detail.fallback_notification', {
+					values: { title: fallbackRule.Title || '' },
+				});
+			}
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -297,17 +334,31 @@
 	}
 
 	async function recordShowSeries(seriesId: string, channelNumber?: string, options?: RecordingRuleOptions) {
-		recordingLoading = seriesId;
+		const targetId = seriesId || channelNumber || options?.title || 'series';
+		const effectiveChannel = options?.channel !== undefined ? options.channel : channelNumber;
+		recordingLoading = targetId;
 		try {
-			recordingRules = await api.addHDHomeRunRecordingRule({
-				series_id: seriesId,
-				channel: channelNumber,
+			const previousIds = new Set(recordingRules.map((r) => r.RecordingRuleID));
+			const updated = await api.addHDHomeRunRecordingRule({
+				series_id: seriesId || 'auto',
+				channel: effectiveChannel,
+				title: options?.title,
+				title_match_mode: options?.titleMatchMode,
+				keyword_query: options?.keywordQuery,
 				start_padding: options?.startPadding,
 				end_padding: options?.endPadding,
 				recent_only: options?.recentOnly,
 				max_episodes_to_keep: options?.maxEpisodesToKeep,
 				server: options?.server,
 			});
+			recordingRules = updated;
+			const newlyCreated = updated.filter((r) => !previousIds.has(r.RecordingRuleID));
+			const fallbackRule = newlyCreated.find((r) => r.fallback_reason || r.FallbackReason);
+			if (fallbackRule) {
+				fallbackNotice = get(_)('hdhomerun.detail.fallback_notification', {
+					values: { title: fallbackRule.Title || '' },
+				});
+			}
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -342,6 +393,31 @@
 		recordingLoading = ruleId;
 		try {
 			recordingRules = await api.deleteHDHomeRunRecordingRule(ruleId);
+		} catch (err) {
+			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			recordingLoading = null;
+		}
+	}
+
+	async function updateRuleFromDialog(
+		ruleId: string,
+		mode: 'episode' | 'series',
+		options: RecordingRuleOptions,
+	) {
+		recordingLoading = ruleId;
+		try {
+			recordingRules = await api.updateHDHomeRunRecordingRule(ruleId, {
+				channel: options.channel,
+				title: options.title,
+				title_match_mode: options.titleMatchMode,
+				keyword_query: options.keywordQuery,
+				start_padding: options.startPadding,
+				end_padding: options.endPadding,
+				recent_only: options.recentOnly,
+				max_episodes_to_keep: options.maxEpisodesToKeep,
+			});
+			editingRule = null;
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -466,6 +542,12 @@
 		{#if error}
 			<p class="hint error">{error}</p>
 		{/if}
+		{#if fallbackNotice}
+			<div class="banner notice">
+				<span>ℹ️ {fallbackNotice}</span>
+				<button type="button" class="dismiss-notice-btn" onclick={() => (fallbackNotice = null)}>✕</button>
+			</div>
+		{/if}
 
 		<div class="filter-bars">
 			<div class="server-filter-bar" role="group" aria-label={$_('hdhomerun.detail.server_label')}>
@@ -543,6 +625,7 @@
 							failedImages[recording.recording_id ?? ''] = true;
 						}}
 						onWatchLive={() => watchLiveForRecording(recording)}
+						onPopout={() => popoutRecording(recording)}
 					/>
 				{/each}
 			</div>
@@ -565,6 +648,7 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
+								onPopout={() => popoutRecording(recording)}
 								onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 								deleting={deletingRecordingId === recording.recording_id}
 							/>
@@ -583,6 +667,7 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
+								onPopout={() => popoutRecording(recording)}
 								onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 								deleting={deletingRecordingId === recording.recording_id}
 							/>
@@ -601,6 +686,7 @@
 									failedImages[recording.recording_id ?? ''] = true;
 								}}
 								onPlay={() => playRecording(recording)}
+								onPopout={() => popoutRecording(recording)}
 								onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 								deleting={deletingRecordingId === recording.recording_id}
 							/>
@@ -621,6 +707,7 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
+							onPopout={() => popoutRecording(recording)}
 							onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 							deleting={deletingRecordingId === recording.recording_id}
 						/>
@@ -642,6 +729,7 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
+							onPopout={() => popoutRecording(recording)}
 							onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 							deleting={deletingRecordingId === recording.recording_id}
 						/>
@@ -663,6 +751,7 @@
 								failedImages[recording.recording_id ?? ''] = true;
 							}}
 							onPlay={() => playRecording(recording)}
+							onPopout={() => popoutRecording(recording)}
 							onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
 							deleting={deletingRecordingId === recording.recording_id}
 						/>
@@ -690,6 +779,14 @@
 									? $_('hdhomerun.detail.server_badge_hdhomerun')
 									: $_('hdhomerun.detail.server_badge_builtin')}
 							</span>
+							{#if rule.fallback_reason || rule.FallbackReason}
+								<span
+									class="rule-badge fallback"
+									title={rule.fallback_reason || rule.FallbackReason || $_('hdhomerun.detail.fallback_tooltip')}
+								>
+									{$_('hdhomerun.detail.fallback_badge')}
+								</span>
+							{/if}
 							<span class="rule-badge">
 								{rule.DateTimeOnly ? $_('hdhomerun.detail.single_airing_rule') : $_('hdhomerun.detail.series_rule')}
 							</span>
@@ -716,13 +813,22 @@
 								</span>
 							{/if}
 						</div>
-						<button
-							class="cancel-rule-btn"
-							disabled={recordingLoading === rule.RecordingRuleID}
-							onclick={() => cancelRecordingRule(rule.RecordingRuleID)}
-						>
-							{$_('hdhomerun.detail.cancel_recording')}
-						</button>
+						<div class="rule-card-actions">
+							<button
+								class="edit-rule-btn"
+								disabled={recordingLoading === rule.RecordingRuleID}
+								onclick={() => (editingRule = rule)}
+							>
+								⚙️ {$_('hdhomerun.detail.recording_options')}
+							</button>
+							<button
+								class="cancel-rule-btn"
+								disabled={recordingLoading === rule.RecordingRuleID}
+								onclick={() => (ruleToCancel = rule)}
+							>
+								{$_('hdhomerun.detail.cancel_recording')}
+							</button>
+						</div>
 					</div>
 				{/each}
 			</div>
@@ -731,6 +837,35 @@
 		{/if}
 	{/if}
 </div>
+
+{#if editingRule}
+	<HDHomeRunRecordingOptionsDialog
+		airing={{
+			title: editingRule.Title,
+			episode_title: null,
+			series_id: editingRule.SeriesID,
+			start: editingRule.DateTimeOnly ?? null,
+			end: null,
+			channel_number: editingRule.ChannelOnly,
+		}}
+		channelName=""
+		channelNumber={editingRule.ChannelOnly}
+		{channels}
+		canRecordSeries={Boolean(editingRule.SeriesID || editingRule.Title)}
+		officialDvrActive={((editingRule.provider ?? editingRule.Provider) === 'hdhomerun')}
+		existingRule={editingRule}
+		loading={recordingLoading === editingRule.RecordingRuleID}
+		onCancelRule={(ruleId) => {
+			cancelRecordingRule(ruleId);
+			editingRule = null;
+		}}
+		onConfirm={(mode, options) => {
+			if (editingRule) updateRuleFromDialog(editingRule.RecordingRuleID, mode, options);
+		}}
+		onUpdateRule={(ruleId, mode, options) => updateRuleFromDialog(ruleId, mode, options)}
+		onClose={() => (editingRule = null)}
+	/>
+{/if}
 
 {#if showKeywordRuleDialog}
 	<HDHomeRunKeywordRuleDialog
@@ -758,8 +893,21 @@
 		{recordingLoading}
 		onRecordEpisode={recordShowEpisode}
 		onRecordSeries={recordShowSeries}
+		onUpdateRule={updateRuleFromDialog}
 		onCancelRule={cancelRecordingRule}
 		onClose={() => (playingMedia = null)}
+	/>
+{/if}
+
+{#if ruleToCancel}
+	<HDHomeRunCancelRuleModal
+		title={ruleToCancel.Title || ''}
+		onConfirm={() => {
+			const id = ruleToCancel?.RecordingRuleID;
+			ruleToCancel = null;
+			if (id) cancelRecordingRule(id);
+		}}
+		onClose={() => (ruleToCancel = null)}
 	/>
 {/if}
 
@@ -828,6 +976,34 @@
 
 	.hint.error {
 		color: var(--color-error, #e05a5a);
+	}
+
+	.banner.notice {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		background: rgba(74, 158, 218, 0.12);
+		border: 1px solid rgba(74, 158, 218, 0.35);
+		color: var(--color-text);
+		padding: 0.6rem 0.9rem;
+		border-radius: 0.5rem;
+		margin-bottom: 0.75rem;
+		font-size: 0.88rem;
+	}
+
+	.dismiss-notice-btn {
+		background: transparent;
+		border: none;
+		color: var(--color-text-muted);
+		cursor: pointer;
+		font-size: 1rem;
+		line-height: 1;
+		padding: 0 0.25rem;
+	}
+
+	.dismiss-notice-btn:hover {
+		color: var(--color-text);
 	}
 
 	.tuner-info {
@@ -1186,6 +1362,31 @@
 		border-radius: 0.3rem;
 		padding: 0.1rem 0.35rem;
 		font-size: 0.75rem;
+	}
+
+	.rule-badge.fallback {
+		background: rgba(224, 160, 90, 0.15);
+		color: var(--color-warning, #e0a05a);
+		border-color: rgba(224, 160, 90, 0.4);
+		font-weight: 600;
+	}
+
+	.rule-card-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		flex-shrink: 0;
+	}
+
+	.edit-rule-btn {
+		flex-shrink: 0;
+		background: none;
+		border: 1px solid var(--color-border);
+		color: var(--color-text);
+		border-radius: 0.4rem;
+		padding: 0.25rem 0.6rem;
+		font-size: 0.8rem;
+		cursor: pointer;
 	}
 
 	.cancel-rule-btn {

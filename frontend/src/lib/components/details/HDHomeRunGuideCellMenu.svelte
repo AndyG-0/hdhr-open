@@ -13,6 +13,7 @@
 		loading: boolean;
 		pending: boolean;
 		onWatch?: () => void;
+		onPopout?: () => void;
 		onRecordEpisode: () => void;
 		onRecordSeries: () => void;
 		onOpenOptions: () => void;
@@ -31,6 +32,7 @@
 		loading,
 		pending,
 		onWatch,
+		onPopout,
 		onRecordEpisode,
 		onRecordSeries,
 		onOpenOptions,
@@ -182,12 +184,20 @@
 			<button class="menu-item watch" onclick={() => { onWatch?.(); onClose(); }} role="menuitem">
 				▶ {$_('hdhomerun.detail.watch_button')}
 			</button>
+			{#if onPopout}
+				<button class="menu-item popout" onclick={() => { onPopout?.(); onClose(); }} role="menuitem">
+					{$_('hdhomerun.detail.popout_button', { default: '↗ Popout' })}
+				</button>
+			{/if}
 		{/if}
 
 		{#if existingRule}
 			{#if pending}
 				<div class="menu-pending-hint">{$_('hdhomerun.detail.pending_confirmation')}</div>
 			{/if}
+			<button class="menu-item" disabled={loading} onclick={onOpenOptions} role="menuitem">
+				⚙️ {$_('hdhomerun.detail.recording_options')}
+			</button>
 			<button
 				class="menu-item danger"
 				disabled={loading}
@@ -370,6 +380,10 @@
 
 	.menu-item.watch {
 		color: #10b981;
+	}
+
+	.menu-item.popout {
+		color: var(--color-primary, #60a5fa);
 	}
 
 	.menu-item:disabled {

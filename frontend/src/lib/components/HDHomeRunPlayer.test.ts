@@ -1122,7 +1122,7 @@ describe('HDHomeRunPlayer', () => {
 		const episodeBtn = screen.getByRole('button', { name: /Record Episode/i });
 		await fireEvent.click(episodeBtn);
 
-		expect(onRecordEpisode).toHaveBeenCalledWith(null, '4.1', 1700000000, undefined);
+		expect(onRecordEpisode).toHaveBeenCalledWith(null, '4.1', 1700000000, { title: 'Evening News' });
 	});
 
 	it('calls onRecordSeries when Record Series is clicked in the popover', async () => {
@@ -1159,7 +1159,44 @@ describe('HDHomeRunPlayer', () => {
 		const seriesBtn = screen.getByRole('button', { name: /Record Series/i });
 		await fireEvent.click(seriesBtn);
 
-		expect(onRecordSeries).toHaveBeenCalledWith('SERIES123', '4.1', undefined);
+		expect(onRecordSeries).toHaveBeenCalledWith('SERIES123', '4.1', { title: 'Evening News' });
+	});
+
+	it('calls onRecordSeries with "auto" when Record Series is clicked and airing has no series_id', async () => {
+		const onRecordSeries = vi.fn();
+		const channel = {
+			channel_number: '4.1',
+			name: 'KDFW',
+			is_hd: true,
+			is_drm: false,
+			stream_url: 'http://tuner/auto/v4.1',
+			playback_url: '/auto/v4.1',
+			now: {
+				title: 'Evening News',
+				episode_title: null,
+				series_id: null,
+				start: 1700000000,
+				end: 1700003600,
+			},
+			next: null,
+		};
+
+		render(HDHomeRunPlayer, {
+			props: {
+				...props,
+				channel,
+				airing: channel.now,
+				onRecordSeries,
+			},
+		});
+
+		const recordBtn = screen.getByRole('button', { name: /Record/i });
+		await fireEvent.click(recordBtn);
+
+		const seriesBtn = screen.getByRole('button', { name: /Record Series/i });
+		await fireEvent.click(seriesBtn);
+
+		expect(onRecordSeries).toHaveBeenCalledWith('auto', '4.1', { title: 'Evening News' });
 	});
 
 	it('displays Recording state and triggers onCancelRule when active recording rule exists', async () => {
@@ -1209,6 +1246,62 @@ describe('HDHomeRunPlayer', () => {
 		await fireEvent.click(cancelBtn);
 
 		expect(onCancelRule).toHaveBeenCalledWith('rule_abc123');
+	});
+
+	it('allows updating an existing recording rule from the player recording options dialog', async () => {
+		const onUpdateRule = vi.fn();
+		const channel = {
+			channel_number: '4.1',
+			name: 'KDFW',
+			is_hd: true,
+			is_drm: false,
+			stream_url: 'http://tuner/auto/v4.1',
+			playback_url: '/auto/v4.1',
+			now: {
+				title: 'Evening News',
+				episode_title: null,
+				series_id: 'SERIES123',
+				start: 1700000000,
+				end: 1700003600,
+			},
+			next: null,
+		};
+		const recordingRules = [
+			{
+				RecordingRuleID: 'rule_abc123',
+				SeriesID: 'SERIES123',
+				Title: 'Evening News',
+				ChannelOnly: '4.1',
+				StartPadding: 0,
+				EndPadding: 0,
+			},
+		];
+
+		render(HDHomeRunPlayer, {
+			props: {
+				...props,
+				channel,
+				airing: channel.now,
+				recordingRules,
+				onUpdateRule,
+			},
+		});
+
+		const recordingBtn = screen.getByRole('button', { name: /Recording/i });
+		await fireEvent.click(recordingBtn);
+
+		const optionsBtn = screen.getByRole('button', { name: /Recording options…/i });
+		await fireEvent.click(optionsBtn);
+
+		expect(screen.getByRole('dialog', { name: /Recording Options/i })).toBeInTheDocument();
+
+		const updateBtn = screen.getByRole('button', { name: /Update Recording/i });
+		await fireEvent.click(updateBtn);
+
+		expect(onUpdateRule).toHaveBeenCalledWith('rule_abc123', 'series', expect.objectContaining({
+			title: 'Evening News',
+			channel: '4.1',
+		}));
 	});
 
 	it('opens recording options dialog and confirms custom options', async () => {
@@ -1288,8 +1381,100 @@ describe('HDHomeRunPlayer', () => {
 
 		expect(addHDHomeRunRecordingRule).toHaveBeenCalledWith(
 			expect.objectContaining({
+				series_id: 'auto',
 				channel: '4.1',
 				date_time: 1700000000,
+				title: 'Evening News',
+			}),
+		);
+	});
+
+	it('falls back to direct API call when onRecordSeries prop is omitted', async () => {
+		addHDHomeRunRecordingRule.mockResolvedValue([]);
+		const channel = {
+			channel_number: '4.1',
+			name: 'KDFW',
+			is_hd: true,
+			is_drm: false,
+			stream_url: 'http://tuner/auto/v4.1',
+			playback_url: '/auto/v4.1',
+			now: {
+				title: 'Evening News',
+				episode_title: null,
+				series_id: 'SERIES123',
+				start: 1700000000,
+				end: 1700003600,
+			},
+			next: null,
+		};
+
+		render(HDHomeRunPlayer, {
+			props: {
+				...props,
+				channel,
+				airing: channel.now,
+			},
+		});
+
+		const recordBtn = screen.getByRole('button', { name: /Record/i });
+		await fireEvent.click(recordBtn);
+
+		const seriesBtn = screen.getByRole('button', { name: /Record Series/i });
+		await fireEvent.click(seriesBtn);
+
+		expect(addHDHomeRunRecordingRule).toHaveBeenCalledWith(
+			expect.objectContaining({
+				series_id: 'SERIES123',
+				channel: '4.1',
+				title: 'Evening News',
+			}),
+		);
+	});
+
+	it('calls onRecordSeries from options dialog inside the player', async () => {
+		const onRecordSeries = vi.fn();
+		const channel = {
+			channel_number: '4.1',
+			name: 'KDFW',
+			is_hd: true,
+			is_drm: false,
+			stream_url: 'http://tuner/auto/v4.1',
+			playback_url: '/auto/v4.1',
+			now: {
+				title: 'Evening News',
+				episode_title: null,
+				series_id: 'SERIES123',
+				start: 1700000000,
+				end: 1700003600,
+			},
+			next: null,
+		};
+
+		render(HDHomeRunPlayer, {
+			props: {
+				...props,
+				channel,
+				airing: channel.now,
+				onRecordSeries,
+			},
+		});
+
+		const recordBtn = screen.getByRole('button', { name: /Record/i });
+		await fireEvent.click(recordBtn);
+
+		const optionsBtn = screen.getByRole('button', { name: /Recording options…/i });
+		await fireEvent.click(optionsBtn);
+
+		expect(screen.getByRole('dialog', { name: /Recording Options/i })).toBeInTheDocument();
+
+		const confirmBtn = screen.getByRole('button', { name: /Record Series/i });
+		await fireEvent.click(confirmBtn);
+
+		expect(onRecordSeries).toHaveBeenCalledWith(
+			'SERIES123',
+			'4.1',
+			expect.objectContaining({
+				title: 'Evening News',
 			}),
 		);
 	});
@@ -1883,6 +2068,55 @@ describe('HDHomeRunPlayer', () => {
 					recordingId: 'rec1',
 				}),
 			);
+		});
+
+		it('opens the SyncPlay watch party modal when clicking the SyncPlay header button', async () => {
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const syncPlayBtns = screen.getAllByRole('button', { name: 'SyncPlay Watch Party' });
+			expect(syncPlayBtns.length).toBeGreaterThanOrEqual(1);
+
+			await fireEvent.click(syncPlayBtns[0]);
+
+			expect(screen.getByText('Create New Watch Room')).toBeInTheDocument();
+			expect(screen.getByLabelText('Join with Room Code')).toBeInTheDocument();
+		});
+
+		it('renders the Popout button in the header and calls window.open and onClose on click', async () => {
+			const onCloseMock = vi.fn();
+			const openMock = vi.fn();
+			vi.stubGlobal('open', openMock);
+
+			render(HDHomeRunPlayer, {
+				props: {
+					...seekableProps,
+					allowPopout: true,
+					onClose: onCloseMock,
+				},
+			});
+
+			const popoutBtn = screen.getByRole('button', { name: 'Popout player' });
+			expect(popoutBtn).toBeInTheDocument();
+
+			await fireEvent.click(popoutBtn);
+
+			expect(openMock).toHaveBeenCalledWith(
+				expect.stringContaining('/player?recording=rec1'),
+				'hdhr_popout_player',
+				expect.stringContaining('width=960,height=540'),
+			);
+			expect(onCloseMock).toHaveBeenCalled();
+		});
+
+		it('hides the Popout button in the header when allowPopout is false', () => {
+			render(HDHomeRunPlayer, {
+				props: {
+					...seekableProps,
+					allowPopout: false,
+				},
+			});
+
+			expect(screen.queryByRole('button', { name: 'Popout player' })).not.toBeInTheDocument();
 		});
 	});
 });

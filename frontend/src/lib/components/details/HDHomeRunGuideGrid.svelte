@@ -10,6 +10,9 @@
 	import { buildRecordingRuleIndex, findMatchingRecordingRuleIndexed } from '$lib/recording-rules';
 	import HDHomeRunGuideCellMenu from './HDHomeRunGuideCellMenu.svelte';
 	import HDHomeRunRecordingOptionsDialog from './HDHomeRunRecordingOptionsDialog.svelte';
+	import HDHomeRunCancelRuleModal from './HDHomeRunCancelRuleModal.svelte';
+	import HDHomeRunFallbackConfirmModal from './HDHomeRunFallbackConfirmModal.svelte';
+	import { isFallbackConfirmSuppressed, setFallbackConfirmSuppressed } from '$lib/fallback-confirm';
 
 	interface Props {
 		channels: HDHomeRunChannel[];
@@ -21,6 +24,7 @@
 		recordingLoading: string | null;
 		officialDvrActive: boolean;
 		onWatch: (channel: HDHomeRunChannel) => void;
+		onPopout?: (channel: HDHomeRunChannel) => void;
 		onRecordEpisode: (
 			seriesId: string | null | undefined,
 			channelNumber: string,
@@ -28,6 +32,7 @@
 			options?: RecordingRuleOptions,
 		) => void;
 		onRecordSeries: (seriesId: string, channelNumber: string, options?: RecordingRuleOptions) => void;
+		onUpdateRule?: (ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
 		onCancelRule: (ruleId: string) => void;
 		onToggleFavorite: (channelNumber: string) => void;
 	}
@@ -42,8 +47,10 @@
 		recordingLoading,
 		officialDvrActive,
 		onWatch,
+		onPopout,
 		onRecordEpisode,
 		onRecordSeries,
+		onUpdateRule,
 		onCancelRule,
 		onToggleFavorite,
 	}: Props = $props();
@@ -354,6 +361,12 @@
 
 	let menuState = $state<{ airing: HDHomeRunGuideEntry; channel: HDHomeRunChannel; x: number; y: number } | null>(null);
 	let optionsDialogState = $state<{ airing: HDHomeRunGuideEntry; channel: HDHomeRunChannel } | null>(null);
+	let fallbackConfirmTarget = $state<{
+		mode: 'episode' | 'series';
+		airing: HDHomeRunGuideEntry;
+		channel: HDHomeRunChannel;
+	} | null>(null);
+	let ruleToCancelTarget = $state<{ ruleId: string; title: string } | null>(null);
 
 	function openContextMenu(airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel, x: number, y: number) {
 		menuState = { airing, channel, x, y };
@@ -640,17 +653,28 @@
 		loading={isLoadingFor(menuState.airing, menuState.channel, findExistingRule(menuState.airing, menuState.channel))}
 		pending={pendingRuleIds.has(findExistingRule(menuState.airing, menuState.channel)?.RecordingRuleID ?? '')}
 		onWatch={() => onWatch(menuState!.channel)}
+		onPopout={onPopout ? () => onPopout?.(menuState!.channel) : undefined}
 		onRecordEpisode={() => {
 			if (!menuState) return;
-			onRecordEpisode(menuState.airing.series_id, menuState.channel.channel_number, menuState.airing.start);
+			const { airing, channel } = menuState;
 			closeContextMenu();
+			if (officialDvrActive && !airing.series_id && !isFallbackConfirmSuppressed()) {
+				fallbackConfirmTarget = { mode: 'episode', airing, channel };
+				return;
+			}
+			onRecordEpisode(airing.series_id, channel.channel_number, airing.start);
 		}}
 		onRecordSeries={() => {
 			if (!menuState) return;
-			onRecordSeries(menuState.airing.series_id || 'auto', menuState.channel.channel_number, {
-				title: menuState.airing.title,
-			});
+			const { airing, channel } = menuState;
 			closeContextMenu();
+			if (officialDvrActive && !airing.series_id && !isFallbackConfirmSuppressed()) {
+				fallbackConfirmTarget = { mode: 'series', airing, channel };
+				return;
+			}
+			onRecordSeries(airing.series_id || 'auto', channel.channel_number, {
+				title: airing.title,
+			});
 		}}
 		onOpenOptions={() => {
 			if (!menuState) return;
@@ -658,10 +682,44 @@
 			closeContextMenu();
 		}}
 		onCancelRule={(ruleId) => {
-			onCancelRule(ruleId);
+			if (!menuState) return;
+			const title = menuState.airing.title;
 			closeContextMenu();
+			ruleToCancelTarget = { ruleId, title };
 		}}
 		onClose={closeContextMenu}
+	/>
+{/if}
+
+{#if fallbackConfirmTarget}
+	<HDHomeRunFallbackConfirmModal
+		title={fallbackConfirmTarget.airing.title}
+		onConfirm={(dontAskAgain) => {
+			if (dontAskAgain) setFallbackConfirmSuppressed(true);
+			const target = fallbackConfirmTarget;
+			fallbackConfirmTarget = null;
+			if (!target) return;
+			if (target.mode === 'episode') {
+				onRecordEpisode(target.airing.series_id, target.channel.channel_number, target.airing.start);
+			} else {
+				onRecordSeries(target.airing.series_id || 'auto', target.channel.channel_number, {
+					title: target.airing.title,
+				});
+			}
+		}}
+		onClose={() => (fallbackConfirmTarget = null)}
+	/>
+{/if}
+
+{#if ruleToCancelTarget}
+	<HDHomeRunCancelRuleModal
+		title={ruleToCancelTarget.title}
+		onConfirm={() => {
+			const target = ruleToCancelTarget;
+			ruleToCancelTarget = null;
+			if (target) onCancelRule(target.ruleId);
+		}}
+		onClose={() => (ruleToCancelTarget = null)}
 	/>
 {/if}
 
@@ -701,6 +759,29 @@
 					targetChannel,
 					options,
 				);
+			}
+			optionsDialogState = null;
+		}}
+		onUpdateRule={(ruleId, mode, options) => {
+			if (!optionsDialogState) return;
+			if (onUpdateRule) {
+				onUpdateRule(ruleId, mode, options);
+			} else {
+				const targetChannel = options?.channel !== undefined ? options.channel : optionsDialogState.channel.channel_number;
+				if (mode === 'episode') {
+					onRecordEpisode(
+						optionsDialogState.airing.series_id,
+						targetChannel,
+						optionsDialogState.airing.start,
+						options,
+					);
+				} else {
+					onRecordSeries(
+						optionsDialogState.airing.series_id || 'auto',
+						targetChannel,
+						options,
+					);
+				}
 			}
 			optionsDialogState = null;
 		}}

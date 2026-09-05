@@ -10,11 +10,12 @@
 		onImageError: () => void;
 		onWatchLive?: () => void;
 		onPlay?: () => void;
+		onPopout?: () => void;
 		onDelete?: () => void;
 		deleting?: boolean;
 	}
 
-	let { recording, variant, failed, onImageError, onWatchLive, onPlay, onDelete, deleting }: Props = $props();
+	let { recording, variant, failed, onImageError, onWatchLive, onPlay, onPopout, onDelete, deleting }: Props = $props();
 
 	function formatBytes(bytes: number | null | undefined): string {
 		if (bytes === null || bytes === undefined) return get(_)('common.unknown');
@@ -200,6 +201,19 @@
 					{$_('hdhomerun.detail.watch_live_button')}
 				</button>
 			{/if}
+			{#if onPopout}
+				<button
+					type="button"
+					class="popout small"
+					onclick={(e) => {
+						e.stopPropagation();
+						onPopout?.();
+					}}
+					title={$_('hdhomerun.detail.popout_button', { default: '↗ Popout' })}
+				>
+					{$_('hdhomerun.detail.popout_button', { default: '↗ Popout' })}
+				</button>
+			{/if}
 		</div>
 	</div>
 {:else}
@@ -247,6 +261,19 @@
 			>
 				▶ {$_('hdhomerun.detail.watch_button')}
 			</button>
+			{#if onPopout}
+				<button
+					type="button"
+					class="popout small"
+					onclick={(e) => {
+						e.stopPropagation();
+						onPopout?.();
+					}}
+					title={$_('hdhomerun.detail.popout_button', { default: '↗ Popout' })}
+				>
+					{$_('hdhomerun.detail.popout_button', { default: '↗ Popout' })}
+				</button>
+			{/if}
 			{#if recording.play_url}
 				<a
 					class="open-external small"
@@ -453,6 +480,28 @@
 	}
 
 	.watch.small {
+		padding: 0.2rem 0.5rem;
+		font-size: 0.75rem;
+	}
+
+	.popout {
+		background: none;
+		border: 1px solid var(--color-border);
+		color: var(--color-accent);
+		border-radius: 0.5rem;
+		padding: 0.35rem 0.75rem;
+		font-size: 0.85rem;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		transition: background 0.15s ease;
+	}
+
+	.popout:hover {
+		background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+	}
+
+	.popout.small {
 		padding: 0.2rem 0.5rem;
 		font-size: 0.75rem;
 	}

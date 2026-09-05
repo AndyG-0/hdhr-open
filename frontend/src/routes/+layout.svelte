@@ -11,12 +11,36 @@
 	import { loadThemeFromServer } from '$lib/stores/theme';
 	import { user, userLoaded, loadCurrentUser } from '$lib/stores/user';
 	import { needsSetup, setupStatusLoaded, setupStatusError, loadSetupStatus } from '$lib/stores/setup';
+	import { api } from '$lib/api';
+	import { aiDrawerOpen, toggleAIDrawer } from '$lib/stores/ai-drawer';
+	import { loadOnceWhen } from '$lib/load-once.svelte';
+	import AIAssistantDrawer from '$lib/components/ai/AIAssistantDrawer.svelte';
 
 	let { children } = $props();
 
 	// Gates rendering until the initial locale's catalog has loaded, so no
 	// raw translation key (e.g. "layout.fatal_title") ever flashes on first load.
 	let i18nReady = $state(false);
+
+	// Any household member (not just admins) can read /api/network-settings/ai
+	// (see backend/app/api/network_settings.py — only PATCH/test-connection
+	// require admin), so this checks whether the assistant is actually usable
+	// before showing its nav entry to a non-admin who couldn't configure it anyway.
+	let aiConfigured = $state(false);
+
+	loadOnceWhen(
+		() => Boolean($user),
+		() => {
+			api
+				.getNetworkIntegration('ai')
+				.then((row) => {
+					aiConfigured = Boolean(row.settings.has_api_key && row.settings.model);
+				})
+				.catch(() => {
+					aiConfigured = false;
+				});
+		},
+	);
 
 	onMount(async () => {
 		await waitLocale();
@@ -70,15 +94,24 @@
 			<p class="hint">{$_('layout.fatal_hint')}</p>
 		</div>
 	{:else}
-		{#if $user && page.url.pathname !== '/login' && page.url.pathname !== '/setup'}
+		{#if $user && page.url.pathname !== '/login' && page.url.pathname !== '/setup' && page.url.pathname !== '/player'}
 			<nav class="app-nav">
 				<a href="/" class:active={page.url.pathname === '/'}>{$_('layout.nav_guide')}</a>
 				<a href="/recordings" class:active={page.url.pathname === '/recordings'}>{$_('layout.nav_recordings')}</a>
 				<a href="/settings" class:active={page.url.pathname === '/settings'}>{$_('layout.nav_settings')}</a>
+				{#if aiConfigured}
+					<button class="app-nav-button" class:active={$aiDrawerOpen} onclick={toggleAIDrawer}>
+						{$_('layout.nav_ask_ai')}
+					</button>
+				{/if}
 			</nav>
 		{/if}
 
 		{@render children()}
+
+		{#if $user && page.url.pathname !== '/player'}
+			<AIAssistantDrawer />
+		{/if}
 	{/if}
 {/if}
 
@@ -99,6 +132,22 @@
 	}
 
 	.app-nav a.active {
+		background: var(--color-accent);
+		color: var(--color-surface);
+	}
+
+	.app-nav-button {
+		padding: 0.4rem 0.75rem;
+		border-radius: 0.5rem;
+		font-size: 0.9rem;
+		color: var(--color-text-muted);
+		background: none;
+		border: none;
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.app-nav-button.active {
 		background: var(--color-accent);
 		color: var(--color-surface);
 	}

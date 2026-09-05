@@ -23,15 +23,19 @@
 		effectiveAiring?: HDHomeRunGuideEntry | null;
 		officialDvrActive?: boolean;
 		airplayAvailable?: boolean;
+		syncPlayActive?: boolean;
+		syncPlayParticipantsCount?: number;
 		showRecordMenu?: boolean;
 		showOptionsDialog?: boolean;
 		showAirPlayPicker: () => void | Promise<void>;
 		buildCastContentUrl: () => Promise<{ url: string; sessionId: string }>;
 		onCastingChange?: (casting: boolean) => void;
+		onToggleSyncPlay?: () => void;
 		onRecordEpisode?: (options?: RecordingRuleOptions) => Promise<void> | void;
 		onRecordSeries?: (options?: RecordingRuleOptions) => Promise<void> | void;
 		onCancelRecording?: () => Promise<void> | void;
 		onConfirmOptions?: (mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
+		onPopout?: () => void;
 		onClose: () => void;
 	}
 
@@ -48,15 +52,19 @@
 		effectiveAiring = null,
 		officialDvrActive = false,
 		airplayAvailable = false,
+		syncPlayActive = false,
+		syncPlayParticipantsCount = 0,
 		showRecordMenu = $bindable(false),
 		showOptionsDialog = $bindable(false),
 		showAirPlayPicker,
 		buildCastContentUrl,
 		onCastingChange,
+		onToggleSyncPlay,
 		onRecordEpisode = () => {},
 		onRecordSeries = () => {},
 		onCancelRecording = () => {},
 		onConfirmOptions = () => {},
+		onPopout,
 		onClose,
 	}: Props = $props();
 </script>
@@ -90,6 +98,25 @@
 
 	<div class="right-section">
 
+		{#if onToggleSyncPlay}
+			<button
+				type="button"
+				class="header-btn syncplay-btn"
+				class:active={syncPlayActive}
+				onclick={(e) => {
+					e.stopPropagation();
+					onToggleSyncPlay();
+				}}
+				aria-label={$_('syncplay.title', { default: 'SyncPlay Watch Party' })}
+				title={$_('syncplay.title', { default: 'SyncPlay Watch Party' })}
+			>
+				<PlayerIcon name="syncplay" size={22} />
+				{#if syncPlayActive && syncPlayParticipantsCount > 0}
+					<span class="syncplay-badge">{syncPlayParticipantsCount}</span>
+				{/if}
+			</button>
+		{/if}
+
 		{#if airplayAvailable}
 			<button
 				type="button"
@@ -111,12 +138,28 @@
 			/>
 		{/if}
 
+		{#if onPopout}
+			<button
+				type="button"
+				class="header-btn popout-btn"
+				onclick={(e) => {
+					e.stopPropagation();
+					onPopout();
+				}}
+				aria-label={$_('player.popout', { default: 'Popout player' })}
+				title={$_('player.popout', { default: 'Popout player' })}
+			>
+				<PlayerIcon name="popout" size={22} />
+			</button>
+		{/if}
+
 		{#if canRecord}
 			<HDHomeRunPlayerRecordMenu
 				{currentRule}
 				{isPending}
 				{isActionLoading}
 				{channelName}
+				{channelNumber}
 				{channels}
 				{effectiveAiring}
 				{officialDvrActive}
@@ -225,5 +268,27 @@
 		border-radius: 0.25rem;
 		font-size: 0.75rem;
 		font-weight: 600;
+	}
+
+	.syncplay-btn.active {
+		color: #38bdf8;
+		background: rgba(56, 189, 248, 0.2);
+	}
+
+	.syncplay-badge {
+		position: absolute;
+		top: -2px;
+		right: -2px;
+		background: #38bdf8;
+		color: #000000;
+		font-size: 0.65rem;
+		font-weight: 700;
+		width: 1rem;
+		height: 1rem;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid rgba(0, 0, 0, 0.8);
 	}
 </style>
