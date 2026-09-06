@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import hls_streaming, jobs
 from app.api import admin as admin_api
 from app.api import admin_jobs as admin_jobs_api
+from app.api import ai as ai_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
 from app.api import hls as hls_api
@@ -19,6 +20,8 @@ from app.api import network_settings as network_settings_api
 from app.api import settings as settings_api
 from app.api import setup as setup_api
 from app.api import streaming as streaming_api
+from app.api import syncplay as syncplay_api
+from app.api import theme as theme_api
 from app.api import tuner as tuner_api
 from app.api import users as users_api
 from app.api import watch as watch_api
@@ -146,7 +149,10 @@ app.include_router(users_api.router)
 app.include_router(setup_api.router)
 app.include_router(admin_api.router)
 app.include_router(admin_jobs_api.router)
+app.include_router(ai_api.router)
 app.include_router(watch_api.router)
+app.include_router(syncplay_api.router)
+app.include_router(theme_api.router)
 
 
 @app.get("/api/health")
