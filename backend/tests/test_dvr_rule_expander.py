@@ -677,3 +677,106 @@ def test_expand_rules_sync_cleans_up_expired_single_rule(tmp_db):
     expand_rules_sync()
 
     assert db.get_recording_rule(rule["id"]) is None
+
+
+def test_expand_rules_series_new_only_skips_reruns(tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+
+    # Two airings of the same show: one new, one rerun
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP100",
+                "title": "The Late Show",
+                "episode_title": "Guest A",
+                "season_number": 10,
+                "episode_number": 1,
+                "start_ts": now + 1000,
+                "end_ts": now + 2000,
+                "is_new": 1,
+            },
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP101",
+                "title": "The Late Show",
+                "episode_title": "Guest B (Rerun)",
+                "season_number": 9,
+                "episode_number": 50,
+                "start_ts": now + 3000,
+                "end_ts": now + 4000,
+                "is_new": 0,
+            },
+        ]
+    )
+
+    db.create_recording_rule(
+        {
+            "id": "rule_late_show_new_only",
+            "provider": "builtin",
+            "type": "series",
+            "title": "The Late Show",
+            "channel_id": "4.1",
+            "new_only": True,
+        }
+    )
+
+    scheduled = expand_rules_sync()
+    assert len(scheduled) == 1
+    assert scheduled[0]["episode_title"] == "Guest A"
+
+
+def test_expand_rules_series_not_new_only_records_reruns(tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+
+    # Two airings of the same show: one new, one rerun
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP200",
+                "title": "Scrubs",
+                "episode_title": "My First Day",
+                "season_number": 1,
+                "episode_number": 1,
+                "start_ts": now + 1000,
+                "end_ts": now + 2000,
+                "is_new": 0,
+            },
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP201",
+                "title": "Scrubs",
+                "episode_title": "My Mentor",
+                "season_number": 1,
+                "episode_number": 2,
+                "start_ts": now + 3000,
+                "end_ts": now + 4000,
+                "is_new": 0,
+            },
+        ]
+    )
+
+    db.create_recording_rule(
+        {
+            "id": "rule_scrubs_all",
+            "provider": "builtin",
+            "type": "series",
+            "title": "Scrubs",
+            "channel_id": "4.1",
+            "new_only": False,
+        }
+    )
+
+    scheduled = expand_rules_sync()
+    assert len(scheduled) == 2
+    assert {s["episode_title"] for s in scheduled} == {"My First Day", "My Mentor"}
+

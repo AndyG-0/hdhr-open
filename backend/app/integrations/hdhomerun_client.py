@@ -750,6 +750,21 @@ def _rules_or_raise(rules: Any) -> list[dict[str, Any]]:
     raise HDHomeRunError(message or f"HDHomeRun rejected the recording rule request: {rules!r}")
 
 
+def _extract_http_error(response: httpx.Response, action: str) -> str:
+    detail = ""
+    try:
+        body = response.json()
+        if isinstance(body, dict):
+            detail = body.get("error") or body.get("Error") or body.get("ErrorMessage") or ""
+        elif isinstance(body, str):
+            detail = body
+    except Exception:
+        pass
+    if not detail:
+        detail = response.text.strip()
+    return f"{action} failed (HTTP {response.status_code})" + (f": {detail}" if detail else "")
+
+
 async def add_recording_rule(settings: dict[str, Any], rule_data: dict[str, Any]) -> list[dict[str, Any]]:
     if not is_tuner_configured(settings):
         raise HDHomeRunError("Tuner is not configured")
@@ -759,26 +774,28 @@ async def add_recording_rule(settings: dict[str, Any], rule_data: dict[str, Any]
     if not device_auth:
         raise HDHomeRunError("No DeviceAuth token available from tuner discovery")
 
+    series_id = rule_data.get("series_id")
+    if not series_id or series_id == "auto":
+        raise HDHomeRunError("HDHomeRun DVR requires a valid SiliconDust SeriesID")
+
     post_data: dict[str, Any] = {
         "DeviceAuth": device_auth,
         "Cmd": "add",
+        "SeriesID": series_id,
     }
-    series_id = rule_data.get("series_id")
-    if series_id and series_id != "auto":
-        post_data["SeriesID"] = series_id
 
-    now_ts = int(time.time())
     dt = rule_data.get("date_time")
     if dt is not None:
-        # If date_time is in the past (e.g. current show's start time when recording a live airing),
-        # adjust to current timestamp so SiliconDust API records the active show instead of expiring
-        # or picking a future episode.
-        if dt < now_ts:
-            dt = now_ts
-        post_data["DateTimeOnly"] = dt
+        post_data["DateTimeOnly"] = int(dt)
 
     if "channel" in rule_data and rule_data["channel"]:
-        post_data["ChannelOnly"] = rule_data["channel"]
+        raw_channel = str(rule_data["channel"]).strip()
+        if dt is not None and "|" in raw_channel:
+            raw_channel = raw_channel.split("|")[0].strip()
+        post_data["ChannelOnly"] = raw_channel
+    elif dt is not None:
+        raise HDHomeRunError("HDHomeRun DVR requires a channel for single-airing recording rules")
+
     if "recent_only" in rule_data and rule_data["recent_only"] is not None:
         post_data["RecentOnly"] = 1 if rule_data["recent_only"] else 0
     if "start_padding" in rule_data and rule_data["start_padding"] is not None:
@@ -790,7 +807,9 @@ async def add_recording_rule(settings: dict[str, Any], rule_data: dict[str, Any]
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(_RULES_URL, data=post_data)
         if response.status_code >= 400:
-            raise HDHomeRunError(f"Add recording rule failed (HTTP {response.status_code})")
+            err_msg = _extract_http_error(response, "Add recording rule")
+            logger.warning("HDHomeRun rules API error: %s (params: %s)", err_msg, {k: v for k, v in post_data.items() if k != "DeviceAuth"})
+            raise HDHomeRunError(err_msg)
         rules = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise HDHomeRunError(f"Could not post recording rule: {exc}") from exc
@@ -819,7 +838,9 @@ async def delete_recording_rule(settings: dict[str, Any], rule_id: str) -> list[
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(_RULES_URL, data=post_data)
         if response.status_code >= 400:
-            raise HDHomeRunError(f"Delete recording rule failed (HTTP {response.status_code})")
+            err_msg = _extract_http_error(response, "Delete recording rule")
+            logger.warning("HDHomeRun rules API error: %s", err_msg)
+            raise HDHomeRunError(err_msg)
         rules = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise HDHomeRunError(f"Could not delete recording rule: {exc}") from exc
@@ -827,3 +848,44 @@ async def delete_recording_rule(settings: dict[str, Any], rule_id: str) -> list[
     rules = _rules_or_raise(rules)
     await trigger_dvr_sync(settings)
     return rules
+
+
+async def update_recording_rule(settings: dict[str, Any], rule_id: str, rule_data: dict[str, Any]) -> list[dict[str, Any]]:
+    if not is_tuner_configured(settings):
+        raise HDHomeRunError("Tuner is not configured")
+
+    discover = await fetch_discover(settings)
+    device_auth = discover.get("DeviceAuth")
+    if not device_auth:
+        raise HDHomeRunError("No DeviceAuth token available from tuner discovery")
+
+    post_data: dict[str, Any] = {
+        "DeviceAuth": device_auth,
+        "Cmd": "change",
+        "RecordingRuleID": rule_id,
+    }
+
+    if "channel" in rule_data:
+        post_data["ChannelOnly"] = rule_data["channel"] or ""
+    if "recent_only" in rule_data and rule_data["recent_only"] is not None:
+        post_data["RecentOnly"] = 1 if rule_data["recent_only"] else 0
+    if "start_padding" in rule_data and rule_data["start_padding"] is not None:
+        post_data["StartPadding"] = rule_data["start_padding"]
+    if "end_padding" in rule_data and rule_data["end_padding"] is not None:
+        post_data["EndPadding"] = rule_data["end_padding"]
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(_RULES_URL, data=post_data)
+        if response.status_code >= 400:
+            err_msg = _extract_http_error(response, "Update recording rule")
+            logger.warning("HDHomeRun rules API error: %s", err_msg)
+            raise HDHomeRunError(err_msg)
+        rules = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HDHomeRunError(f"Could not update recording rule: {exc}") from exc
+
+    rules = _rules_or_raise(rules)
+    await trigger_dvr_sync(settings)
+    return rules
+

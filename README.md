@@ -18,11 +18,13 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
 - **Optional hardware-accelerated transcoding** — VAAPI/Quick Sync support
   with a built-in diagnostics page (Settings → playback) to verify the
   container actually has GPU access before relying on it.
-- **DVR** — schedule single-episode or series recordings through
-  SiliconDust's official DVR engine, browse in-progress and completed
-  recordings, seek within completed recordings in `server_transcode` mode.
-  See the DVR section of `ROADMAP.md` for the self-hosted recording
-  alternative that's planned but not yet implemented.
+- **DVR** — dual-engine recording support with either HDHR Open's Built-in
+  self-hosted DVR or SiliconDust's official HDHomeRun DVR engine. Supports
+  cross-provider Series ID enrichment (matching XMLTV airings against
+  HDHomeRun Cloud) and automatic fallback with user notifications when a Series
+  ID cannot be resolved. Browse in-progress and completed recordings, and seek
+  within recordings in `server_transcode` mode. See [`docs/dvr-usage-guide.md`](docs/dvr-usage-guide.md)
+  for details on guide matching, Series IDs, and fallback behavior.
 - **Multi-user profiles** — PIN-protected household profiles with
   admin/member roles, one browser session per device.
 - **Multi-language UI** — English, Spanish, French, German.

@@ -115,3 +115,26 @@ def test_resolve_guide_programs_sorts_by_start_ts(tmp_db):
     resolved = db.resolve_guide_programs(channels, rows)
 
     assert [r["title"] for r in resolved["ch1"]] == ["Earlier Show", "Later Show"]
+
+
+def test_resolve_guide_programs_enriches_series_id_from_hdhomerun_cloud(tmp_db):
+    channels = [{"id": "ch1", "guide_provider": None}]
+    xml_row = _row("ch1", "xmltv", 100, "Jeopardy!")
+    xml_row["external_program_id"] = None
+    xml_row["image_url"] = None
+
+    cloud_row = _row("ch1", "hdhomerun_cloud", 100, "Jeopardy!")
+    cloud_row["external_program_id"] = "EP_JEOPARDY_123"
+    cloud_row["image_url"] = "https://img.hdhomerun.com/titles/jeopardy.jpg"
+    cloud_row["synopsis"] = "Contestants answer trivia questions."
+
+    resolved = db.resolve_guide_programs(channels, [xml_row, cloud_row], default_priority=("xmltv", "hdhomerun_cloud"))
+
+    assert len(resolved["ch1"]) == 1
+    enriched = resolved["ch1"][0]
+    assert enriched["title"] == "Jeopardy!"
+    assert enriched["source_provider"] == "xmltv"
+    assert enriched["external_program_id"] == "EP_JEOPARDY_123"
+    assert enriched["image_url"] == "https://img.hdhomerun.com/titles/jeopardy.jpg"
+    assert enriched["synopsis"] == "Contestants answer trivia questions."
+

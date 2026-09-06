@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -182,6 +184,174 @@ def test_create_and_delete_recording_rule_builtin(client, tmp_db, monkeypatch):
     assert db.get_recording_rule(rule_id) is None
 
 
+def test_update_recording_rule_builtin(client, tmp_db):
+    db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
+    create_payload = {
+        "series_id": "EP_NEWS",
+        "channel": "4.1",
+        "recent_only": False,
+        "start_padding": 60,
+        "end_padding": 120,
+        "title": "Evening News",
+    }
+    create_res = client.post("/api/dvr/recording-rules", json=create_payload)
+    assert create_res.status_code == 200
+    rules = create_res.json()
+    rule_id = rules[0]["RecordingRuleID"]
+
+    update_payload = {
+        "channel": "5.1",
+        "recent_only": True,
+        "start_padding": 300,
+        "end_padding": 600,
+        "max_episodes_to_keep": 5,
+        "title_match_mode": "contains",
+        "keyword_query": "breaking, special",
+    }
+    update_res = client.put(f"/api/dvr/recording-rules/{rule_id}", json=update_payload)
+    assert update_res.status_code == 200
+    updated_rules = update_res.json()
+    assert len(updated_rules) == 1
+    updated = updated_rules[0]
+    assert updated["RecordingRuleID"] == rule_id
+    assert updated["ChannelOnly"] == "5.1"
+    assert updated["RecentOnly"] == 1
+    assert updated["StartPadding"] == 300
+    assert updated["EndPadding"] == 600
+    assert updated["MaxEpisodesToKeep"] == 5
+    assert updated["TitleMatchMode"] == "contains"
+    assert updated["KeywordQuery"] == "breaking, special"
+
+    db_rule = db.get_recording_rule(rule_id)
+    assert db_rule is not None
+    assert db_rule["channel_id"] == "5.1"
+    assert db_rule["new_only"] == 1
+    assert db_rule["start_padding_seconds"] == 300
+    assert db_rule["end_padding_seconds"] == 600
+    assert db_rule["max_episodes_to_keep"] == 5
+    assert db_rule["title_match_mode"] == "contains"
+    assert db_rule["keyword_query"] == "breaking, special"
+
+
+def test_update_recording_rule_no_server_change_uses_in_place_update(client, tmp_db):
+    db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
+    create_payload = {"series_id": "EP_NEWS", "channel": "4.1", "title": "Evening News"}
+    create_res = client.post("/api/dvr/recording-rules", json=create_payload)
+    rule_id = create_res.json()[0]["RecordingRuleID"]
+
+    # Explicit "builtin" while already builtin should take the in-place
+    # update path (same id afterwards), not a needless migrate-and-recreate.
+    response = client.put(f"/api/dvr/recording-rules/{rule_id}", json={"server": "builtin", "channel": "5.1"})
+    assert response.status_code == 200
+
+    db_rule = db.get_recording_rule(rule_id)
+    assert db_rule is not None
+    assert db_rule["id"] == rule_id
+    assert db_rule["channel_id"] == "5.1"
+
+
+def test_update_recording_rule_switches_builtin_to_hdhomerun(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
+    create_payload = {
+        "series_id": "EP_NEWS",
+        "channel": "4.1",
+        "recent_only": False,
+        "start_padding": 60,
+        "end_padding": 120,
+        "title": "Evening News",
+    }
+    create_res = client.post("/api/dvr/recording-rules", json=create_payload)
+    rule_id = create_res.json()[0]["RecordingRuleID"]
+    assert db.get_recording_rule(rule_id) is not None
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+    mock_add = AsyncMock(return_value=[{"RecordingRuleID": "off_1", "SeriesID": "EP_NEWS", "Provider": "hdhomerun"}])
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    response = client.put(f"/api/dvr/recording-rules/{rule_id}", json={"server": "hdhomerun"})
+    assert response.status_code == 200
+    assert mock_add.called
+    passed_rule_data = mock_add.call_args[0][1]
+    assert passed_rule_data["series_id"] == "EP_NEWS"
+    assert passed_rule_data["channel"] == "4.1"
+    assert passed_rule_data["start_padding"] == 60
+    assert passed_rule_data["end_padding"] == 120
+
+    assert db.get_recording_rule(rule_id) is None
+    assert all(sr["rule_id"] != rule_id for sr in db.list_scheduled_recordings())
+
+
+def test_update_recording_rule_switches_hdhomerun_to_builtin(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    official_rule_id = "off_news_1"
+    official_rule = {
+        "RecordingRuleID": official_rule_id,
+        "SeriesID": "EP_NEWS",
+        "Title": "Evening News",
+        "ChannelOnly": "4.1",
+        "RecentOnly": 0,
+        "StartPadding": 60,
+        "EndPadding": 120,
+    }
+    monkeypatch.setattr(hdhomerun_client, "fetch_dvr_recording_rules", AsyncMock(return_value=[official_rule]))
+    mock_delete = AsyncMock(return_value=[])
+    monkeypatch.setattr(hdhomerun_client, "delete_recording_rule", mock_delete)
+
+    response = client.put(f"/api/dvr/recording-rules/{official_rule_id}", json={"server": "builtin"})
+    assert response.status_code == 200
+    mock_delete.assert_called_once()
+    assert mock_delete.call_args[0][1] == official_rule_id
+
+    builtin_rules = db.list_recording_rules("builtin")
+    assert len(builtin_rules) == 1
+    new_rule = builtin_rules[0]
+    assert new_rule["id"] != official_rule_id
+    assert new_rule["title"] == "Evening News"
+    assert new_rule["channel_id"] == "4.1"
+    assert new_rule["start_padding_seconds"] == 60
+    assert new_rule["end_padding_seconds"] == 120
+    assert new_rule["series_match_key"] == "EP_NEWS"
+
+
+def test_update_recording_rule_rejects_keyword_rule_switch_to_hdhomerun(client, tmp_db):
+    payload = {"title": "College Football", "keyword_query": "Ohio State"}
+    create_res = client.post("/api/dvr/recording-rules", json=payload)
+    rule_id = create_res.json()[0]["RecordingRuleID"]
+
+    response = client.put(f"/api/dvr/recording-rules/{rule_id}", json={"server": "hdhomerun"})
+    assert response.status_code == 400
+    assert "builtin" in response.json()["detail"].lower()
+
+    db_rule = db.get_recording_rule(rule_id)
+    assert db_rule is not None
+    assert db_rule["provider"] == "builtin"
+    assert db_rule["keyword_query"] == "Ohio State"
+
+
+def test_update_recording_rule_switch_to_hdhomerun_fails_leaves_builtin_rule_intact(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
+    create_payload = {"series_id": "EP_NEWS", "channel": "4.1", "title": "Evening News"}
+    create_res = client.post("/api/dvr/recording-rules", json=create_payload)
+    rule_id = create_res.json()[0]["RecordingRuleID"]
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+    add_error = hdhomerun_client.HDHomeRunError("Add recording rule failed (HTTP 400): Invalid SeriesID")
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", AsyncMock(side_effect=add_error))
+
+    response = client.put(f"/api/dvr/recording-rules/{rule_id}", json={"server": "hdhomerun"})
+    assert response.status_code == 400
+    assert "Invalid SeriesID" in response.json()["detail"]
+
+    db_rule = db.get_recording_rule(rule_id)
+    assert db_rule is not None
+    assert db_rule["id"] == rule_id
+
+
 def test_create_recording_rule_max_episodes_to_keep_omitted(client, tmp_db):
     payload = {"series_id": "auto", "channel": "4.1"}
     response = client.post("/api/dvr/recording-rules", json=payload)
@@ -321,6 +491,85 @@ def test_create_recording_rule_explicit_hdhomerun_unconfigured_fails(client, tmp
     response = client.post("/api/dvr/recording-rules", json=payload)
     assert response.status_code == 400
     assert "not configured" in response.json()["detail"]
+
+
+def test_create_recording_rule_hdhomerun_fallback_when_series_id_missing(client, tmp_db):
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Local News"}
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 200
+    assert response.headers.get("X-DVR-Fallback") == "true"
+    assert response.headers.get("X-DVR-Fallback-Reason") == "guide_series_id_missing"
+
+    rules = response.json()
+    assert len(rules) == 1
+    assert rules[0]["provider"] == "builtin"
+    assert rules[0]["fallback_reason"] == "guide_series_id_missing"
+    assert rules[0]["FallbackReason"] == "guide_series_id_missing"
+
+
+def test_create_recording_rule_hdhomerun_auto_resolves_series_id_from_cloud_guide(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_jeop",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP_JEOP_999",
+                "title": "Jeopardy!",
+                "episode_title": "Tournament",
+                "start_ts": 1725465600,
+                "end_ts": 1725467400,
+            }
+        ]
+    )
+
+    mock_add = AsyncMock(return_value=[{"RecordingRuleID": "rule_off_jeop", "SeriesID": "EP_JEOP_999", "Provider": "hdhomerun"}])
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    payload = {
+        "series_id": "auto",
+        "channel": "4.1",
+        "date_time": 1725465600,
+        "title": "Jeopardy!",
+        "server": "hdhomerun",
+    }
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 200
+    assert mock_add.called
+    passed_rule_data = mock_add.call_args[0][1]
+    assert passed_rule_data["series_id"] == "EP_JEOP_999"
+
+
+def test_create_recording_rule_hdhomerun_fallback_on_client_error(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    mock_add = AsyncMock(side_effect=hdhomerun_client.HDHomeRunError("Add recording rule failed (HTTP 400): Airing not found"))
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    payload = {
+        "series_id": "EP123",
+        "channel": "4.1",
+        "server": "hdhomerun",
+        "title": "Problematic Show",
+    }
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.status_code == 200
+    assert response.headers.get("X-DVR-Fallback") == "true"
+
+    rules = response.json()
+    assert len(rules) == 1
+    assert rules[0]["provider"] == "builtin"
+    assert "Airing not found" in rules[0]["fallback_reason"]
+
 
 
 def test_create_keyword_recording_rule_with_no_series_id_or_date_time(client, tmp_db):
@@ -524,6 +773,141 @@ def test_recording_detail_surfaces_direct_passthrough_when_transcoding_disabled(
         "preset_label": "Software (libx264)",
         "hardware": False,
     }
+
+
+def test_recording_detail_surfaces_commercial_segments_from_edl_sidecar(client, tmp_db, tmp_path):
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "with_edl.ts"
+    video_file.write_bytes(b"MPEG-TS data")
+    edl_file = video_file.with_suffix(".edl")
+    edl_file.write_text("10 20 0\n50 65 0\n")
+
+    db.create_recording(
+        {
+            "id": "rec_with_edl",
+            "title": "Finished Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={"url": str(video_file), "recording_id": "rec_with_edl", "start": 1000.0, "record_end": 2000.0},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["commercial_segments"] == [
+        {"start_seconds": 10.0, "end_seconds": 20.0},
+        {"start_seconds": 50.0, "end_seconds": 65.0},
+    ]
+
+
+def test_recording_detail_commercial_segments_empty_without_edl_sidecar(client, tmp_db, tmp_path):
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "no_edl.ts"
+    video_file.write_bytes(b"MPEG-TS data")
+
+    db.create_recording(
+        {
+            "id": "rec_no_edl",
+            "title": "Finished Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={"url": str(video_file), "recording_id": "rec_no_edl", "start": 1000.0, "record_end": 2000.0},
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == []
+
+
+def test_recording_detail_commercial_segments_empty_for_in_progress_without_filesystem_access(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    from app.dvr import edl_parser as edl_parser_module
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "in_progress_edl.ts"
+    video_file.write_bytes(b"MPEG-TS data" * 10000)
+
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_live_edl",
+            "title": "Live Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 60,
+            "end_ts": now + 600,
+            "file_path": str(video_file),
+            "status": "recording",
+        }
+    )
+
+    mock_parse = MagicMock(side_effect=AssertionError("comskip parsing must not run for in-progress recordings"))
+    monkeypatch.setattr(edl_parser_module, "parse_edl_file", mock_parse)
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={"url": str(video_file), "recording_id": "rec_live_edl", "start": now - 60},
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == []
+    mock_parse.assert_not_called()
+
+
+def test_recording_detail_commercial_segments_invalidate_on_edl_mtime_change(client, tmp_db, tmp_path):
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "growing_edl.ts"
+    video_file.write_bytes(b"MPEG-TS data")
+    edl_file = video_file.with_suffix(".edl")
+    edl_file.write_text("10 20 0\n")
+
+    db.create_recording(
+        {
+            "id": "rec_growing_edl",
+            "title": "Finished Show",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+
+    params = {"url": str(video_file), "recording_id": "rec_growing_edl", "start": 1000.0, "record_end": 2000.0}
+
+    first = client.get("/api/dvr/recording-detail", params=params)
+    assert first.json()["commercial_segments"] == [{"start_seconds": 10.0, "end_seconds": 20.0}]
+
+    # comskip finishes writing a fuller cutlist sometime after the recording
+    # completed and was first probed; bump the mtime so the cache notices.
+    edl_file.write_text("10 20 0\n30 45 0\n")
+    new_mtime = edl_file.stat().st_mtime + 5
+    os.utime(edl_file, (new_mtime, new_mtime))
+
+    second = client.get("/api/dvr/recording-detail", params=params)
+    assert second.json()["commercial_segments"] == [
+        {"start_seconds": 10.0, "end_seconds": 20.0},
+        {"start_seconds": 30.0, "end_seconds": 45.0},
+    ]
 
 
 def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tmp_db, tmp_path, monkeypatch):
@@ -841,8 +1225,11 @@ async def test_recording_stream_spawn_failure_502s_stops_pump_and_skips_hwaccel_
     monkeypatch.setattr(hwaccel, "probe_transcode", mock_probe)
 
     try:
+        fake_request = SimpleNamespace(url=f"/api/dvr/recording-stream?url={video_file}&recording_id=rec_spawn_fail")
         with pytest.raises(HTTPException) as exc_info:
-            await dvr_module.stream_recording(url=str(video_file), recording_id="rec_spawn_fail")
+            await dvr_module.stream_recording(
+                fake_request, url=str(video_file), recording_id="rec_spawn_fail"
+            )
 
         assert exc_info.value.status_code == 502
         detail = exc_info.value.detail
@@ -904,6 +1291,62 @@ def test_recording_stream_502s_without_spawning_ffmpeg_when_capture_stays_empty(
         )
         assert response.status_code == 502
         assert "tuner did not produce any data" in response.json()["detail"]
+        spawn_mock.assert_not_awaited()
+    finally:
+        capture_pipeline._active_captures.pop("rec_empty", None)
+
+
+def test_recording_stream_repeat_request_after_502_fails_fast_without_respawning(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """The web player re-requests the exact same URL right after a failed
+    stream to read the 502 detail its player library discarded (see
+    frontend/src/lib/mpegts-player.ts). That only works as intended if the
+    repeat request doesn't redo the slow tuner-readiness wait. Proven here by
+    removing the ActiveCapture between the two requests - without the cache,
+    the second request would take a completely different code path (and
+    would spawn the transcode ffmpeg) instead of reproducing the same 502."""
+    from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "just_started.ts"
+    video_file.write_bytes(b"")
+
+    now = time.time()
+    active_capture = ActiveCapture(
+        recording_id="rec_empty",
+        scheduled_id=None,
+        rule_id=None,
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Live Show",
+        episode_title=None,
+        season_number=None,
+        episode_number=None,
+        start_ts=now,
+        end_ts=now + 600,
+        file_path=video_file,
+        image_url=None,
+        process=None,
+    )
+    capture_pipeline._active_captures["rec_empty"] = active_capture
+
+    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
+    spawn_mock = AsyncMock(side_effect=lambda *a, **kw: _fake_transcode_process())
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
+
+    try:
+        params = {"url": str(video_file), "recording_id": "rec_empty"}
+        first = client.get("/api/dvr/recording-stream", params=params)
+        assert first.status_code == 502
+
+        capture_pipeline._active_captures.pop("rec_empty", None)
+
+        second = client.get("/api/dvr/recording-stream", params=params)
+        assert second.status_code == 502
+        assert second.json()["detail"] == first.json()["detail"]
         spawn_mock.assert_not_awaited()
     finally:
         capture_pipeline._active_captures.pop("rec_empty", None)

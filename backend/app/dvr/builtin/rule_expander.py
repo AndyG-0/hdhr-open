@@ -282,6 +282,10 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
                 if not _match_airing(rule, prog):
                     continue
 
+                # For series rules with new_only set, skip reruns / non-new airings
+                if rule_type == "series" and rule.get("new_only") and not prog.get("is_new"):
+                    continue
+
                 # Check deduplication (also covers the new-only "already
                 # recorded this episode" check for series rules, since this
                 # runs unconditionally regardless of new_only/is_new)

@@ -280,6 +280,14 @@ def delete_expired_sd_program_cache(before_iso: str) -> None:
 DEFAULT_GUIDE_PROVIDER_PRIORITY: tuple[str, ...] = ("xmltv", "schedules_direct", "hdhomerun_cloud")
 
 
+def _normalize_guide_title(t: str | None) -> str:
+    if not t:
+        return ""
+    import re
+
+    return re.sub(r"[^\w\s]", "", t).strip().lower()
+
+
 def resolve_guide_programs(
     channels: list[dict[str, Any]],
     rows: list[dict[str, Any]],
@@ -289,7 +297,8 @@ def resolve_guide_programs(
     rows down to one effective list of guide airings per channel.
     Higher-priority provider airings take precedence, and any gaps (such as
     missing current or earlier airings) are filled in from lower-priority
-    providers."""
+    providers. Additionally enriches airings lacking an external_program_id (e.g.
+    XMLTV feeds) from co-occurring airings on other providers with matching time and title."""
     by_channel_and_provider: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for row in rows:
         by_channel_and_provider.setdefault(row["channel_id"], {}).setdefault(row["source_provider"], []).append(row)
@@ -324,5 +333,42 @@ def resolve_guide_programs(
                         merged_rows.append(candidate)
 
         if merged_rows:
-            result[channel["id"]] = sorted(merged_rows, key=lambda r: r["start_ts"])
+            # Build an index of other provider airings on this channel that have external_program_id
+            enrichment_candidates: list[dict[str, Any]] = []
+            for p, p_rows in by_provider.items():
+                for pr in p_rows:
+                    if pr.get("external_program_id"):
+                        enrichment_candidates.append(pr)
+
+            resolved_rows: list[dict[str, Any]] = []
+            for row in merged_rows:
+                r = dict(row)
+                if not r.get("external_program_id") and enrichment_candidates:
+                    r_start = r.get("start_ts")
+                    norm_r_title = _normalize_guide_title(r.get("title"))
+                    if r_start is not None:
+                        for c in enrichment_candidates:
+                            c_start = c.get("start_ts")
+                            if c_start is not None and abs(c_start - r_start) <= 60:
+                                norm_c_title = _normalize_guide_title(c.get("title"))
+                                if norm_r_title and norm_c_title and (
+                                    norm_r_title == norm_c_title
+                                    or norm_r_title in norm_c_title
+                                    or norm_c_title in norm_r_title
+                                ):
+                                    r["external_program_id"] = c["external_program_id"]
+                                    if not r.get("image_url") and c.get("image_url"):
+                                        r["image_url"] = c["image_url"]
+                                    if not r.get("synopsis") and c.get("synopsis"):
+                                        r["synopsis"] = c["synopsis"]
+                                    if not r.get("episode_title") and c.get("episode_title"):
+                                        r["episode_title"] = c["episode_title"]
+                                    if r.get("season_number") is None and c.get("season_number") is not None:
+                                        r["season_number"] = c["season_number"]
+                                    if r.get("episode_number") is None and c.get("episode_number") is not None:
+                                        r["episode_number"] = c["episode_number"]
+                                    break
+                resolved_rows.append(r)
+
+            result[channel["id"]] = sorted(resolved_rows, key=lambda r: r["start_ts"])
     return result

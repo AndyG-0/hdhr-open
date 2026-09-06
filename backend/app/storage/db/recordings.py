@@ -40,14 +40,30 @@ _RECORDING_UPDATABLE_COLUMNS = frozenset(
     }
 )
 
+_RECORDING_RULE_UPDATABLE_COLUMNS = frozenset(
+    {
+        "title",
+        "series_match_key",
+        "channel_id",
+        "start_padding_seconds",
+        "end_padding_seconds",
+        "new_only",
+        "priority",
+        "max_episodes_to_keep",
+        "title_match_mode",
+        "keyword_query",
+        "fallback_reason",
+    }
+)
+
 
 def create_recording_rule(rule: dict[str, Any]) -> None:
     with _connect() as conn:
         conn.execute(
             "INSERT INTO recording_rules (id, provider, type, title, series_match_key, channel_id, "
             "start_padding_seconds, end_padding_seconds, new_only, priority, max_episodes_to_keep, "
-            "title_match_mode, keyword_query, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "title_match_mode, keyword_query, fallback_reason, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 rule["id"],
                 rule["provider"],
@@ -62,6 +78,7 @@ def create_recording_rule(rule: dict[str, Any]) -> None:
                 rule.get("max_episodes_to_keep"),
                 rule.get("title_match_mode") or "exact",
                 rule.get("keyword_query"),
+                rule.get("fallback_reason"),
                 rule.get("created_at") or datetime.now(UTC).isoformat(),
             ),
         )
@@ -87,6 +104,15 @@ def get_recording_rule(rule_id: str) -> dict[str, Any] | None:
 def delete_recording_rule(rule_id: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM recording_rules WHERE id = ?", (rule_id,))
+
+
+def update_recording_rule(rule_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+    _validate_update_columns("recording_rules", _RECORDING_RULE_UPDATABLE_COLUMNS, fields)
+    columns = ", ".join(f"{key} = ?" for key in fields)
+    with _connect() as conn:
+        conn.execute(f"UPDATE recording_rules SET {columns} WHERE id = ?", (*fields.values(), rule_id))
 
 
 def upsert_scheduled_recording(scheduled: dict[str, Any]) -> None:

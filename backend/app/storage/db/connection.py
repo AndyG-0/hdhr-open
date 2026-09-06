@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS recording_rules (
     new_only INTEGER NOT NULL DEFAULT 1,
     priority INTEGER NOT NULL DEFAULT 0,
     max_episodes_to_keep INTEGER,
+    fallback_reason TEXT,
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_recording_rules_provider ON recording_rules (provider);
@@ -417,6 +418,14 @@ def _migration_8(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE guide_programs ADD COLUMN has_subtitles INTEGER NOT NULL DEFAULT 1")
 
 
+def _migration_9(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recording_rules" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recording_rules)").fetchall()}
+        if "fallback_reason" not in cols:
+            conn.execute("ALTER TABLE recording_rules ADD COLUMN fallback_reason TEXT")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -426,6 +435,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_6,
     _migration_7,
     _migration_8,
+    _migration_9,
 )
 
 

@@ -534,3 +534,88 @@ async def test_resolve_hostname_resolves_and_caches(monkeypatch):
     assert await hdhomerun_client.resolve_hostname("192.168.1.99") == "my-device.local"
 
 
+@respx.mock
+async def test_update_recording_rule_official():
+    cache._store.clear()
+    respx.get("http://hdhr.local/discover.json").mock(
+        return_value=httpx.Response(200, json={"DeviceAuth": "AUTH123"})
+    )
+    rules_route = respx.post("https://api.hdhomerun.com/api/recording_rules").mock(
+        return_value=httpx.Response(200, json=[{"RecordingRuleID": "rule_off_1", "SeriesID": "EP123", "StartPadding": 300}])
+    )
+
+    result = await hdhomerun_client.update_recording_rule(
+        TUNER_SETTINGS,
+        "rule_off_1",
+        {"channel": "4.1", "start_padding": 300, "end_padding": 600, "recent_only": True},
+    )
+
+    assert len(result) == 1
+    assert result[0]["RecordingRuleID"] == "rule_off_1"
+    assert rules_route.called
+    req_body = rules_route.calls.last.request.content.decode()
+    assert "Cmd=change" in req_body
+    assert "RecordingRuleID=rule_off_1" in req_body
+    assert "StartPadding=300" in req_body
+    assert "EndPadding=600" in req_body
+    assert "RecentOnly=1" in req_body
+
+
+@respx.mock
+async def test_add_recording_rule_validates_series_id():
+    cache._store.clear()
+    respx.get("http://hdhr.local/discover.json").mock(
+        return_value=httpx.Response(200, json={"DeviceAuth": "AUTH123"})
+    )
+    with pytest.raises(hdhomerun_client.HDHomeRunError) as exc_info:
+        await hdhomerun_client.add_recording_rule(TUNER_SETTINGS, {"series_id": "auto", "channel": "4.1"})
+    assert "SeriesID" in str(exc_info.value)
+
+
+@respx.mock
+async def test_add_recording_rule_extracts_http_400_error_detail():
+    cache._store.clear()
+    respx.get("http://hdhr.local/discover.json").mock(
+        return_value=httpx.Response(200, json={"DeviceAuth": "AUTH123"})
+    )
+    respx.post("https://api.hdhomerun.com/api/recording_rules").mock(
+        return_value=httpx.Response(400, text="Invalid DateTimeOnly parameter")
+    )
+    with pytest.raises(hdhomerun_client.HDHomeRunError) as exc_info:
+        await hdhomerun_client.add_recording_rule(
+            TUNER_SETTINGS, {"series_id": "EP123", "channel": "4.1", "date_time": 1725465600}
+        )
+    assert "Add recording rule failed (HTTP 400): Invalid DateTimeOnly parameter" in str(exc_info.value)
+
+
+@respx.mock
+async def test_add_recording_rule_extracts_json_error_detail():
+    cache._store.clear()
+    respx.get("http://hdhr.local/discover.json").mock(
+        return_value=httpx.Response(200, json={"DeviceAuth": "AUTH123"})
+    )
+    respx.post("https://api.hdhomerun.com/api/recording_rules").mock(
+        return_value=httpx.Response(400, json={"error": "Airing not found in guide"})
+    )
+    with pytest.raises(hdhomerun_client.HDHomeRunError) as exc_info:
+        await hdhomerun_client.add_recording_rule(
+            TUNER_SETTINGS, {"series_id": "EP123", "channel": "4.1"}
+        )
+    assert "Airing not found in guide" in str(exc_info.value)
+
+
+@respx.mock
+async def test_add_recording_rule_requires_channel_for_datetime_only():
+    cache._store.clear()
+    respx.get("http://hdhr.local/discover.json").mock(
+        return_value=httpx.Response(200, json={"DeviceAuth": "AUTH123"})
+    )
+    with pytest.raises(hdhomerun_client.HDHomeRunError) as exc_info:
+        await hdhomerun_client.add_recording_rule(
+            TUNER_SETTINGS, {"series_id": "EP123", "date_time": 1725465600}
+        )
+    assert "requires a channel" in str(exc_info.value)
+
+
+
+

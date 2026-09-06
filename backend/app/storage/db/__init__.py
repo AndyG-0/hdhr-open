@@ -72,6 +72,7 @@ from .recordings import (
     mark_in_progress_scheduled_recordings_interrupted,
     mark_scheduled_recording_in_progress,
     update_recording,
+    update_recording_rule,
     update_scheduled_recording_status,
     upsert_scheduled_recording,
 )
@@ -169,6 +170,7 @@ __all__ = [
     "create_recording_rule",
     "list_recording_rules",
     "get_recording_rule",
+    "update_recording_rule",
     "delete_recording_rule",
     "upsert_scheduled_recording",
     "list_scheduled_recordings",
