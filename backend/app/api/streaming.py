@@ -47,6 +47,8 @@ from app.subprocess_streaming import (
     STREAM_CHUNK_BYTES,
     build_ffmpeg_failure_detail,
     describe_ffmpeg_startup_failure,
+    get_recent_stream_failure,
+    record_stream_failure,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,17 +148,22 @@ async def _proxy_raw_stream(raw_url: str, channel_number: str, request: Request)
     disconnect/stall is handled directly against the httpx connection
     instead of via `terminate_process`.
     """
+    cache_key = str(request.url)
     client = httpx.AsyncClient(timeout=httpx.Timeout(_DIRECT_CONNECT_TIMEOUT_SECONDS, read=None))
     try:
         resp = await client.send(client.build_request("GET", raw_url), stream=True)
     except httpx.HTTPError as exc:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Could not reach tuner: {exc}") from exc
+        detail = f"Could not reach tuner: {exc}"
+        record_stream_failure(cache_key, 502, detail)
+        raise HTTPException(status_code=502, detail=detail) from exc
 
     if resp.status_code >= 400:
         await resp.aclose()
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Tuner rejected stream request (HTTP {resp.status_code})")
+        detail = f"Tuner rejected stream request (HTTP {resp.status_code})"
+        record_stream_failure(cache_key, 502, detail)
+        raise HTTPException(status_code=502, detail=detail)
 
     logger.info("Channel %s: direct passthrough (no transcode)", channel_number)
 
@@ -225,6 +232,12 @@ async def stream_channel(
     direct: bool = False,
     audio_index: int | None = None,
 ):
+    cache_key = str(request.url)
+    cached_failure = get_recent_stream_failure(cache_key)
+    if cached_failure is not None:
+        status_code, detail = cached_failure
+        raise HTTPException(status_code=status_code, detail=detail)
+
     settings = await get_hdhomerun_settings()
     if not hdhomerun_client.is_tuner_configured(settings):
         raise HTTPException(status_code=404, detail="Tuner not configured")
@@ -256,6 +269,7 @@ async def stream_channel(
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as exc:
+        record_stream_failure(cache_key, 503, FFMPEG_NOT_FOUND_DETAIL)
         raise HTTPException(status_code=503, detail=FFMPEG_NOT_FOUND_DETAIL) from exc
     assert process.stdout is not None
     assert process.stderr is not None
@@ -314,6 +328,7 @@ async def stream_channel(
             reason_chars=DETAIL_REASON_CHARS,
             probe_hook=probe_hook,
         )
+        record_stream_failure(cache_key, 502, detail)
         raise HTTPException(status_code=502, detail=detail)
 
     last_activity = [time.monotonic()]

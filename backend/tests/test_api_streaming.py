@@ -61,6 +61,25 @@ def test_stream_channel_immediate_exit_returns_502_with_ffmpeg_reason(client, tm
     assert "no soup for you" in detail
 
 
+def test_stream_channel_repeat_request_after_502_fails_fast_without_respawning(client, tmp_db, monkeypatch):
+    """The web player re-requests the exact same URL right after a failed
+    stream to read the 502 detail its player library discarded (see
+    frontend/src/lib/mpegts-player.ts). That only works as intended if the
+    repeat request doesn't redo the whole slow ffmpeg-startup dance."""
+    _configure_tuner("software")
+    proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"no soup for you"])
+    spawn_mock = AsyncMock(return_value=proc)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
+
+    first = client.get("/api/streaming/stream/4.1")
+    assert first.status_code == 502
+
+    second = client.get("/api/streaming/stream/4.1")
+    assert second.status_code == 502
+    assert second.json()["detail"] == first.json()["detail"]
+    spawn_mock.assert_awaited_once()
+
+
 def test_stream_channel_missing_ffmpeg_binary_returns_unified_503(client, tmp_db, monkeypatch):
     _configure_tuner("software")
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(side_effect=FileNotFoundError()))
@@ -87,6 +106,29 @@ def test_stream_channel_hardware_preset_failure_invokes_probe(client, tmp_db, mo
     detail = response.json()["detail"]
     assert "A test transcode with these same settings also failed" in detail
     mock_probe.assert_awaited_once()
+
+
+def test_stream_channel_repeat_request_after_hardware_probe_failure_skips_probe(client, tmp_db, monkeypatch):
+    """Same fast-fail contract as the software-preset case above, but for the
+    hardware-preset path whose first failure pays for a diagnostic re-probe
+    (see _probe_after_failure) - the retry must not pay for that twice."""
+    _configure_tuner("videotoolbox")
+    proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"gpu init failed"])
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
+
+    mock_probe = AsyncMock(
+        return_value={"ok": False, "command": "ffmpeg -probe", "exit_code": 1, "output": "gpu also broken"}
+    )
+    monkeypatch.setattr(hwaccel, "probe_transcode", mock_probe)
+
+    first = client.get("/api/streaming/stream/4.1")
+    assert first.status_code == 502
+    mock_probe.assert_awaited_once()
+
+    second = client.get("/api/streaming/stream/4.1")
+    assert second.status_code == 502
+    assert second.json()["detail"] == first.json()["detail"]
+    mock_probe.assert_awaited_once()  # still just the one call, not a second one
 
 
 def test_stream_channel_software_preset_failure_does_not_invoke_probe(client, tmp_db, monkeypatch):

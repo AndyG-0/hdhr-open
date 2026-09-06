@@ -2,22 +2,25 @@ from __future__ import annotations
 
 import pytest
 
-from app import auth, config, crypto, hls_streaming
+from app import auth, config, crypto, hls_streaming, subprocess_streaming
 from app.storage import db
 from app.storage.cache import cache
 
 
 @pytest.fixture(autouse=True)
 def _reset_shared_state():
-    """The TTL cache and PIN-login lockout tracker are process-wide
-    singletons; tests must not leak cached values into each other."""
+    """The TTL cache, PIN-login lockout tracker, and recent-stream-failure
+    cache are process-wide singletons; tests must not leak cached values
+    into each other."""
     cache._store.clear()
     auth._failed_attempts.clear()
     auth._last_sweep_at = 0.0
+    subprocess_streaming._recent_stream_failures.clear()
     yield
     cache._store.clear()
     auth._failed_attempts.clear()
     auth._last_sweep_at = 0.0
+    subprocess_streaming._recent_stream_failures.clear()
 
 
 @pytest.fixture(autouse=True)
