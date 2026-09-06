@@ -62,6 +62,18 @@ KNOWN_INTEGRATION_TYPES: dict[str, dict[str, Any]] = {
             "api_key": "",
         },
     },
+    "ai": {
+        "name": "AI Assistant",
+        "defaults": {
+            "provider": "openai",
+            "api_key": "",
+            "base_url": "",
+            "model": "",
+            "system_prompt_custom": "",
+            "temperature": 0.7,
+            "enable_recording_tools": False,
+        },
+    },
 }
 
 

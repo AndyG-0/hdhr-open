@@ -151,6 +151,31 @@ def test_patch_tmdb_stores_and_masks_api_key(admin_client, tmp_db):
     assert stored["settings"]["api_key"] == "shh-secret"
 
 
+def test_get_ai_returns_defaults_when_unconfigured(admin_client, tmp_db):
+    response = admin_client.get("/api/network-settings/ai")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "ai"
+    assert body["settings"]["provider"] == "openai"
+    assert body["settings"]["has_api_key"] is False
+    assert body["settings"]["enable_recording_tools"] is False
+
+
+def test_patch_ai_stores_and_masks_api_key(admin_client, tmp_db):
+    response = admin_client.patch(
+        "/api/network-settings/ai", json={"provider": "anthropic", "api_key": "shh-secret", "model": "claude-sonnet-5"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["settings"]["has_api_key"] is True
+    assert "api_key" not in body["settings"]
+    stored = db.get_network_integration("ai")
+    assert stored["settings"]["api_key"] == "shh-secret"
+    assert stored["settings"]["provider"] == "anthropic"
+
+
 # --- POST /api/network-settings/hdhomerun/test-{tuner,dvr}-connection -------
 
 
