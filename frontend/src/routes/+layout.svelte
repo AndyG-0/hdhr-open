@@ -15,6 +15,8 @@
 	import { aiDrawerOpen, toggleAIDrawer } from '$lib/stores/ai-drawer';
 	import { loadOnceWhen } from '$lib/load-once.svelte';
 	import AIAssistantDrawer from '$lib/components/ai/AIAssistantDrawer.svelte';
+	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
+	import { playback, keepPlayingOnNavigate, stopPlayback } from '$lib/stores/playback';
 
 	let { children } = $props();
 
@@ -80,6 +82,27 @@
 			loadLocaleFromServer();
 		}
 	});
+
+	// The player instance keeps playing across route changes so an AirPlay
+	// route or Cast session survives navigation (see HDHomeRunPlayer's
+	// attachPlayer destroy(), which only tears down when this component
+	// actually unmounts) - full vs. mini is just which page started it.
+	const displayMode = $derived.by<'full' | 'mini'>(() =>
+		$playback.media && $playback.originPath === page.url.pathname ? 'full' : 'mini',
+	);
+
+	$effect(() => {
+		// Re-run whenever the route changes; stop playback on navigate-away
+		// unless the user has opted to keep it going.
+		void page.url.pathname;
+		if (
+			$playback.media &&
+			$playback.originPath !== page.url.pathname &&
+			!$keepPlayingOnNavigate
+		) {
+			stopPlayback();
+		}
+	});
 </script>
 
 <svelte:head>
@@ -108,6 +131,38 @@
 		{/if}
 
 		{@render children()}
+
+		{#if $playback.media && page.url.pathname !== '/player'}
+			<HDHomeRunPlayer
+				src={$playback.media.url}
+				title={$playback.media.title}
+				playUrl={$playback.media.playUrl}
+				recordingId={$playback.media.recordingId}
+				watchSessionId={$playback.media.watchSessionId}
+				startTimestamp={$playback.media.startTimestamp}
+				recordEndTimestamp={$playback.media.recordEndTimestamp}
+				seekable={$playback.media.seekable}
+				isWatchSession={$playback.media.isWatchSession}
+				channel={$playback.media.channel}
+				airing={$playback.media.airing}
+				channels={$playback.context?.channels ?? []}
+				favoriteChannels={$playback.context?.favoriteChannels ?? new Set()}
+				recordingRules={$playback.context?.recordingRules ?? []}
+				pendingRuleIds={$playback.context?.pendingRuleIds ?? new Set()}
+				officialDvrActive={$playback.context?.officialDvrActive ?? false}
+				recordingLoading={$playback.context?.recordingLoading ?? null}
+				onRecordEpisode={$playback.context?.onRecordEpisode}
+				onRecordSeries={$playback.context?.onRecordSeries}
+				onUpdateRule={$playback.context?.onUpdateRule}
+				onCancelRule={$playback.context?.onCancelRule}
+				onToggleFavorite={$playback.context?.onToggleFavorite}
+				onChannelChange={$playback.context?.onChannelChange}
+				allowPopout={displayMode === 'full'}
+				displayMode={displayMode}
+				onExpand={() => goto($playback.originPath ?? '/')}
+				onClose={stopPlayback}
+			/>
+		{/if}
 
 		{#if $user && page.url.pathname !== '/player'}
 			<AIAssistantDrawer />

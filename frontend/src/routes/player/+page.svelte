@@ -281,7 +281,7 @@
 		await api.addHDHomeRunRecordingRule({
 			series_id: seriesId ?? undefined,
 			channel: channelNumber ?? options?.channel,
-			start_time: start ?? undefined,
+			date_time: start ?? undefined,
 			title: options?.title,
 			start_padding: options?.startPadding,
 			end_padding: options?.endPadding,
@@ -316,6 +316,7 @@
 			start_padding: options.startPadding,
 			end_padding: options.endPadding,
 			recent_only: options.recentOnly,
+			server: options.server,
 		});
 		recordingRules = await api.listRecordingRules();
 	}

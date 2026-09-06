@@ -2119,4 +2119,194 @@ describe('HDHomeRunPlayer', () => {
 			expect(screen.queryByRole('button', { name: 'Popout player' })).not.toBeInTheDocument();
 		});
 	});
+
+	describe('Quick Channel Switcher', () => {
+		const drawerChannels = [
+			{
+				channel_number: '4.1',
+				name: 'KDFW',
+				guide_number: '4.1',
+				guide_name: 'KDFW',
+				is_favorite: false,
+				enabled: true,
+				is_hd: true,
+				is_drm: false,
+				stream_url: 'http://192.168.1.100:5004/auto/v4.1',
+				playback_url: 'http://192.168.1.100:5004/auto/v4.1',
+				now: { title: 'Fox News', episode_title: null, start: null, end: null },
+				next: null,
+			},
+			{
+				channel_number: '5.1',
+				name: 'KXAS',
+				guide_number: '5.1',
+				guide_name: 'KXAS',
+				is_favorite: false,
+				enabled: true,
+				is_hd: true,
+				is_drm: false,
+				stream_url: 'http://192.168.1.100:5004/auto/v5.1',
+				playback_url: 'http://192.168.1.100:5004/auto/v5.1',
+				now: { title: 'Nightly News', episode_title: null, start: null, end: null },
+				next: null,
+			},
+		];
+
+		function liveChannelProps(overrides: Record<string, unknown> = {}) {
+			return {
+				...props,
+				channel: drawerChannels[0],
+				channels: drawerChannels,
+				...overrides,
+			};
+		}
+
+		it('hides the channel switcher trigger during recorded playback', () => {
+			render(HDHomeRunPlayer, { props: seekableProps });
+			expect(screen.queryByRole('button', { name: 'Channels' })).not.toBeInTheDocument();
+		});
+
+		it('opens the channel drawer, selects a channel, and calls onChannelChange', async () => {
+			const onChannelChangeMock = vi.fn();
+			render(HDHomeRunPlayer, { props: liveChannelProps({ onChannelChange: onChannelChangeMock }) });
+
+			const trigger = screen.getByRole('button', { name: 'Channels' });
+			await fireEvent.click(trigger);
+
+			expect(screen.getByRole('dialog', { name: 'Channels' })).toBeInTheDocument();
+			expect(screen.getByText('Nightly News')).toBeInTheDocument();
+
+			await fireEvent.click(screen.getByText('KXAS'));
+
+			expect(onChannelChangeMock).toHaveBeenCalledWith(drawerChannels[1]);
+			expect(screen.queryByRole('dialog', { name: 'Channels' })).not.toBeInTheDocument();
+		});
+
+		it('does not call onChannelChange when re-selecting the current channel', async () => {
+			const onChannelChangeMock = vi.fn();
+			render(HDHomeRunPlayer, { props: liveChannelProps({ onChannelChange: onChannelChangeMock }) });
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+			await fireEvent.click(screen.getByText('KDFW'));
+
+			expect(onChannelChangeMock).not.toHaveBeenCalled();
+			expect(screen.queryByRole('dialog', { name: 'Channels' })).not.toBeInTheDocument();
+		});
+
+		it('navigates and selects with the keyboard inside the drawer', async () => {
+			const onChannelChangeMock = vi.fn();
+			render(HDHomeRunPlayer, { props: liveChannelProps({ onChannelChange: onChannelChangeMock }) });
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+
+			const dialog = screen.getByRole('dialog', { name: 'Channels' });
+			await fireEvent.keyDown(dialog, { key: 'ArrowDown' });
+			await fireEvent.keyDown(dialog, { key: 'Enter' });
+
+			expect(onChannelChangeMock).toHaveBeenCalledWith(drawerChannels[1]);
+		});
+
+		it('closes only the drawer (not the player) on Escape', async () => {
+			const onCloseMock = vi.fn();
+			render(HDHomeRunPlayer, { props: liveChannelProps({ onClose: onCloseMock }) });
+
+			await fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+			expect(screen.getByRole('dialog', { name: 'Channels' })).toBeInTheDocument();
+
+			await fireEvent.keyDown(window, { key: 'Escape' });
+
+			expect(screen.queryByRole('dialog', { name: 'Channels' })).not.toBeInTheDocument();
+			expect(onCloseMock).not.toHaveBeenCalled();
+		});
+
+		it('reloads the mpegts stream when zapped to a different channel (regression: title updated but video kept playing the old channel)', async () => {
+			const { rerender } = render(HDHomeRunPlayer, {
+				props: liveChannelProps({ src: 'https://example.com/stream/4.1' }),
+			});
+
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+			expect(createPlayer).toHaveBeenCalledWith(
+				expect.objectContaining({ url: 'https://example.com/stream/4.1' }),
+				expect.anything(),
+			);
+			const firstPlayer = createPlayer.mock.results[0].value;
+
+			// Mirrors what +page.svelte's watchChannel() does on
+			// onChannelChange: reassigns props to the new channel while this
+			// same component instance (and its <video> element) stays mounted.
+			await rerender({
+				...liveChannelProps({ channel: drawerChannels[1], src: 'https://example.com/stream/5.1' }),
+				title: '5.1 KXAS',
+			});
+
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(2));
+			expect(firstPlayer.destroy).toHaveBeenCalled();
+			expect(createPlayer).toHaveBeenCalledWith(
+				expect.objectContaining({ url: 'https://example.com/stream/5.1' }),
+				expect.anything(),
+			);
+		});
+	});
+
+	describe('Commercial Skip', () => {
+		it('renders an amber commercial band on the scrub bar and a Skip Commercial button at the right position', async () => {
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				commercial_segments: [{ start_seconds: 0, end_seconds: 30 }],
+			});
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const skipBtn = await screen.findByRole('button', { name: 'Skip Commercial' });
+			expect(skipBtn).toBeInTheDocument();
+		});
+
+		it('seeks to the end of the active commercial segment when Skip Commercial is clicked', async () => {
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				commercial_segments: [{ start_seconds: 0, end_seconds: 30 }],
+			});
+			vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			const skipBtn = await screen.findByRole('button', { name: 'Skip Commercial' });
+			await fireEvent.click(skipBtn);
+
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec1', {
+					start: 30,
+					audioIndex: undefined,
+					recordingId: 'rec1',
+				}),
+			);
+		});
+
+		it('does not show the Skip Commercial button outside any commercial segment', async () => {
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				commercial_segments: [{ start_seconds: 40, end_seconds: 50 }],
+			});
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			await vi.waitFor(() => expect(hdhomerunRecordingDetail).toHaveBeenCalled());
+			expect(screen.queryByRole('button', { name: 'Skip Commercial' })).not.toBeInTheDocument();
+		});
+	});
 });

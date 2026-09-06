@@ -21,6 +21,47 @@ export interface HDHomeRunHLSSession {
 	playlist_url: string;
 }
 
+export interface SyncPlayContent {
+	type: string;
+	id: string;
+	title: string;
+	channel_number?: string | null;
+	play_url?: string | null;
+}
+
+export interface SyncPlayPlaybackState {
+	is_playing: boolean;
+	position: number;
+	playback_rate: number;
+	updated_at: number;
+}
+
+export interface SyncPlayParticipant {
+	session_id: string;
+	user_id?: string | null;
+	user_name: string;
+	avatar?: string | null;
+	is_host: boolean;
+	is_ready: boolean;
+	ping_ms: number;
+	position: number;
+	last_seen: number;
+}
+
+export interface SyncPlayRoom {
+	room_code: string;
+	created_at: number;
+	host_session_id?: string | null;
+	content: SyncPlayContent;
+	playback_state: SyncPlayPlaybackState;
+	participants: SyncPlayParticipant[];
+}
+
+export interface CreateSyncPlayRoomResponse {
+	room_code: string;
+	room: SyncPlayRoom;
+}
+
 export interface HDHomeRunGuideEntry {
 	series_id?: string | null;
 	title: string;
@@ -57,6 +98,8 @@ export interface HDHomeRunRecordingRule {
 	KeywordQuery?: string | null;
 	Provider?: 'builtin' | 'hdhomerun';
 	provider?: 'builtin' | 'hdhomerun';
+	FallbackReason?: string | null;
+	fallback_reason?: string | null;
 }
 
 export interface RecordingRuleOptions {
@@ -212,7 +255,6 @@ export interface SchedulesDirectTestResult {
 	error: string | null;
 }
 
-
 export interface HDHomeRunRecording {
 	recording_id?: string | null;
 	// Only present in the response of POST /api/watch/{channel}/start —
@@ -274,6 +316,12 @@ export interface HDHomeRunTranscodeInfo {
 	hardware: boolean;
 }
 
+/** A comskip/EDL-derived commercial break, in recording-relative seconds. */
+export interface CommercialSegment {
+	start_seconds: number;
+	end_seconds: number;
+}
+
 /** GET /api/dvr/recording-detail — see backend/app/api/dvr.py. */
 export interface HDHomeRunRecordingDetail {
 	is_in_progress: boolean;
@@ -287,6 +335,9 @@ export interface HDHomeRunRecordingDetail {
 	 * for a finished recording (only live recordings run the channel-2
 	 * pipeline) or one where track 2 has never been requested. */
 	secondary_captions: 'unknown' | 'available' | 'unavailable' | null;
+	/** comskip/EDL-derived commercial breaks; [] while in progress or when
+	 * no sidecar .edl file exists (yet) for a finished recording. */
+	commercial_segments: CommercialSegment[];
 }
 
 export interface HDHomeRunTranscodePreset {
@@ -353,6 +404,74 @@ export interface NetworkTestConnectionResult {
 	ok: boolean;
 	detail: string | null;
 	error: string | null;
+}
+
+export interface AIListModelsResult {
+	ok: boolean;
+	models: string[];
+	error: string | null;
+}
+
+// AI assistant settings — stored as the "ai" network integration (see
+// backend/app/api/network_settings.py's KNOWN_INTEGRATION_TYPES). api_key is
+// write-only (never read back); has_api_key reflects whether one is saved.
+export interface AISettings {
+	provider: string;
+	base_url: string;
+	model: string;
+	system_prompt_custom: string;
+	temperature: number;
+	enable_recording_tools: boolean;
+	has_api_key: boolean;
+}
+
+export interface AIChatContext {
+	now?: string;
+	timezone?: string;
+	selected_channel?: string;
+}
+
+export type AIToolCallArguments = Record<string, unknown>;
+export type AIToolResultContent = Record<string, unknown>;
+
+// Mirrors backend/app/api/ai.py's `WireMessage` shapes exactly — resending
+// prior tool_calls/tool results (not just prose) is what lets the assistant
+// resolve a later turn like "all of those games" against an earlier
+// search_guide result instead of needing to re-search for it.
+export type AIChatMessage =
+	| { role: 'user'; content: string }
+	| {
+			role: 'assistant';
+			content: string;
+			tool_calls?: { id: string; name: string; arguments: AIToolCallArguments }[];
+	  }
+	| { role: 'tool'; tool_call_id: string; name: string; content: AIToolResultContent };
+
+// Shape of an action_preview event's `preview` field varies per tool
+// (schedule_recording/cancel_recording_rule/delete_recording each preview
+// different fields) — kept loose rather than a per-tool union since the
+// drawer only ever renders it generically (label: value rows).
+export type AIActionPreview = Record<string, unknown>;
+
+// Mirrors backend/app/api/ai.py's `_sse()` payload shapes exactly, one
+// variant per `type` discriminant.
+export type AIStreamEvent =
+	| { type: 'token'; text: string }
+	| { type: 'tool_call'; id: string; tool: string; arguments: AIToolCallArguments }
+	| { type: 'tool_status'; tool: string; status: 'running' | 'done' | 'error'; message?: string }
+	| { type: 'tool_result'; id: string; tool: string; content: AIToolResultContent }
+	| { type: 'action_preview'; action_id: string; tool: string; preview: AIActionPreview }
+	| { type: 'error'; message: string }
+	| { type: 'done' };
+
+export interface AIStreamCallbacks {
+	onToken?: (text: string) => void;
+	onToolCall?: (id: string, tool: string, args: AIToolCallArguments) => void;
+	onToolStatus?: (tool: string, status: 'running' | 'done' | 'error', message?: string) => void;
+	onToolResult?: (id: string, tool: string, content: AIToolResultContent) => void;
+	onActionPreview?: (actionId: string, tool: string, preview: AIActionPreview) => void;
+	onError?: (message: string) => void;
+	onDone?: () => void;
 }
 
 export interface UserProfile {
@@ -448,6 +567,23 @@ async function patchJSON<T>(path: string, body: Record<string, unknown>): Promis
 	return response.json();
 }
 
+async function putJSON<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, {
+		method: 'PUT',
+		credentials: 'include',
+		...(body !== undefined && {
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		}),
+	});
+	if (!response.ok) {
+		const message = await _errorMessage(path, response);
+		logger.warn(`Request to ${path} failed: ${response.status}`);
+		throw new Error(message);
+	}
+	return response.json();
+}
+
 // Reads a failed response's `{detail: string}` body (FastAPI's HTTPException
 // shape), if present, so callers can surface the server's actual reason
 // (e.g. why an HDHomeRun DVR recording rule was rejected) instead of just a
@@ -493,6 +629,84 @@ async function deleteJSON<T>(path: string): Promise<T> {
 		throw new Error(message);
 	}
 	return response.json();
+}
+
+// No EventSource here — it can't send POST bodies or credentials, and the
+// chat request needs both. Reads the response body manually instead,
+// buffering by the SSE `\n\n` record delimiter (a chunk boundary can land
+// mid-record) and dispatching each `data: {...}` line to the matching
+// callback. Network/HTTP failures (never thrown past this function) are
+// reported through onError, same as an in-stream `{"type":"error"}` event,
+// so callers only need one failure path.
+async function streamAIChat(
+	body: { messages: AIChatMessage[]; context?: AIChatContext },
+	callbacks: AIStreamCallbacks,
+): Promise<void> {
+	let response: Response;
+	try {
+		response = await fetch(`${env.PUBLIC_API_BASE_URL}/api/ai/chat`, {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+	} catch {
+		callbacks.onError?.('Could not reach the server.');
+		callbacks.onDone?.();
+		return;
+	}
+
+	if (!response.ok || !response.body) {
+		const message = await _errorMessage('/api/ai/chat', response);
+		callbacks.onError?.(message);
+		callbacks.onDone?.();
+		return;
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = '';
+
+	function handleEvent(raw: string) {
+		const line = raw.split('\n').find((l) => l.startsWith('data: '));
+		if (!line) return;
+		const event = JSON.parse(line.slice('data: '.length)) as AIStreamEvent;
+		switch (event.type) {
+			case 'token':
+				callbacks.onToken?.(event.text);
+				break;
+			case 'tool_call':
+				callbacks.onToolCall?.(event.id, event.tool, event.arguments);
+				break;
+			case 'tool_status':
+				callbacks.onToolStatus?.(event.tool, event.status, event.message);
+				break;
+			case 'tool_result':
+				callbacks.onToolResult?.(event.id, event.tool, event.content);
+				break;
+			case 'action_preview':
+				callbacks.onActionPreview?.(event.action_id, event.tool, event.preview);
+				break;
+			case 'error':
+				callbacks.onError?.(event.message);
+				break;
+			case 'done':
+				callbacks.onDone?.();
+				break;
+		}
+	}
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		buffer += decoder.decode(value, { stream: true });
+		let boundary = buffer.indexOf('\n\n');
+		while (boundary !== -1) {
+			handleEvent(buffer.slice(0, boundary));
+			buffer = buffer.slice(boundary + 2);
+			boundary = buffer.indexOf('\n\n');
+		}
+	}
 }
 
 export const api = {
@@ -541,11 +755,7 @@ export const api = {
 		}
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-captions.vtt?${params.toString()}`;
 	},
-	hdhomerunRecordingThumbnailSpriteUrl: (options: {
-		url: string;
-		recordingId: string;
-		recordEnd?: number | null;
-	}) => {
+	hdhomerunRecordingThumbnailSpriteUrl: (options: { url: string; recordingId: string; recordEnd?: number | null }) => {
 		const params = new URLSearchParams({ url: options.url });
 		if (options.recordEnd !== undefined && options.recordEnd !== null) {
 			params.set('record_end', String(options.recordEnd));
@@ -559,8 +769,7 @@ export const api = {
 		}
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-thumbnails/${options.recordingId}.vtt?${params.toString()}`;
 	},
-	hdhomerunPlaylistUrl: (channelNumber: string) =>
-		`${env.PUBLIC_API_BASE_URL}/api/streaming/playlist/${channelNumber}`,
+	hdhomerunPlaylistUrl: (channelNumber: string) => `${env.PUBLIC_API_BASE_URL}/api/streaming/playlist/${channelNumber}`,
 	// Google Cast entry points - both mirror a native (Apple) HLS session
 	// creation call, but with for_cast=true so the returned playlist_url is
 	// scoped to a cast token the receiver device can fetch without a cookie.
@@ -628,6 +837,22 @@ export const api = {
 		title_match_mode?: 'exact' | 'contains';
 		keyword_query?: string;
 	}) => postJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules', rule),
+	updateHDHomeRunRecordingRule: (
+		ruleId: string,
+		rule: {
+			series_id?: string;
+			date_time?: number;
+			channel?: string;
+			recent_only?: boolean;
+			start_padding?: number;
+			end_padding?: number;
+			max_episodes_to_keep?: number;
+			server?: 'builtin' | 'hdhomerun';
+			title?: string;
+			title_match_mode?: 'exact' | 'contains';
+			keyword_query?: string;
+		},
+	) => putJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`, rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>
 		deleteJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`),
 	deleteRecording: (recordingId: string) => deleteJSON<{ status: string }>(`/api/dvr/recordings/${recordingId}`),
@@ -661,12 +886,22 @@ export const api = {
 	getSchedulesDirectLineups: () => getJSON<SchedulesDirectLineup[]>('/api/network-settings/schedules-direct/lineups'),
 	getSchedulesDirectHeadends: (postalCode: string, country = 'USA') =>
 		getJSON<SchedulesDirectHeadend[]>(
-			`/api/network-settings/schedules-direct/headends?postal_code=${encodeURIComponent(postalCode)}&country=${encodeURIComponent(country)}`
+			`/api/network-settings/schedules-direct/headends?postal_code=${encodeURIComponent(postalCode)}&country=${encodeURIComponent(country)}`,
 		),
 	addSchedulesDirectLineup: (lineupId: string) =>
-		postJSON<{ code?: number; message?: string }>(`/api/network-settings/schedules-direct/lineups/${encodeURIComponent(lineupId)}`),
+		postJSON<{ code?: number; message?: string }>(
+			`/api/network-settings/schedules-direct/lineups/${encodeURIComponent(lineupId)}`,
+		),
 	deleteSchedulesDirectLineup: (lineupId: string) =>
-		deleteJSON<{ code?: number; message?: string }>(`/api/network-settings/schedules-direct/lineups/${encodeURIComponent(lineupId)}`),
+		deleteJSON<{ code?: number; message?: string }>(
+			`/api/network-settings/schedules-direct/lineups/${encodeURIComponent(lineupId)}`,
+		),
+	testAIConnection: (settings: Record<string, unknown>) =>
+		postJSON<NetworkTestConnectionResult>('/api/ai/test-connection', settings),
+	listAIModels: (settings: Record<string, unknown>) => postJSON<AIListModelsResult>('/api/ai/list-models', settings),
+	streamAIChat,
+	confirmAIAction: (actionId: string) => postJSON<{ result: unknown }>(`/api/ai/actions/${actionId}/confirm`),
+	cancelAIAction: (actionId: string) => postJSON<{ ok: boolean }>(`/api/ai/actions/${actionId}/cancel`),
 	listUsers: () => getJSON<UserProfile[]>('/api/users'),
 	createUser: (name: string, avatar?: string, pin?: string) =>
 		postJSON<CurrentUser>('/api/users', {
@@ -706,7 +941,7 @@ export const api = {
 			sd_lineup_id?: string | null;
 			is_favorite?: boolean;
 			hidden?: boolean;
-		}
+		},
 	) => patchJSON<HDHomeRunChannelSetting>(`/api/guide/channels/${channelId}`, payload as Record<string, unknown>),
 	getXmltvFeedChannels: () => getJSON<XMLTVFeedChannel[]>('/api/guide/xmltv-feed-channels'),
 	getXmltvStats: () => getJSON<XMLTVStats>('/api/guide/xmltv/stats'),
@@ -748,5 +983,20 @@ export const api = {
 			// Best-effort: reap_stale_watches on the backend is the backstop.
 		});
 	},
+	createSyncPlayRoom: (content: SyncPlayContent, userName?: string) =>
+		postJSON<CreateSyncPlayRoomResponse>('/api/syncplay/rooms', {
+			content,
+			...(userName !== undefined && { user_name: userName }),
+		}),
+	getSyncPlayRoom: (roomCode: string) => getJSON<SyncPlayRoom>(`/api/syncplay/rooms/${encodeURIComponent(roomCode)}`),
+	syncPlayWsUrl: (roomCode: string, token?: string, userName?: string) => {
+		const base =
+			env.PUBLIC_API_BASE_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000');
+		const wsBase = base.replace(/^http/, 'ws');
+		const params = new URLSearchParams();
+		if (token) params.set('token', token);
+		if (userName) params.set('user_name', userName);
+		const qs = params.toString();
+		return `${wsBase}/api/syncplay/ws/${encodeURIComponent(roomCode)}${qs ? `?${qs}` : ''}`;
+	},
 };
-

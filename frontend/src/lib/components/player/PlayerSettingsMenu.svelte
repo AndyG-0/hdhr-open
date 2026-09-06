@@ -2,6 +2,7 @@
 	import { _ } from 'svelte-i18n';
 	import type { HDHomeRunRecordingAudioInfo } from '$lib/api';
 	import PlayerIcon from './icons/PlayerIcon.svelte';
+	import { keepPlayingOnNavigate, setKeepPlayingOnNavigate } from '$lib/stores/playback';
 
 	interface Props {
 		showMenu: boolean;
@@ -136,6 +137,16 @@
 						<PlayerIcon name="info" size={16} />
 						{$_('player.playback_info', { default: 'Playback Info / Stats' })}
 					</span>
+				</button>
+
+				<button
+					type="button"
+					class="menu-item"
+					class:selected={$keepPlayingOnNavigate}
+					onclick={() => setKeepPlayingOnNavigate(!$keepPlayingOnNavigate)}
+				>
+					<span>{$_('player.keep_playing_label', { default: 'Keep playing when I navigate away' })}</span>
+					{#if $keepPlayingOnNavigate}<span>✓</span>{/if}
 				</button>
 			{:else if currentSubmenu === 'speed'}
 				{#each speedOptions as speed (speed)}

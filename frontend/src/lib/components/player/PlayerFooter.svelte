@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
-	import type { HDHomeRunRecordingAudioInfo } from '$lib/api';
+	import type { CommercialSegment, HDHomeRunRecordingAudioInfo } from '$lib/api';
 	import PlayerIcon from './icons/PlayerIcon.svelte';
 	import PlayerScrubBar from './PlayerScrubBar.svelte';
 	import PlayerVolumeControl from './PlayerVolumeControl.svelte';
@@ -15,6 +15,7 @@
 		thumbnailsAvailable?: boolean;
 		thumbSpriteUrl?: string;
 		thumbnailCues?: ThumbnailCue[];
+		commercialSegments?: CommercialSegment[];
 		paused?: boolean;
 		volume?: number;
 		muted?: boolean;
@@ -42,6 +43,9 @@
 		onVolumeChange: (vol: number) => void;
 		onMuteToggle: () => void;
 		onToggleFavorite?: () => void;
+		syncPlayActive?: boolean;
+		syncPlayParticipantsCount?: number;
+		onToggleSyncPlay?: () => void;
 		onTogglePip?: () => void;
 		onToggleFullscreen: () => void;
 		onToggleCaptions: () => void;
@@ -50,6 +54,8 @@
 		onPlaybackRateChange: (rate: number) => void;
 		onAspectRatioChange: (ratio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3') => void;
 		onTogglePlaybackInfo: () => void;
+		channelSwitcherAvailable?: boolean;
+		onToggleChannelDrawer?: () => void;
 	}
 
 	let {
@@ -60,6 +66,7 @@
 		thumbnailsAvailable = false,
 		thumbSpriteUrl = '',
 		thumbnailCues = [],
+		commercialSegments = [],
 		paused = false,
 		volume = 1,
 		muted = false,
@@ -86,6 +93,9 @@
 		onFastForward,
 		onVolumeChange,
 		onMuteToggle,
+		syncPlayActive = false,
+		syncPlayParticipantsCount = 0,
+		onToggleSyncPlay,
 		onToggleFavorite,
 		onTogglePip,
 		onToggleFullscreen,
@@ -95,6 +105,8 @@
 		onPlaybackRateChange,
 		onAspectRatioChange,
 		onTogglePlaybackInfo,
+		channelSwitcherAvailable = false,
+		onToggleChannelDrawer,
 	}: Props = $props();
 
 	let showCaptionMenu = $state(false);
@@ -132,6 +144,7 @@
 				{thumbnailsAvailable}
 				{thumbSpriteUrl}
 				{thumbnailCues}
+				{commercialSegments}
 				{onSeek}
 			/>
 		</div>
@@ -373,6 +386,40 @@
 				{/if}
 			{/if}
 
+			{#if channelSwitcherAvailable && onToggleChannelDrawer}
+				<button
+					type="button"
+					class="ctrl-btn"
+					onclick={(e) => {
+						e.stopPropagation();
+						onToggleChannelDrawer();
+					}}
+					aria-label={$_('player.channels', { default: 'Channels' })}
+					title={$_('player.channels', { default: 'Switch Channel' })}
+				>
+					<PlayerIcon name="channels" size={20} />
+				</button>
+			{/if}
+
+			{#if onToggleSyncPlay}
+				<button
+					type="button"
+					class="ctrl-btn syncplay-btn"
+					class:active={syncPlayActive}
+					onclick={(e) => {
+						e.stopPropagation();
+						onToggleSyncPlay();
+					}}
+					aria-label={$_('syncplay.title', { default: 'SyncPlay Watch Party' })}
+					title={$_('syncplay.title', { default: 'SyncPlay Watch Party' })}
+				>
+					<PlayerIcon name="syncplay" size={20} />
+					{#if syncPlayActive && syncPlayParticipantsCount > 0}
+						<span class="syncplay-badge">{syncPlayParticipantsCount}</span>
+					{/if}
+				</button>
+			{/if}
+
 			<button
 				type="button"
 				class="ctrl-btn info-btn"
@@ -447,6 +494,33 @@
 	.ctrl-btn:hover {
 		background: rgba(255, 255, 255, 0.18);
 		color: #ffffff;
+	}
+
+	.syncplay-btn {
+		position: relative;
+	}
+
+	.syncplay-btn.active {
+		color: #38bdf8;
+		background: rgba(56, 189, 248, 0.2);
+	}
+
+	.syncplay-badge {
+		position: absolute;
+		top: -2px;
+		right: -2px;
+		background: #38bdf8;
+		color: #000000;
+		font-size: 0.62rem;
+		font-weight: 700;
+		min-width: 0.95rem;
+		height: 0.95rem;
+		border-radius: 9999px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0 0.15rem;
+		border: 1px solid rgba(0, 0, 0, 0.8);
 	}
 
 	.ctrl-btn:active {

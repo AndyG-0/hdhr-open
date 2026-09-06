@@ -6,6 +6,9 @@
 		RecordingRuleOptions,
 		HDHomeRunChannel,
 	} from '$lib/api';
+	import HDHomeRunCancelRuleModal from './HDHomeRunCancelRuleModal.svelte';
+	import HDHomeRunFallbackConfirmModal from './HDHomeRunFallbackConfirmModal.svelte';
+	import { isFallbackConfirmSuppressed, setFallbackConfirmSuppressed } from '$lib/fallback-confirm';
 
 	interface Props {
 		airing: HDHomeRunGuideEntry;
@@ -20,6 +23,7 @@
 		onWatch?: () => void;
 		onCancelRule?: (ruleId: string) => void;
 		onConfirm: (mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
+		onUpdateRule?: (ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
 		onClose: () => void;
 	}
 
@@ -36,20 +40,9 @@
 		onWatch,
 		onCancelRule,
 		onConfirm,
+		onUpdateRule,
 		onClose,
 	}: Props = $props();
-
-	let startPaddingMinutes = $state(0);
-	let endPaddingMinutes = $state(0);
-	let recentOnly = $state(false);
-	let selectedServer = $state<'default' | 'builtin' | 'hdhomerun'>('default');
-	let retentionMode = $state<'unlimited' | 'limited'>('unlimited');
-	let retentionCount = $state(3);
-	let titleMatchMode = $state<'exact' | 'contains'>('exact');
-	let keywordQuery = $state('');
-	let channelMode = $state<'any' | 'current' | 'custom'>('current');
-	let selectedCustomChannels = $state<string[]>([]);
-	let imageFailed = $state(false);
 
 	const effectiveChannelNumber = $derived(channelNumber || airing.channel_number || '');
 	const effectiveIsHd = $derived(isHd || airing.is_hd || false);
@@ -57,6 +50,58 @@
 	const isLive = $derived(
 		airing.start != null && airing.end != null && airing.start <= nowSeconds && nowSeconds < airing.end,
 	);
+
+	// svelte-ignore state_referenced_locally
+	let startPaddingMinutes = $state(
+		existingRule?.StartPadding !== undefined ? Math.round(existingRule.StartPadding / 60) : 0,
+	);
+	// svelte-ignore state_referenced_locally
+	let endPaddingMinutes = $state(
+		existingRule?.EndPadding !== undefined ? Math.round(existingRule.EndPadding / 60) : 0,
+	);
+	// svelte-ignore state_referenced_locally
+	let recentOnly = $state(Boolean(existingRule?.RecentOnly));
+	// svelte-ignore state_referenced_locally
+	let selectedServer = $state<'default' | 'builtin' | 'hdhomerun'>(
+		(existingRule?.provider ?? existingRule?.Provider) === 'hdhomerun'
+			? 'hdhomerun'
+			: (existingRule?.provider ?? existingRule?.Provider) === 'builtin'
+				? 'builtin'
+				: !airing.series_id && !existingRule
+					? 'builtin'
+					: 'default',
+	);
+	// svelte-ignore state_referenced_locally
+	let retentionMode = $state<'unlimited' | 'limited'>(
+		existingRule?.MaxEpisodesToKeep ? 'limited' : 'unlimited',
+	);
+	// svelte-ignore state_referenced_locally
+	let retentionCount = $state(existingRule?.MaxEpisodesToKeep ?? 3);
+	// svelte-ignore state_referenced_locally
+	let titleMatchMode = $state<'exact' | 'contains'>(
+		existingRule?.TitleMatchMode === 'contains' ? 'contains' : 'exact',
+	);
+	// svelte-ignore state_referenced_locally
+	let keywordQuery = $state(existingRule?.KeywordQuery ?? '');
+	// svelte-ignore state_referenced_locally
+	let channelMode = $state<'any' | 'current' | 'custom'>(
+		existingRule
+			? (!existingRule.ChannelOnly
+				? 'any'
+				: existingRule.ChannelOnly.includes('|')
+					? 'custom'
+					: existingRule.ChannelOnly === (channelNumber || airing.channel_number || '')
+						? 'current'
+						: 'custom')
+			: 'current',
+	);
+	// svelte-ignore state_referenced_locally
+	let selectedCustomChannels = $state<string[]>(
+		existingRule?.ChannelOnly
+			? existingRule.ChannelOnly.split('|').filter(Boolean)
+			: (channelNumber || airing.channel_number ? [channelNumber || airing.channel_number!] : []),
+	);
+	let imageFailed = $state(false);
 
 	$effect(() => {
 		const initialCh = effectiveChannelNumber;
@@ -95,7 +140,7 @@
 			channel: getEffectiveChannel(),
 			startPadding: startPaddingMinutes ? startPaddingMinutes * 60 : undefined,
 			endPadding: endPaddingMinutes ? endPaddingMinutes * 60 : undefined,
-			recentOnly: recentOnly || undefined,
+			recentOnly: Boolean(recentOnly),
 			maxEpisodesToKeep:
 				!isOfficialDvrTarget && retentionMode === 'limited' && retentionCount > 0
 					? retentionCount
@@ -105,6 +150,18 @@
 	}
 
 	let dialogEl = $state<HTMLDivElement | null>(null);
+	let showCancelRuleConfirmation = $state(false);
+	let showFallbackConfirmation = $state(false);
+	let pendingConfirmMode = $state<'episode' | 'series' | null>(null);
+
+	function handleConfirm(mode: 'episode' | 'series') {
+		if (officialDvrActive && !airing.series_id && !isFallbackConfirmSuppressed()) {
+			pendingConfirmMode = mode;
+			showFallbackConfirmation = true;
+			return;
+		}
+		onConfirm(mode, buildOptions());
+	}
 
 	function handleWindowPointerDown(e: PointerEvent) {
 		if (dialogEl && e.target instanceof Node && !dialogEl.contains(e.target)) onClose();
@@ -286,6 +343,14 @@
 					<option value="hdhomerun">{$_('hdhomerun.detail.server_hdhomerun')}</option>
 				</select>
 			</label>
+			{#if !airing.series_id && (selectedServer === 'hdhomerun' || (selectedServer === 'default' && officialDvrActive))}
+				<p class="hint server-fallback-hint">{$_('hdhomerun.detail.server_fallback_hint')}</p>
+			{/if}
+			{#if existingRule?.fallback_reason || existingRule?.FallbackReason}
+				<p class="hint server-fallback-hint">
+					{$_('hdhomerun.detail.fallback_notification', { values: { title: airing.title } })}
+				</p>
+			{/if}
 
 			<div class="match-mode-field">
 				<span class="match-mode-label">{$_('hdhomerun.detail.keyword_rule_match_mode_label')}</span>
@@ -403,6 +468,20 @@
 			</label>
 
 			{#if isOfficialDvrTarget}
+				<p class="hint dedup-hint">
+					{$_('hdhomerun.detail.hdhomerun_dedup_note')}
+					<a
+						href="https://info.hdhomerun.com/info/dvr:instructions"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="dedup-link"
+					>
+						{$_('hdhomerun.detail.hdhomerun_dedup_link')} ↗
+					</a>
+				</p>
+			{/if}
+
+			{#if isOfficialDvrTarget}
 				<p class="hint">{$_('hdhomerun.detail.retention_official_dvr_note')}</p>
 			{:else}
 				<div class="retention-field">
@@ -439,27 +518,63 @@
 			</button>
 		{/if}
 
-		{#if existingRule && onCancelRule}
+		{#if existingRule}
+			{#if onCancelRule}
+				<button
+					type="button"
+					class="options-button danger"
+					disabled={loading}
+					onclick={() => (showCancelRuleConfirmation = true)}
+				>
+					{$_('hdhomerun.detail.cancel_recording')}
+				</button>
+			{/if}
 			<button
-				class="options-button danger"
+				type="button"
+				class="options-button secondary"
 				disabled={loading}
-				onclick={() => { onCancelRule?.(existingRule.RecordingRuleID); onClose(); }}
+				onclick={onClose}
 			>
-				{$_('hdhomerun.detail.cancel_recording')}
+				{$_('common.close')}
+			</button>
+			<button
+				type="button"
+				class="options-button primary"
+				disabled={loading}
+				onclick={() => {
+					const mode = existingRule.DateTimeOnly != null ? 'episode' : 'series';
+					if (onUpdateRule) {
+						onUpdateRule(existingRule.RecordingRuleID, mode, buildOptions());
+					} else {
+						onConfirm(mode, buildOptions());
+					}
+				}}
+			>
+				{$_('hdhomerun.detail.update_recording')}
 			</button>
 		{:else}
 			<button
+				type="button"
+				class="options-button secondary"
+				disabled={loading}
+				onclick={onClose}
+			>
+				{$_('common.cancel')}
+			</button>
+			<button
+				type="button"
 				class="options-button record"
 				disabled={loading}
-				onclick={() => onConfirm('episode', buildOptions())}
+				onclick={() => handleConfirm('episode')}
 			>
 				🔴 {$_('hdhomerun.detail.record_episode')}
 			</button>
 			{#if canRecordSeries}
 				<button
+					type="button"
 					class="options-button primary"
 					disabled={loading}
-					onclick={() => onConfirm('series', buildOptions())}
+					onclick={() => handleConfirm('series')}
 				>
 					{#if isKeywordActive}
 						{$_('hdhomerun.detail.record_series_with_keywords')}
@@ -471,6 +586,37 @@
 		{/if}
 	</div>
 </div>
+
+{#if showCancelRuleConfirmation && existingRule}
+	<HDHomeRunCancelRuleModal
+		title={airing.title}
+		onConfirm={() => {
+			showCancelRuleConfirmation = false;
+			onCancelRule?.(existingRule.RecordingRuleID);
+			onClose();
+		}}
+		onClose={() => (showCancelRuleConfirmation = false)}
+	/>
+{/if}
+
+{#if showFallbackConfirmation}
+	<HDHomeRunFallbackConfirmModal
+		title={airing.title}
+		onConfirm={(dontAskAgain) => {
+			if (dontAskAgain) setFallbackConfirmSuppressed(true);
+			showFallbackConfirmation = false;
+			const mode = pendingConfirmMode;
+			pendingConfirmMode = null;
+			if (mode) {
+				onConfirm(mode, buildOptions());
+			}
+		}}
+		onClose={() => {
+			showFallbackConfirmation = false;
+			pendingConfirmMode = null;
+		}}
+	/>
+{/if}
 
 <style>
 	.options-backdrop {
@@ -839,6 +985,10 @@
 		margin: 0;
 	}
 
+	.server-fallback-hint {
+		color: var(--color-warning, #e0a05a);
+	}
+
 	.retention-field {
 		display: flex;
 		flex-direction: column;
@@ -909,10 +1059,29 @@
 		background: rgba(224, 90, 90, 0.15);
 		border-color: var(--color-error);
 		color: var(--color-error);
+		margin-right: auto;
 	}
 
 	.options-button.danger:hover:not(:disabled) {
 		background: var(--color-error);
 		color: #fff;
+	}
+
+	.dedup-hint {
+		margin: 0.15rem 0 0.35rem;
+		font-size: 0.78rem;
+		line-height: 1.35;
+		color: var(--color-text-muted);
+	}
+
+	.dedup-link {
+		color: var(--color-accent);
+		text-decoration: underline;
+		margin-left: 0.25rem;
+		display: inline-block;
+	}
+
+	.dedup-link:hover {
+		color: var(--color-accent-hover, var(--color-text));
 	}
 </style>

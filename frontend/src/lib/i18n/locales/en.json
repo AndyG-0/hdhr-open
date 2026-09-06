@@ -259,7 +259,8 @@
 		"cast": "Cast",
 		"cast_stop": "Stop Casting",
 		"cast_connecting": "Connecting…",
-		"cast_connected": "Casting"
+		"cast_connected": "Casting",
+		"keep_playing_label": "Keep playing when I navigate away"
 	},
 	"syncplay": {
 		"title": "SyncPlay Watch Party",

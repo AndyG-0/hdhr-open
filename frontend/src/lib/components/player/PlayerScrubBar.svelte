@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
+	import type { CommercialSegment } from '$lib/api';
 	import type { ThumbnailCue } from '$lib/vtt-parser';
 
 	interface Props {
@@ -10,6 +11,7 @@
 		thumbnailsAvailable?: boolean;
 		thumbSpriteUrl?: string;
 		thumbnailCues?: ThumbnailCue[];
+		commercialSegments?: CommercialSegment[];
 		onSeek: (targetSeconds: number) => void;
 	}
 
@@ -21,6 +23,7 @@
 		thumbnailsAvailable = false,
 		thumbSpriteUrl = '',
 		thumbnailCues = [],
+		commercialSegments = [],
 		onSeek,
 	}: Props = $props();
 
@@ -182,6 +185,15 @@
 		tabindex="0"
 	>
 		<div class="scrub-track">
+			{#if duration && duration > 0}
+				{#each commercialSegments as segment (segment.start_seconds)}
+					<div
+						class="commercial-band"
+						style:left="{(Math.max(0, segment.start_seconds) / duration) * 100}%"
+						style:width="{((Math.min(duration, segment.end_seconds) - Math.max(0, segment.start_seconds)) / duration) * 100}%"
+					></div>
+				{/each}
+			{/if}
 			<div class="scrub-fill" style:width="{progressPercent}%"></div>
 			{#if seekable && duration !== null}
 				<div class="scrub-thumb" style:left="{progressPercent}%"></div>
@@ -289,6 +301,14 @@
 		height: 100%;
 		background: #38bdf8;
 		border-radius: 0.15rem;
+	}
+
+	.commercial-band {
+		position: absolute;
+		top: 0;
+		height: 100%;
+		background: rgba(251, 191, 36, 0.55);
+		pointer-events: none;
 	}
 
 	.scrub-thumb {

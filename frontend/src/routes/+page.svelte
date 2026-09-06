@@ -3,16 +3,16 @@
 		api,
 		type HDHomeRunChannel,
 		type HDHomeRunFullGuideChannel,
-		type HDHomeRunGuideEntry,
 		type HDHomeRunRecordingRule,
 		type RecordingRuleOptions,
 	} from '$lib/api';
-	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
 	import HDHomeRunGuideGrid from '$lib/components/details/HDHomeRunGuideGrid.svelte';
 	import { openPopoutPlayer } from '$lib/popout';
-	import { onDestroy, onMount } from 'svelte';
+	import { onMount } from 'svelte';
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
+	import { page } from '$app/state';
+	import { playback, startPlayback, stopPlayback, updateContext, type PlaybackMedia } from '$lib/stores/playback';
 
 	let channels = $state<HDHomeRunChannel[]>([]);
 	let guideAvailable = $state(false);
@@ -27,51 +27,6 @@
 	let officialDvrActive = $state(false);
 	let error = $state<string | null>(null);
 	let fallbackNotice = $state<string | null>(null);
-
-	let playingMedia = $state<{
-		title: string;
-		url: string;
-		playUrl: string;
-		recordingId: string | null;
-		// This viewer's own watch-session lifecycle token (heartbeat/stop/
-		// promote) — distinct from recordingId, which identifies the shared
-		// capture that other viewers/schedules may also be attached to.
-		watchSessionId?: string | null;
-		startTimestamp: number | null;
-		recordEndTimestamp: number | null;
-		seekable: boolean;
-		isWatchSession?: boolean;
-		channel?: HDHomeRunChannel | null;
-		airing?: HDHomeRunGuideEntry | null;
-	} | null>(null);
-
-	// Heartbeat for the active live-watch auto-capture (see
-	// backend/app/dvr/builtin/watch.py) — keeps it alive while the player is
-	// open; DVREngine.tick() reaps captures that stop heartbeating.
-	const WATCH_HEARTBEAT_INTERVAL_MS = 20_000;
-	let watchHeartbeatHandle: ReturnType<typeof setInterval> | undefined;
-
-	function stopWatchSession() {
-		if (watchHeartbeatHandle !== undefined) {
-			clearInterval(watchHeartbeatHandle);
-			watchHeartbeatHandle = undefined;
-		}
-		if (playingMedia?.isWatchSession && playingMedia.watchSessionId) {
-			api.stopWatch(playingMedia.watchSessionId);
-		}
-	}
-
-	function closePlayer() {
-		stopWatchSession();
-		playingMedia = null;
-	}
-
-	// Backstop for a hard tab close/refresh, where component teardown
-	// ordering (and thus onClose) isn't guaranteed to run.
-	if (typeof window !== 'undefined') {
-		window.addEventListener('pagehide', stopWatchSession);
-		onDestroy(() => window.removeEventListener('pagehide', stopWatchSession));
-	}
 
 	interface PendingRule {
 		rule: HDHomeRunRecordingRule;
@@ -182,6 +137,42 @@
 		loadDvrInfo();
 	});
 
+	function buildPlaybackContext() {
+		return {
+			channels,
+			favoriteChannels,
+			recordingRules: displayedRecordingRules,
+			pendingRuleIds,
+			officialDvrActive,
+			recordingLoading,
+			onRecordEpisode: recordShowEpisode,
+			onRecordSeries: recordShowSeries,
+			onUpdateRule: updateRecordingRule,
+			onCancelRule: cancelRecordingRule,
+			onToggleFavorite: toggleFavorite,
+			onChannelChange: watchChannel,
+		};
+	}
+
+	// Keeps the persistent player's context (callbacks/data) fresh whenever
+	// this page's own state changes, but only while this page is the one that
+	// started playback - otherwise a background page's stale closures would
+	// clobber the context another page just published.
+	$effect(() => {
+		void channels;
+		void favoriteChannels;
+		void displayedRecordingRules;
+		void pendingRuleIds;
+		void officialDvrActive;
+		void recordingLoading;
+		// Reads the store via get(), not $playback, so publishing a context
+		// update below doesn't re-trigger this same effect (an infinite loop).
+		const current = get(playback);
+		if (current.media && current.originPath === page.url.pathname) {
+			updateContext(buildPlaybackContext());
+		}
+	});
+
 	async function watchChannel(channel: HDHomeRunChannel) {
 		if (!channel.playback_url) {
 			window.open(api.hdhomerunPlaylistUrl(channel.channel_number), '_blank');
@@ -213,7 +204,7 @@
 		}
 
 		if (watchRecording?.recording_id && watchRecording.session_id) {
-			playingMedia = {
+			const media: PlaybackMedia = {
 				title,
 				url: api.hdhomerunPlaybackUrl(channel.playback_url),
 				playUrl: watchRecording.play_url ?? channel.playback_url,
@@ -226,31 +217,22 @@
 				channel,
 				airing: currentAiring,
 			};
-			watchHeartbeatHandle = setInterval(() => {
-				// Once promoted (Record hit mid-watch), the session is no longer
-				// temporary and heartbeats become no-op 404s server-side - harmless,
-				// just swallow them rather than let them surface as unhandled
-				// rejections.
-				if (playingMedia?.watchSessionId) api.heartbeatWatch(playingMedia.watchSessionId).catch(() => {});
-			}, WATCH_HEARTBEAT_INTERVAL_MS);
+			startPlayback(media, page.url.pathname, buildPlaybackContext());
 			return;
 		}
 
-		playingMedia = {
+		const media: PlaybackMedia = {
 			title,
 			url: api.hdhomerunPlaybackUrl(channel.playback_url),
-			playUrl: channel.playback_url,
-			recordingId: null,
-			startTimestamp: null,
-			recordEndTimestamp: null,
 			seekable: false,
 			channel,
 			airing: currentAiring,
 		};
+		startPlayback(media, page.url.pathname, buildPlaybackContext());
 	}
 
 	function popoutChannel(channel: HDHomeRunChannel) {
-		closePlayer();
+		stopPlayback();
 		openPopoutPlayer({ channel: channel.channel_number, title: `${channel.channel_number} ${channel.name}` });
 	}
 
@@ -352,6 +334,7 @@
 					end_padding: options.endPadding,
 					recent_only: options.recentOnly,
 					max_episodes_to_keep: options.maxEpisodesToKeep,
+					server: options.server,
 				}),
 			);
 		} catch (err) {
@@ -427,34 +410,6 @@
 		/>
 	{/if}
 </div>
-
-{#if playingMedia}
-	<HDHomeRunPlayer
-		src={playingMedia.url}
-		title={playingMedia.title}
-		playUrl={playingMedia.seekable ? playingMedia.playUrl : undefined}
-		recordingId={playingMedia.seekable ? playingMedia.recordingId : undefined}
-		watchSessionId={playingMedia.watchSessionId}
-		startTimestamp={playingMedia.seekable ? playingMedia.startTimestamp : undefined}
-		recordEndTimestamp={playingMedia.seekable ? playingMedia.recordEndTimestamp : undefined}
-		seekable={playingMedia.seekable}
-		isWatchSession={playingMedia.isWatchSession}
-		channel={playingMedia.channel}
-		airing={playingMedia.airing}
-		{channels}
-		{favoriteChannels}
-		recordingRules={displayedRecordingRules}
-		{pendingRuleIds}
-		{officialDvrActive}
-		{recordingLoading}
-		onRecordEpisode={recordShowEpisode}
-		onRecordSeries={recordShowSeries}
-		onUpdateRule={updateRecordingRule}
-		onCancelRule={cancelRecordingRule}
-		onToggleFavorite={toggleFavorite}
-		onClose={closePlayer}
-	/>
-{/if}
 
 <style>
 	.guide-page {

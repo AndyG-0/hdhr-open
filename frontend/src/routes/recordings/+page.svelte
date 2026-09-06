@@ -3,14 +3,12 @@
 		api,
 		type HDHomeRunChannel,
 		type HDHomeRunDvrInfo,
-		type HDHomeRunGuideEntry,
 		type HDHomeRunRecording,
 		type HDHomeRunRecordingRule,
 		type HDHomeRunTuner,
 		type HDHomeRunTunerInfo,
 		type RecordingRuleOptions,
 	} from '$lib/api';
-	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
 	import RecordingCard from '$lib/components/RecordingCard.svelte';
 	import { openPopoutPlayer } from '$lib/popout';
 	import HDHomeRunKeywordRuleDialog, {
@@ -20,6 +18,8 @@
 	import HDHomeRunCancelRuleModal from '$lib/components/details/HDHomeRunCancelRuleModal.svelte';
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
+	import { page } from '$app/state';
+	import { playback, startPlayback, stopPlayback, updateContext, type PlaybackMedia } from '$lib/stores/playback';
 
 	let loading = $state(true);
 	let tunerConfigured = $state(true);
@@ -126,18 +126,6 @@
 		return (recording.provider ?? 'builtin') !== 'hdhomerun';
 	}
 
-	let playingMedia = $state<{
-		title: string;
-		url: string;
-		playUrl: string;
-		recordingId: string | null;
-		startTimestamp: number | null;
-		recordEndTimestamp: number | null;
-		seekable: boolean;
-		channel?: HDHomeRunChannel | null;
-		airing?: HDHomeRunGuideEntry | null;
-	} | null>(null);
-
 	async function loadAll() {
 		loading = true;
 		try {
@@ -214,19 +202,48 @@
 		});
 	}
 
+	function buildPlaybackContext() {
+		return {
+			channels,
+			favoriteChannels: new Set<string>(),
+			recordingRules: displayedRecordingRules,
+			pendingRuleIds: new Set<string>(),
+			officialDvrActive: dvrInfo?.is_builtin === false,
+			recordingLoading,
+			onRecordEpisode: recordShowEpisode,
+			onRecordSeries: recordShowSeries,
+			onUpdateRule: updateRuleFromDialog,
+			onCancelRule: cancelRecordingRule,
+		};
+	}
+
+	// Keeps the persistent player's context (callbacks/data) fresh whenever
+	// this page's own state changes, but only while this page is the one that
+	// started playback - otherwise a background page's stale closures would
+	// clobber the context another page just published.
+	$effect(() => {
+		void channels;
+		void displayedRecordingRules;
+		void dvrInfo;
+		void recordingLoading;
+		// Reads the store via get(), not $playback, so publishing a context
+		// update below doesn't re-trigger this same effect (an infinite loop).
+		const current = get(playback);
+		if (current.media && current.originPath === page.url.pathname) {
+			updateContext(buildPlaybackContext());
+		}
+	});
+
 	function watchChannel(channel: HDHomeRunChannel) {
 		if (channel.playback_url) {
-			playingMedia = {
+			const media: PlaybackMedia = {
 				title: `${channel.channel_number} ${channel.name}`,
 				url: api.hdhomerunPlaybackUrl(channel.playback_url),
-				playUrl: channel.playback_url,
-				recordingId: null,
-				startTimestamp: null,
-				recordEndTimestamp: null,
 				seekable: false,
 				channel,
 				airing: channel.now ?? null,
 			};
+			startPlayback(media, page.url.pathname, buildPlaybackContext());
 		} else {
 			window.open(api.hdhomerunPlaylistUrl(channel.channel_number), '_blank');
 		}
@@ -245,7 +262,7 @@
 		const seekable = recording.is_dvr_file === true && playbackMode === 'server_transcode';
 		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl);
 
-		playingMedia = {
+		const media: PlaybackMedia = {
 			title: recording.episode_title ? `${recording.title} - ${recording.episode_title}` : recording.title,
 			url: streamUrl,
 			playUrl,
@@ -254,12 +271,11 @@
 			recordEndTimestamp: recording.record_end,
 			seekable,
 		};
+		startPlayback(media, page.url.pathname, buildPlaybackContext());
 	}
 
 	function popoutRecording(recording: HDHomeRunRecording) {
-		if (playingMedia) {
-			playingMedia = null;
-		}
+		stopPlayback();
 		let playUrl = recording.play_url;
 		if (!playUrl && recording.recording_id) {
 			playUrl = `/recorded/${recording.recording_id}`;
@@ -416,6 +432,7 @@
 				end_padding: options.endPadding,
 				recent_only: options.recentOnly,
 				max_episodes_to_keep: options.maxEpisodesToKeep,
+				server: options.server,
 			});
 			editingRule = null;
 		} catch (err) {
@@ -873,29 +890,6 @@
 		loading={recordingLoading === 'keyword-rule'}
 		onConfirm={createKeywordRule}
 		onClose={() => (showKeywordRuleDialog = false)}
-	/>
-{/if}
-
-{#if playingMedia}
-	<HDHomeRunPlayer
-		src={playingMedia.url}
-		title={playingMedia.title}
-		playUrl={playingMedia.seekable ? playingMedia.playUrl : undefined}
-		recordingId={playingMedia.seekable ? playingMedia.recordingId : undefined}
-		startTimestamp={playingMedia.seekable ? playingMedia.startTimestamp : undefined}
-		recordEndTimestamp={playingMedia.seekable ? playingMedia.recordEndTimestamp : undefined}
-		seekable={playingMedia.seekable}
-		channel={playingMedia.channel}
-		airing={playingMedia.airing}
-		{channels}
-		recordingRules={displayedRecordingRules}
-		officialDvrActive={dvrInfo?.is_builtin === false}
-		{recordingLoading}
-		onRecordEpisode={recordShowEpisode}
-		onRecordSeries={recordShowSeries}
-		onUpdateRule={updateRuleFromDialog}
-		onCancelRule={cancelRecordingRule}
-		onClose={() => (playingMedia = null)}
 	/>
 {/if}
 

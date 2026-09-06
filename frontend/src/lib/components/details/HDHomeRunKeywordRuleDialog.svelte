@@ -53,7 +53,7 @@
 			channel: getEffectiveChannel(),
 			startPadding: startPaddingMinutes ? startPaddingMinutes * 60 : undefined,
 			endPadding: endPaddingMinutes ? endPaddingMinutes * 60 : undefined,
-			recentOnly: recentOnly || undefined,
+			recentOnly: Boolean(recentOnly),
 			maxEpisodesToKeep: retentionMode === 'limited' && retentionCount > 0 ? retentionCount : undefined,
 		});
 	}

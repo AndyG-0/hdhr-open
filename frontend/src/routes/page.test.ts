@@ -14,8 +14,12 @@ const {
 	hdhomerunPlaylistUrl,
 	hdhomerunRecordingCaptionsUrl,
 	hdhomerunRecordingDetail,
+	hdhomerunRecordingStreamUrl,
 	hdhomerunRecordingThumbnailVttUrl,
 	hdhomerunRecordingThumbnailSpriteUrl,
+	startWatch,
+	stopWatch,
+	heartbeatWatch,
 } = vi.hoisted(() => ({
 	getHDHomeRunChannels: vi.fn(),
 	getHDHomeRunGuide: vi.fn(),
@@ -38,6 +42,10 @@ const {
 	}),
 	hdhomerunRecordingThumbnailVttUrl: vi.fn((opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.vtt`),
 	hdhomerunRecordingThumbnailSpriteUrl: vi.fn((opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.jpg`),
+	hdhomerunRecordingStreamUrl: vi.fn((playUrl: string) => `https://example.com/proxy?src=${playUrl}`),
+	startWatch: vi.fn(),
+	stopWatch: vi.fn(),
+	heartbeatWatch: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('mpegts.js', () => ({
@@ -71,12 +79,18 @@ vi.mock('$lib/api', () => ({
 		hdhomerunPlaylistUrl,
 		hdhomerunRecordingCaptionsUrl,
 		hdhomerunRecordingDetail,
+		hdhomerunRecordingStreamUrl,
 		hdhomerunRecordingThumbnailVttUrl,
 		hdhomerunRecordingThumbnailSpriteUrl,
+		startWatch,
+		stopWatch,
+		heartbeatWatch,
 	},
 }));
 
 import Page from './+page.svelte';
+import PlayerHostHarness from '$lib/test-support/PlayerHostHarness.svelte';
+import { stopPlayback } from '$lib/stores/playback';
 
 const channel = {
 	channel_number: '4.1',
@@ -87,6 +101,17 @@ const channel = {
 	playback_url: '/api/hdhomerun/watch/4.1',
 	now: { title: 'Evening News', episode_title: null, start: null, end: null },
 	next: { title: 'Nightly Show', episode_title: null, start: null, end: null },
+};
+
+const channel2 = {
+	channel_number: '5.1',
+	name: 'KXAS',
+	is_hd: true,
+	is_drm: false,
+	stream_url: 'http://tuner.local/stream/5.1',
+	playback_url: '/api/hdhomerun/watch/5.1',
+	now: { title: 'Nightly News', episode_title: null, start: null, end: null },
+	next: null,
 };
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
@@ -118,6 +143,7 @@ describe('home +page.svelte (guide)', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		localStorage.clear();
+		stopPlayback();
 		getHDHomeRunGuide.mockResolvedValue([]);
 		getNetworkIntegration.mockResolvedValue(integration());
 		listRecordingRules.mockResolvedValue([]);
@@ -127,7 +153,7 @@ describe('home +page.svelte (guide)', () => {
 	it('shows a not-connected hint when there is no tuner', async () => {
 		getHDHomeRunChannels.mockRejectedValue(new Error('no tuner'));
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('No tuner configured yet — set up HDHomeRun in Settings.')).toBeInTheDocument();
 	});
@@ -136,7 +162,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunChannels.mockResolvedValue({ channels: [channel], guide_available: true });
 		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Evening News')).toBeInTheDocument();
 		expect(screen.getByText('4.1')).toBeInTheDocument();
@@ -146,7 +172,7 @@ describe('home +page.svelte (guide)', () => {
 	it('shows a guide-unavailable hint when the tuner has no guide data', async () => {
 		getHDHomeRunChannels.mockResolvedValue({ channels: [channel], guide_available: false });
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(
 			await screen.findByText(
@@ -159,7 +185,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunChannels.mockResolvedValue({ channels: [channel], guide_available: true });
 		updateNetworkIntegration.mockResolvedValue(integration(['4.1']));
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		await fireEvent.click(await screen.findByRole('button', { name: 'Add to favorites' }));
 
@@ -171,7 +197,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunChannels.mockResolvedValue({ channels: [channel], guide_available: true });
 		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
 		if (!liveCell) throw new Error('live airing cell not found');
@@ -188,7 +214,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunChannels.mockResolvedValue({ channels: [channel], guide_available: true });
 		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const channelNameEl = await screen.findByText('KDFW');
 		const channelCol = channelNameEl.closest('.channel-col');
@@ -204,7 +230,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
 		updateNetworkIntegration.mockResolvedValue(integration(['4.1']));
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const favBtn = await screen.findByRole('button', { name: 'Add to favorites' });
 		await fireEvent.click(favBtn);
@@ -226,7 +252,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunChannels.mockResolvedValue({ channels: [channelWithLive], guide_available: true });
 		getHDHomeRunGuide.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Current Live Show')).toBeInTheDocument();
 	});
@@ -257,7 +283,7 @@ describe('home +page.svelte (guide)', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Current Gap-Fill Show')).toBeInTheDocument();
 		expect(await screen.findByText('Late Night Show')).toBeInTheDocument();
@@ -269,7 +295,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
 		addHDHomeRunRecordingRule.mockRejectedValue(new Error('no active DVR subscription'));
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
 		if (!liveCell) throw new Error('live airing cell not found');
@@ -288,7 +314,7 @@ describe('home +page.svelte (guide)', () => {
 		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
 		addHDHomeRunRecordingRule.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
 		if (!liveCell) throw new Error('live airing cell not found');
@@ -314,7 +340,7 @@ describe('home +page.svelte (guide)', () => {
 			keyword_query: undefined,
 			start_padding: 300,
 			end_padding: 600,
-			recent_only: undefined,
+			recent_only: false,
 			max_episodes_to_keep: 2,
 			server: undefined,
 		});
@@ -331,7 +357,7 @@ describe('home +page.svelte (guide)', () => {
 		// very next rules fetch doesn't include the newly created rule yet.
 		listRecordingRules.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
 		if (!liveCell) throw new Error('live airing cell not found');
@@ -353,7 +379,7 @@ describe('home +page.svelte (guide)', () => {
 		localStorage.setItem('hdhomerun-pending-rules', JSON.stringify([{ rule: newRule, createdAt: Date.now() }]));
 		listRecordingRules.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('⏳ Pending')).toBeInTheDocument();
 	});
@@ -368,7 +394,7 @@ describe('home +page.svelte (guide)', () => {
 		);
 		listRecordingRules.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		await screen.findByText('Evening News');
 		expect(screen.queryByText('⏳ Pending')).not.toBeInTheDocument();
@@ -382,7 +408,7 @@ describe('home +page.svelte (guide)', () => {
 			{ RecordingRuleID: 'rule-live-1', SeriesID: 'SH123', Title: 'Evening News' },
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
 		if (!liveCell) throw new Error('live airing cell not found');
@@ -406,6 +432,9 @@ describe('home +page.svelte (guide)', () => {
 			expect(addHDHomeRunRecordingRule).toHaveBeenCalledWith({
 				series_id: 'SH123',
 				channel: '4.1',
+				title: 'Evening News',
+				title_match_mode: undefined,
+				keyword_query: undefined,
 				start_padding: undefined,
 				end_padding: undefined,
 				recent_only: undefined,
@@ -413,5 +442,58 @@ describe('home +page.svelte (guide)', () => {
 				server: undefined,
 			}),
 		);
+	});
+
+	it('shows fallback notice banner when a created rule falls back to builtin DVR', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		getHDHomeRunChannels.mockResolvedValue({ channels: [channel], guide_available: true });
+		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
+		listRecordingRules.mockResolvedValue([]);
+		addHDHomeRunRecordingRule.mockResolvedValue([
+			{
+				RecordingRuleID: 'rule-fallback-page',
+				Title: 'Evening News',
+				fallback_reason: 'Airing lacks a SiliconDust Series ID in the guide; fell back to Built-in DVR.',
+				provider: 'builtin',
+			},
+		]);
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
+		if (!liveCell) throw new Error('live airing cell not found');
+
+		await fireEvent.pointerDown(liveCell);
+		await vi.advanceTimersByTimeAsync(500);
+		await fireEvent.click(screen.getByRole('menuitem', { name: 'Record Series' }));
+
+		expect(await screen.findByText(/Scheduled on Built-in DVR: "Evening News" lacks a SiliconDust Series ID/i)).toBeInTheDocument();
+		vi.useRealTimers();
+	});
+
+	it('stops the previous watch session before starting a new one when zapping channels from the in-player drawer', async () => {
+		getHDHomeRunChannels.mockResolvedValue({ channels: [channel, channel2], guide_available: true });
+		getHDHomeRunGuide.mockResolvedValue(guideWithLiveAiring());
+		startWatch
+			.mockResolvedValueOnce({ recording_id: 'rec1', session_id: 'sess1', play_url: '/rec1', start: nowSeconds() })
+			.mockResolvedValueOnce({ recording_id: 'rec2', session_id: 'sess2', play_url: '/rec2', start: nowSeconds() });
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		const liveCell = (await screen.findByText('Evening News')).closest('.airing-cell');
+		if (!liveCell) throw new Error('live airing cell not found');
+		await fireEvent.click(liveCell);
+
+		expect(await screen.findByRole('dialog', { name: '4.1 KDFW' })).toBeInTheDocument();
+		expect(startWatch).toHaveBeenCalledWith('4.1');
+		expect(stopWatch).not.toHaveBeenCalled();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Channels' }));
+		const drawer = screen.getByRole('dialog', { name: 'Channels' });
+		await fireEvent.click(within(drawer).getByText('KXAS'));
+
+		expect(stopWatch).toHaveBeenCalledWith('sess1');
+		expect(startWatch).toHaveBeenCalledWith('5.1');
+		expect(await screen.findByRole('dialog', { name: '5.1 KXAS' })).toBeInTheDocument();
 	});
 });

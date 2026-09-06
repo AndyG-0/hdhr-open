@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import {
 		api,
+		type CommercialSegment,
 		type HDHomeRunChannel,
 		type HDHomeRunGuideEntry,
 		type HDHomeRunRecordingAudioInfo,
@@ -22,6 +23,8 @@
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
 	import LoadingQuipOverlay from './player/LoadingQuipOverlay.svelte';
 	import SyncPlayModal from './player/SyncPlayModal.svelte';
+	import PlayerChannelDrawer from './player/PlayerChannelDrawer.svelte';
+	import MiniPlayer from './player/MiniPlayer.svelte';
 	import { openPopoutPlayer } from '$lib/popout';
 
 	interface Props {
@@ -61,8 +64,11 @@
 		) => Promise<void> | void;
 		onCancelRule?: (ruleId: string) => Promise<void> | void;
 		onToggleFavorite?: (channelNumber: string) => Promise<void> | void;
+		onChannelChange?: (channel: HDHomeRunChannel) => void;
 		allowPopout?: boolean;
 		onPopout?: () => void;
+		displayMode?: 'full' | 'mini';
+		onExpand?: () => void;
 	}
 
 	let {
@@ -86,11 +92,14 @@
 		recordingLoading = null,
 		allowPopout = true,
 		onPopout,
+		displayMode = 'full',
+		onExpand,
 		onRecordEpisode,
 		onRecordSeries,
 		onUpdateRule,
 		onCancelRule,
 		onToggleFavorite,
+		onChannelChange,
 	}: Props = $props();
 
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
@@ -126,6 +135,7 @@
 	let thumbnailsAvailable = $state(false);
 	let thumbnailCues = $state<ThumbnailCue[]>([]);
 	let thumbSpriteUrl = $state('');
+	let commercialSegments = $state<CommercialSegment[]>([]);
 
 	let captionCues = $state<CaptionCue[]>([]);
 	let transcodeInfo = $state<HDHomeRunTranscodeInfo | null>(null);
@@ -139,6 +149,7 @@
 	let showRecordMenu = $state(false);
 	let showOptionsDialog = $state(false);
 	let showSyncPlayModal = $state(false);
+	let showChannelDrawer = $state(false);
 	let syncPlayRoom = $state<SyncPlayRoom | null>(null);
 	let syncPlayStatus = $state<SyncPlayStatus>('disconnected');
 	let syncPlayPingMs = $state(0);
@@ -202,6 +213,8 @@
 
 	const isLive = $derived(isWatchSession || isInProgress || !seekable || channel !== null);
 
+	const channelSwitcherAvailable = $derived(isLive && channels.length > 0);
+
 	const isFavorited = $derived(
 		Boolean(channelNumber && favoriteChannels.has(channelNumber)),
 	);
@@ -223,6 +236,16 @@
 	);
 
 	const displayedPosition = $derived(baseOffsetSeconds + videoCurrentTime);
+
+	const activeCommercialSegment = $derived.by<CommercialSegment | null>(() => {
+		for (const segment of commercialSegments) {
+			if (displayedPosition >= segment.start_seconds && displayedPosition < segment.end_seconds) {
+				return segment;
+			}
+		}
+		return null;
+	});
+
 	const captionsUrl = $derived(
 		playUrl
 			? api.hdhomerunRecordingCaptionsUrl({
@@ -313,6 +336,7 @@
 			hasCaptions = detail.has_captions;
 			secondaryCaptions = detail.secondary_captions;
 			transcodeInfo = detail.transcode;
+			commercialSegments = detail.commercial_segments ?? [];
 		} catch {
 			// Detail is an enhancement
 		}
@@ -420,6 +444,11 @@
 		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(clamped, currentAudioIndex));
 		syncPlayController.sendSeek(clamped);
 		resetAutoHideTimer();
+	}
+
+	function skipCommercial() {
+		if (!activeCommercialSegment) return;
+		seekTo(activeCommercialSegment.end_seconds);
 	}
 
 	const currentSyncContent = $derived.by<SyncPlayContent>(() => {
@@ -609,6 +638,12 @@
 		resetAutoHideTimer();
 	}
 
+	function selectDrawerChannel(target: HDHomeRunChannel) {
+		showChannelDrawer = false;
+		if (target.channel_number === channelNumber) return;
+		onChannelChange?.(target);
+	}
+
 	async function toggleFullscreen() {
 		if (typeof document === 'undefined') return;
 		try {
@@ -666,7 +701,8 @@
 			showAudioMenu ||
 			showSettingsMenu ||
 			showPlaybackInfo ||
-			showSyncPlayModal;
+			showSyncPlayModal ||
+			showChannelDrawer;
 
 		if (!videoPaused && !hasActiveMenu) {
 			autoHideTimer = setTimeout(() => {
@@ -680,6 +716,10 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
+		// The component now stays mounted (and this <svelte:window> listener
+		// stays bound) while mini elsewhere in the app, so keystrokes must not
+		// hijack playback unless the full player actually has the user's focus.
+		if (displayMode !== 'full') return;
 		const target = e.target as HTMLElement | null;
 		if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
 			if (e.key === 'Escape') {
@@ -690,7 +730,9 @@
 
 		resetAutoHideTimer();
 		if (e.key === 'Escape') {
-			if (showSyncPlayModal) {
+			if (showChannelDrawer) {
+				showChannelDrawer = false;
+			} else if (showSyncPlayModal) {
 				showSyncPlayModal = false;
 			} else if (showPlaybackInfo) {
 				showPlaybackInfo = false;
@@ -935,26 +977,7 @@
 		node.addEventListener('loadeddata', handleLoadedData);
 		node.addEventListener('timeupdate', handleTimeUpdate);
 
-		(async () => {
-			if (seekable) {
-				await loadDetail();
-				if (destroyed) return;
-				if (isInProgress) {
-					baseOffsetSeconds = duration ?? 0;
-					mpegtsPlayer.createPlayerAt(node, buildStreamUrl(undefined, currentAudioIndex));
-					captionController.pollLiveCaptions();
-					startPolling();
-					startCaptionPolling();
-				} else {
-					baseOffsetSeconds = 0;
-					mpegtsPlayer.createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
-					loadThumbnails();
-					captionController.loadCaptions();
-				}
-			} else {
-				mpegtsPlayer.createPlayerAt(node, src);
-			}
-		})();
+		loadMedia(node);
 
 		return {
 			destroy() {
@@ -982,6 +1005,79 @@
 			},
 		};
 	}
+
+	async function loadMedia(node: HTMLVideoElement): Promise<void> {
+		if (seekable) {
+			await loadDetail();
+			if (destroyed) return;
+			if (isInProgress) {
+				baseOffsetSeconds = duration ?? 0;
+				mpegtsPlayer.createPlayerAt(node, buildStreamUrl(undefined, currentAudioIndex));
+				captionController.pollLiveCaptions();
+				startPolling();
+				startCaptionPolling();
+			} else {
+				baseOffsetSeconds = 0;
+				mpegtsPlayer.createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
+				loadThumbnails();
+				captionController.loadCaptions();
+			}
+		} else {
+			mpegtsPlayer.createPlayerAt(node, src);
+		}
+	}
+
+	// Identifies "what should currently be playing" - changes whenever the
+	// user zaps to a different live channel or a different recording/watch
+	// session via the in-player channel drawer (selectDrawerChannel ->
+	// onChannelChange -> parent reassigns props to a new channel while this
+	// component instance, and its <video> element, stay mounted so
+	// fullscreen/PiP survive the swap - see requestFullscreen() targeting
+	// overlayEl). Since attachPlayer's use: action only runs once at mount,
+	// swapping src/playUrl/etc alone never re-triggers mpegts playback -
+	// the effect below is what notices the identity changed and reloads.
+	const mediaKey = $derived(
+		`${seekable ? 'rec' : 'live'}:${channelNumber ?? ''}:${recordingId ?? ''}:${watchSessionId ?? ''}:${playUrl ?? ''}:${src}`,
+	);
+
+	function switchMedia() {
+		if (!videoElement || destroyed) return;
+		stopPolling();
+		stopCaptionPolling();
+		mpegtsPlayer.teardownPlayer();
+		isVideoLoading = true;
+		duration = null;
+		isInProgress = false;
+		videoInfo = null;
+		audioTracks = [];
+		currentAudioIndex = null;
+		hasCaptions = false;
+		secondaryCaptions = null;
+		thumbnailsAvailable = false;
+		thumbnailCues = [];
+		thumbSpriteUrl = '';
+		transcodeInfo = null;
+		commercialSegments = [];
+		captionCues = [];
+		videoCurrentTime = 0;
+		baseOffsetSeconds = 0;
+		captionController.resetStretchCursor();
+		loadMedia(videoElement);
+	}
+
+	// Skips the initial run - attachPlayer's own mount call already loads
+	// the first channel/recording - and reloads only on later changes.
+	let initializedMediaKey: string | undefined;
+	$effect(() => {
+		const key = mediaKey;
+		if (initializedMediaKey === undefined) {
+			initializedMediaKey = key;
+			return;
+		}
+		if (key === initializedMediaKey) return;
+		initializedMediaKey = key;
+		switchMedia();
+	});
 
 	// Fullscreen & PiP Event Listeners
 	$effect(() => {
@@ -1138,6 +1234,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
 	class="overlay"
+	class:mini={displayMode === 'mini'}
 	class:hide-cursor={!showControls && !videoPaused}
 	role="dialog"
 	aria-label={title}
@@ -1146,6 +1243,7 @@
 	onmousemove={handleMouseMove}
 	use:portal
 >
+	{#if displayMode === 'full'}
 	<!-- Top Header -->
 	<div class="header-wrap" class:visible={showControls || videoPaused}>
 		<PlayerHeader
@@ -1191,6 +1289,7 @@
 			{/if}
 		</p>
 	{/if}
+	{/if}
 
 	<!-- Video Area -->
 	<div
@@ -1198,7 +1297,7 @@
 		class:aspect-16-9={aspectRatio === '16:9'}
 		class:aspect-4-3={aspectRatio === '4:3'}
 		onclick={togglePlay}
-		ondblclick={toggleFullscreen}
+		ondblclick={displayMode === 'full' ? toggleFullscreen : undefined}
 		role="button"
 		tabindex="0"
 		aria-label="Video playback"
@@ -1221,26 +1320,57 @@
 			{...{ 'x-webkit-airplay': 'allow' }}
 		></video>
 
-		<!-- Center Play/Pause Flash Ripple Animation -->
-		{#if centerFlash}
-			<div class="center-flash-ripple" aria-hidden="true">
-				<PlayerIcon name={centerFlash} size={48} />
-			</div>
-		{/if}
+		{#if displayMode === 'full'}
+			<!-- Center Play/Pause Flash Ripple Animation -->
+			{#if centerFlash}
+				<div class="center-flash-ripple" aria-hidden="true">
+					<PlayerIcon name={centerFlash} size={48} />
+				</div>
+			{/if}
 
-		<!-- Custom Caption Overlay -->
-		{#if captionsEnabled && activeCaptionLines.length > 0}
-			<div class="caption-overlay" class:with-footer={showControls} aria-live="polite">
-				{#each activeCaptionLines as line, i (i + line)}
-					<div class="caption-line">{line}</div>
-				{/each}
-			</div>
-		{/if}
+			<!-- Custom Caption Overlay -->
+			{#if captionsEnabled && activeCaptionLines.length > 0}
+				<div class="caption-overlay" class:with-footer={showControls} aria-live="polite">
+					{#each activeCaptionLines as line, i (i + line)}
+						<div class="caption-line">{line}</div>
+					{/each}
+				</div>
+			{/if}
 
-		<!-- Loading Quip & Spinner Overlay -->
-		<LoadingQuipOverlay visible={isVideoLoading && !errorMessage} />
+			<!-- Skip Commercial Prompt -->
+			{#if activeCommercialSegment}
+				<div class="skip-commercial-overlay" class:with-footer={showControls}>
+					<button
+						type="button"
+						class="skip-commercial-btn"
+						onclick={(e) => {
+							e.stopPropagation();
+							skipCommercial();
+						}}
+					>
+						{$_('player.skip_commercial', { default: 'Skip Commercial' })}
+					</button>
+				</div>
+			{/if}
+
+			<!-- Loading Quip & Spinner Overlay -->
+			<LoadingQuipOverlay visible={isVideoLoading && !errorMessage} />
+		{/if}
 	</div>
 
+	{#if displayMode === 'mini'}
+		<MiniPlayer
+			{title}
+			subtitle={episodeSubtitle}
+			paused={videoPaused}
+			{isVideoLoading}
+			onTogglePlay={togglePlay}
+			{onClose}
+			onExpand={() => onExpand?.()}
+		/>
+	{/if}
+
+	{#if displayMode === 'full'}
 	<!-- Bottom Footer -->
 	<div class="footer-wrap" class:visible={showControls || videoPaused}>
 		<PlayerFooter
@@ -1251,6 +1381,7 @@
 			{thumbnailsAvailable}
 			{thumbSpriteUrl}
 			{thumbnailCues}
+			{commercialSegments}
 			paused={videoPaused}
 			{volume}
 			{muted}
@@ -1289,6 +1420,8 @@
 			syncPlayParticipantsCount={syncPlayRoom?.participants?.length ?? 0}
 			onToggleSyncPlay={() => (showSyncPlayModal = !showSyncPlayModal)}
 			onTogglePlaybackInfo={() => (showPlaybackInfo = !showPlaybackInfo)}
+			{channelSwitcherAvailable}
+			onToggleChannelDrawer={() => (showChannelDrawer = !showChannelDrawer)}
 		/>
 	</div>
 
@@ -1382,6 +1515,18 @@
 			}}
 		/>
 	{/if}
+
+	<!-- Quick Channel Switcher -->
+	{#if showChannelDrawer}
+		<PlayerChannelDrawer
+			{channels}
+			{favoriteChannels}
+			currentChannelNumber={channelNumber}
+			onSelect={selectDrawerChannel}
+			onClose={() => (showChannelDrawer = false)}
+		/>
+	{/if}
+	{/if}
 </div>
 
 <style>
@@ -1398,6 +1543,20 @@
 
 	.overlay.hide-cursor {
 		cursor: none;
+	}
+
+	/* Docked mini box (CAST-4): playback keeps running elsewhere in the app,
+	   so this must not blanket-cover the viewport like the full overlay does. */
+	.overlay.mini {
+		position: fixed;
+		inset: auto;
+		bottom: 1rem;
+		right: 1rem;
+		width: 200px;
+		height: 120px;
+		z-index: 200;
+		border-radius: 0.5rem;
+		box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
 	}
 
 	.header-wrap,
@@ -1550,6 +1709,37 @@
 		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 		white-space: pre-wrap;
 		word-break: break-word;
+	}
+
+	.skip-commercial-overlay {
+		position: absolute;
+		bottom: 2rem;
+		right: 1.25rem;
+		z-index: 106;
+		transition: bottom 0.25s ease;
+	}
+
+	.skip-commercial-overlay.with-footer {
+		bottom: 6rem;
+	}
+
+	.skip-commercial-btn {
+		background: rgba(22, 22, 26, 0.96);
+		backdrop-filter: blur(16px);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 0.4rem;
+		color: #ffffff;
+		font-size: 0.9rem;
+		font-weight: 600;
+		padding: 0.55rem 1rem;
+		cursor: pointer;
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+		transition: background 0.15s ease;
+	}
+
+	.skip-commercial-btn:hover {
+		background: rgba(56, 189, 248, 0.25);
+		border-color: #38bdf8;
 	}
 
 	.info-overlay-modal {

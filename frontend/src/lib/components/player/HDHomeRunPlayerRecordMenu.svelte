@@ -8,6 +8,7 @@
 		isPending: boolean;
 		isActionLoading: boolean;
 		channelName: string;
+		channelNumber?: string;
 		channels?: HDHomeRunChannel[];
 		effectiveAiring: HDHomeRunGuideEntry | null;
 		officialDvrActive: boolean;
@@ -24,6 +25,7 @@
 		isPending,
 		isActionLoading,
 		channelName,
+		channelNumber,
 		channels = [],
 		effectiveAiring,
 		officialDvrActive,
@@ -63,6 +65,16 @@
 					{#if isPending}
 						<div class="pending-hint">{$_('player.pending_confirmation')}</div>
 					{/if}
+					<button
+						class="menu-item"
+						disabled={isActionLoading}
+						onclick={() => {
+							showRecordMenu = false;
+							showOptionsDialog = true;
+						}}
+					>
+						⚙️ {$_('player.recording_options')}
+					</button>
 					<button class="menu-item danger" disabled={isActionLoading} onclick={onCancelRecording}>
 						{$_('player.cancel_recording')}
 					</button>
@@ -95,7 +107,7 @@
 	<HDHomeRunRecordingOptionsDialog
 		airing={effectiveAiring}
 		{channelName}
-		channelNumber={effectiveAiring.channel_number}
+		channelNumber={channelNumber ?? effectiveAiring.channel_number}
 		{channels}
 		canRecordSeries={Boolean(effectiveAiring.series_id || effectiveAiring.title)}
 		{officialDvrActive}
@@ -105,7 +117,14 @@
 			await onCancelRecording();
 			showOptionsDialog = false;
 		}}
-		onConfirm={onConfirmOptions}
+		onConfirm={(mode, options) => {
+			onConfirmOptions(mode, options);
+			showOptionsDialog = false;
+		}}
+		onUpdateRule={(ruleId, mode, options) => {
+			onConfirmOptions(mode, options);
+			showOptionsDialog = false;
+		}}
 		onClose={() => (showOptionsDialog = false)}
 	/>
 {/if}

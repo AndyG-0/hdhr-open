@@ -89,6 +89,8 @@ vi.mock('$lib/api', () => ({
 }));
 
 import Page from './+page.svelte';
+import PlayerHostHarness from '$lib/test-support/PlayerHostHarness.svelte';
+import { stopPlayback } from '$lib/stores/playback';
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -113,6 +115,7 @@ const integration = (playbackMode = 'server_transcode') => ({
 describe('recordings +page.svelte', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		stopPlayback();
 		getDvrInfo.mockResolvedValue(null);
 		listRecordings.mockResolvedValue([]);
 		listRecordingRules.mockResolvedValue([]);
@@ -125,7 +128,7 @@ describe('recordings +page.svelte', () => {
 	it('shows a not-connected hint when there is no tuner', async () => {
 		getHDHomeRunChannels.mockRejectedValue(new Error('no tuner'));
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('No tuner configured yet — set up HDHomeRun in Settings.')).toBeInTheDocument();
 	});
@@ -133,7 +136,7 @@ describe('recordings +page.svelte', () => {
 	it('shows the DVR free-space hint', async () => {
 		getDvrInfo.mockResolvedValue({ friendly_name: 'DVR', version: '1.0', free_space_bytes: 500_000_000_000 });
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Free space: 500.0 GB')).toBeInTheDocument();
 	});
@@ -160,7 +163,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Big Game')).toBeInTheDocument();
 		expect(screen.getByText('● Recording')).toBeInTheDocument();
@@ -194,7 +197,7 @@ describe('recordings +page.svelte', () => {
 		]);
 		deleteRecording.mockResolvedValue({ status: 'deleted' });
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Finished Show')).toBeInTheDocument();
 
@@ -218,7 +221,7 @@ describe('recordings +page.svelte', () => {
 		]);
 		deleteRecording.mockRejectedValue(new Error('Recording is still in progress'));
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Finished Show')).toBeInTheDocument();
 
@@ -241,7 +244,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const watchLiveBtn = await screen.findByRole('button', { name: '▶ Watch Live' });
 		await fireEvent.click(watchLiveBtn);
@@ -264,7 +267,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		await fireEvent.click(await screen.findByRole('button', { name: '▶ ▶ Watch' }));
 
@@ -288,7 +291,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		await fireEvent.click(await screen.findByRole('button', { name: '▶ ▶ Watch' }));
 
@@ -301,12 +304,16 @@ describe('recordings +page.svelte', () => {
 		listRecordingRules.mockResolvedValue([rule]);
 		deleteHDHomeRunRecordingRule.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Evening News')).toBeInTheDocument();
 		expect(screen.getByText('Series Rule')).toBeInTheDocument();
 
-		await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+		await fireEvent.click(screen.getByRole('button', { name: 'Cancel Recording' }));
+		const modal = await screen.findByRole('alertdialog');
+		expect(modal).toBeInTheDocument();
+		const confirmBtn = within(modal).getByRole('button', { name: 'Cancel Recording' });
+		await fireEvent.click(confirmBtn);
 
 		expect(deleteHDHomeRunRecordingRule).toHaveBeenCalledWith('rule-1');
 		await screen.findByText('No scheduled recordings.');
@@ -324,7 +331,7 @@ describe('recordings +page.svelte', () => {
 		};
 		listRecordingRules.mockResolvedValue([rule]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Evening News')).toBeInTheDocument();
 		expect(screen.getByText('+5m / +10m padding')).toBeInTheDocument();
@@ -335,7 +342,7 @@ describe('recordings +page.svelte', () => {
 		const rule = { RecordingRuleID: 'rule-1', SeriesID: 'SH123', Title: 'Evening News', ChannelOnly: '4.1' };
 		listRecordingRules.mockResolvedValue([rule]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Evening News')).toBeInTheDocument();
 		expect(screen.queryByText(/padding/)).not.toBeInTheDocument();
@@ -343,7 +350,7 @@ describe('recordings +page.svelte', () => {
 	});
 
 	it('shows a no-scheduled-recordings hint when there are none', async () => {
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('No scheduled recordings.')).toBeInTheDocument();
 	});
@@ -397,7 +404,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('2 tuners')).toBeInTheDocument();
 		const popover = screen.getByRole('tooltip');
@@ -467,7 +474,7 @@ describe('recordings +page.svelte', () => {
 			],
 		});
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const popover = await screen.findByRole('tooltip');
 		const terminateBtn = within(popover).getByText('Terminate');
@@ -521,7 +528,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Builtin Show')).toBeInTheDocument();
 		expect(screen.getByText('HDHR Show')).toBeInTheDocument();
@@ -561,7 +568,7 @@ describe('recordings +page.svelte', () => {
 		]);
 		addHDHomeRunRecordingRule.mockResolvedValue([]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		const watchLiveBtn = await screen.findByRole('button', { name: /Watch Live/i });
 		await fireEvent.click(watchLiveBtn);
@@ -578,6 +585,44 @@ describe('recordings +page.svelte', () => {
 		expect(addHDHomeRunRecordingRule).toHaveBeenCalledWith(
 			expect.objectContaining({
 				channel: '4.1',
+				title: 'KDFW',
+			}),
+		);
+	});
+
+	it('allows recording a series from the player when watching a live in-progress recording', async () => {
+		listRecordings.mockResolvedValue([
+			{
+				recording_id: 'rec-live-2',
+				title: 'Live News',
+				channel_name: 'KDFW',
+				channel_number: '4.1',
+				start: nowSeconds() - 600,
+				record_end: nowSeconds() + 1200,
+				is_dvr_file: false,
+			},
+		]);
+		addHDHomeRunRecordingRule.mockResolvedValue([]);
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		const watchLiveBtn = await screen.findByRole('button', { name: /Watch Live/i });
+		await fireEvent.click(watchLiveBtn);
+
+		const playerDialog = await screen.findByRole('dialog', { name: '4.1 KDFW' });
+		expect(playerDialog).toBeInTheDocument();
+
+		const recordBtn = within(playerDialog).getByRole('button', { name: /Record/i });
+		await fireEvent.click(recordBtn);
+
+		const seriesBtn = within(playerDialog).getByRole('button', { name: /Record Series/i });
+		await fireEvent.click(seriesBtn);
+
+		expect(addHDHomeRunRecordingRule).toHaveBeenCalledWith(
+			expect.objectContaining({
+				series_id: 'auto',
+				channel: '4.1',
+				title: 'KDFW',
 			}),
 		);
 	});
@@ -607,7 +652,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Planet Earth')).toBeInTheDocument();
 		expect(screen.getByText('Mountains')).toBeInTheDocument();
@@ -634,7 +679,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		const { container } = render(Page);
+		const { container } = render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Broken Image Show')).toBeInTheDocument();
 		const img = container.querySelector('img.rec-thumb');
@@ -676,7 +721,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect((await screen.findAllByText(/Shows \(1\)/i)).length).toBeGreaterThanOrEqual(1);
 		expect(screen.getAllByText(/Movies \(1\)/i).length).toBeGreaterThanOrEqual(1);
@@ -709,7 +754,7 @@ describe('recordings +page.svelte', () => {
 			},
 		]);
 
-		render(Page);
+		render(PlayerHostHarness, { props: { page: Page } });
 
 		expect(await screen.findByText('Cheers')).toBeInTheDocument();
 		expect(screen.getByText('NFL Football')).toBeInTheDocument();
@@ -720,6 +765,22 @@ describe('recordings +page.svelte', () => {
 
 		expect(screen.queryByText('Cheers')).not.toBeInTheDocument();
 		expect(screen.getByText('NFL Football')).toBeInTheDocument();
+	});
+
+	it('displays fallback badge on rule cards when rule has fallback_reason', async () => {
+		listRecordingRules.mockResolvedValue([
+			{
+				RecordingRuleID: 'rule_fallback_1',
+				Title: 'Local Evening News',
+				fallback_reason: 'Airing lacks a SiliconDust Series ID in the guide; fell back to Built-in DVR.',
+				provider: 'builtin',
+			},
+		]);
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		expect(await screen.findByText('Local Evening News')).toBeInTheDocument();
+		expect(screen.getByText('Built-in (Fallback)')).toBeInTheDocument();
 	});
 });
 
