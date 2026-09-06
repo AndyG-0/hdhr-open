@@ -7,6 +7,7 @@ public struct iOSGuideView: View {
 
     @State private var searchText: String = ""
     @State private var selectedAiringForSheet: (channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry)?
+    @State private var showAIAssistantSheet: Bool = false
 
     public init() {}
 
@@ -43,6 +44,15 @@ public struct iOSGuideView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: {
+                    showAIAssistantSheet = true
+                }) {
+                    Image(systemName: "sparkles")
+                }
+                .accessibilityLabel("AI Assistant")
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
                     Task { await guideViewModel.loadData() }
                 }) {
                     Image(systemName: "arrow.clockwise")
@@ -54,6 +64,9 @@ public struct iOSGuideView: View {
             set: { _ in selectedAiringForSheet = nil }
         )) { wrapper in
             iOSProgramDetailSheet(channel: wrapper.channel, airing: wrapper.airing)
+        }
+        .sheet(isPresented: $showAIAssistantSheet) {
+            iOSAIAssistantSheet(apiClient: guideViewModel.apiClient)
         }
         .refreshable {
             await guideViewModel.loadData()

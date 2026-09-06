@@ -74,6 +74,13 @@ public struct TVPlayerRecordMenuOverlay: View {
                                 .padding(.vertical, 10)
                         }
                         .focused($focusedElement, equals: .cancel)
+
+                        Button(action: onOptions) {
+                            Label("Recording Options…", systemImage: "slider.horizontal.3")
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                        }
+                        .focused($focusedElement, equals: .options)
                     } else {
                         Button(action: onSaveCurrentRecording) {
                             Label(isPromoted ? "Recording Saved" : "Save Current Recording", systemImage: "checkmark.circle")

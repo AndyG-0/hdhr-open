@@ -253,7 +253,16 @@ public struct TVProgramDetailModal: View {
                 onConfirm: { recordSeries, options in
                     showOptionsModal = false
                     Task {
-                        if recordSeries {
+                        if let rule = existingRule {
+                            try? await guideViewModel.updateRule(
+                                ruleId: rule.recordingRuleId,
+                                isSeries: recordSeries,
+                                options: options,
+                                seriesId: airing.seriesId,
+                                start: airing.start,
+                                channelNumber: channel.channelNumber
+                            )
+                        } else if recordSeries {
                             try? await guideViewModel.recordSeries(
                                 seriesId: airing.seriesId ?? "",
                                 channelNumber: channel.channelNumber,

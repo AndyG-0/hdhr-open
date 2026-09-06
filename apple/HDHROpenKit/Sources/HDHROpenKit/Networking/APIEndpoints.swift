@@ -42,6 +42,7 @@ public enum APIEndpoints {
     }
 
     public static func recordingRules() -> String { "/api/dvr/recording-rules" }
+    public static func updateRecordingRule(_ id: String) -> String { "/api/dvr/recording-rules/\(id)" }
     public static func deleteRecordingRule(_ id: String) -> String { "/api/dvr/recording-rules/\(id)" }
 
     public static func hlsChannelSession(channelNumber: String, audioIndex: Int? = nil) -> String {
@@ -83,4 +84,27 @@ public enum APIEndpoints {
     public static func networkIntegration(_ type: String) -> String { "/api/network-settings/\(type)" }
     public static func testTunerConnection() -> String { "/api/network-settings/hdhomerun/test-tuner-connection" }
     public static func testDvrConnection() -> String { "/api/network-settings/hdhomerun/test-dvr-connection" }
+
+    public static func syncPlayRooms() -> String { "/api/syncplay/rooms" }
+    public static func syncPlayRoom(_ code: String) -> String { "/api/syncplay/rooms/\(code)" }
+    public static func syncPlayWs(roomCode: String, userName: String? = nil, token: String? = nil) -> String {
+        var query: [String] = []
+        if let token = token {
+            query.append("token=\(token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? token)")
+        }
+        if let userName = userName {
+            query.append("user_name=\(userName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? userName)")
+        }
+        let q = query.isEmpty ? "" : "?\(query.joined(separator: "&"))"
+        return "/api/syncplay/ws/\(roomCode)\(q)"
+    }
+
+    // MARK: - AI Assistant APIs
+
+    public static func aiChat() -> String { "/api/ai/chat" }
+    public static func aiTestConnection() -> String { "/api/ai/test-connection" }
+    public static func aiListModels() -> String { "/api/ai/list-models" }
+    public static func aiConfirmAction(_ id: String) -> String { "/api/ai/actions/\(id)/confirm" }
+    public static func aiCancelAction(_ id: String) -> String { "/api/ai/actions/\(id)/cancel" }
 }
+

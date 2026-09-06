@@ -21,7 +21,7 @@ public struct iOSPlayerView: View {
 
             // Video Player
             if let avPlayer = playerViewModel.playerEngine.avPlayer {
-                PlayerLayerView(player: avPlayer)
+                PlayerLayerView(player: avPlayer, pictureInPictureEngine: playerViewModel.playerEngine)
                     .ignoresSafeArea()
             }
 
@@ -117,6 +117,27 @@ public struct iOSPlayerView: View {
 
                         Spacer()
 
+                        // SyncPlay Watch Party Button
+                        Button(action: {
+                            playerViewModel.showSyncPlaySheet = true
+                        }) {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.title3)
+                                    .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .accentColor : .white)
+                                if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
+                                    Text("\(playerViewModel.syncPlayClient.participants.count)")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 2)
+                                        .background(Capsule().fill(Color.blue))
+                                        .offset(x: 10, y: -8)
+                                }
+                            }
+                        }
+                        .padding(.trailing, 8)
+
                         // Playback Info Button
                         Button(action: {
                             showPlaybackInfo = true
@@ -134,6 +155,18 @@ public struct iOSPlayerView: View {
                             Image(systemName: playerViewModel.captionController.isEnabled ? "captions.bubble.fill" : "captions.bubble")
                                 .font(.title3)
                                 .foregroundColor(playerViewModel.captionController.isEnabled ? .yellow : .white)
+                        }
+
+                        // Picture in Picture Button
+                        if playerViewModel.playerEngine.isPictureInPictureSupported {
+                            Button(action: {
+                                playerViewModel.playerEngine.togglePictureInPicture()
+                            }) {
+                                Image(systemName: playerViewModel.playerEngine.isPictureInPictureActive ? "pip.exit" : "pip.enter")
+                                    .font(.title3)
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.trailing, 8)
                         }
 
                         // AirPlay Route Picker
@@ -155,7 +188,7 @@ public struct iOSPlayerView: View {
                             }
                         }
 
-                        Button(action: { playerViewModel.playerEngine.togglePlayPause() }) {
+                        Button(action: { playerViewModel.togglePlayPause() }) {
                             Image(systemName: playerViewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                                 .font(.system(size: 64))
                                 .foregroundColor(.white)
@@ -349,6 +382,10 @@ public struct iOSPlayerView: View {
                     }
                 )
             }
+        }
+        .sheet(isPresented: $playerViewModel.showSyncPlaySheet) {
+            iOSSyncPlaySheet()
+                .environmentObject(playerViewModel)
         }
         .onChange(of: playerViewModel.playerEngine.state) { _, newState in
             // The auto-hide countdown must only run once there's actually

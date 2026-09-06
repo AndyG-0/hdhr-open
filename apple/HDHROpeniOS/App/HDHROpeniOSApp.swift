@@ -11,14 +11,19 @@ struct HDHROpeniOSApp: App {
             ThemedRootView(environment: environment)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            // No PiP/background playback support: once the app leaves the
-            // foreground there's no legitimate reason to keep the tuner
-            // reserved, so release it the same way the in-player close
-            // button does. Exception: an active AirPlay session is *meant*
-            // to keep playing on the external device once this app
-            // backgrounds - tearing the player down here would kill it the
-            // instant the user leaves the app (CAST-2).
-            if newPhase == .background && !environment.playerViewModel.playerEngine.isExternalPlaybackActive {
+            // No general background playback support: once the app leaves
+            // the foreground there's no legitimate reason to keep the
+            // tuner reserved, so release it the same way the in-player
+            // close button does. Exceptions: an active AirPlay session is
+            // *meant* to keep playing on the external device once this app
+            // backgrounds (CAST-2), and an active Picture in Picture
+            // session is *meant* to keep playing in the system PiP window
+            // once this app backgrounds (PIP-4) - tearing the player down
+            // in either case here would kill it the instant the user
+            // leaves the app.
+            if newPhase == .background
+                && !environment.playerViewModel.playerEngine.isExternalPlaybackActive
+                && !environment.playerViewModel.playerEngine.isPictureInPictureActive {
                 environment.playerViewModel.closePlayer()
             }
         }

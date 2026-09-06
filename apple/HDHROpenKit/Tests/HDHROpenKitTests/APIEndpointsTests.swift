@@ -12,4 +12,8 @@ final class APIEndpointsTests: XCTestCase {
         XCTAssertTrue(path.contains("start=100.0"))
         XCTAssertTrue(path.contains("end=200.0"))
     }
+
+    func testUpdateRecordingRule() {
+        XCTAssertEqual(APIEndpoints.updateRecordingRule("rule_123"), "/api/dvr/recording-rules/rule_123")
+    }
 }

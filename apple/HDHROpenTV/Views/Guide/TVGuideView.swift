@@ -13,6 +13,7 @@ public struct TVGuideView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
 
     @State private var selectedAiringForModal: SelectedAiring?
+    @State private var showAIAssistantModal: Bool = false
 
     public init() {}
 
@@ -28,6 +29,12 @@ public struct TVGuideView: View {
                         .foregroundColor(Theme.textPrimary)
 
                     Spacer()
+
+                    Button(action: {
+                        showAIAssistantModal = true
+                    }) {
+                        Label("AI Assistant", systemImage: "sparkles")
+                    }
 
                     Button(action: {
                         guideViewModel.filterOnlyFavorites.toggle()
@@ -151,6 +158,9 @@ public struct TVGuideView: View {
                     selectedAiringForModal = nil
                 }
             )
+        }
+        .sheet(isPresented: $showAIAssistantModal) {
+            TVAIAssistantModal(apiClient: guideViewModel.apiClient)
         }
         .task {
             if guideViewModel.channels.isEmpty {

@@ -12,7 +12,7 @@ public final class GuideViewModel: ObservableObject {
     @Published public private(set) var guideAvailable: Bool = false
     @Published public private(set) var error: String?
 
-    private let apiClient: APIClient
+    public let apiClient: APIClient
     private let watchSessionManager: WatchSessionManager
 
     public init(apiClient: APIClient, watchSessionManager: WatchSessionManager) {
@@ -147,6 +147,31 @@ public final class GuideViewModel: ObservableObject {
             server: options?.server
         )
         self.recordingRules = try await apiClient.addRecordingRule(payload: payload)
+        await loadRules()
+    }
+
+    public func updateRule(
+        ruleId: String,
+        isSeries: Bool,
+        options: RecordingRuleOptions? = nil,
+        seriesId: String? = nil,
+        start: TimeInterval? = nil,
+        channelNumber: String? = nil
+    ) async throws {
+        let payload = AddRecordingRulePayload(
+            seriesId: (seriesId?.isEmpty ?? true) ? "auto" : seriesId!,
+            dateTime: isSeries ? nil : start,
+            channel: options?.channel ?? channelNumber,
+            title: options?.title,
+            titleMatchMode: options?.titleMatchMode,
+            keywordQuery: options?.keywordQuery,
+            recentOnly: isSeries ? (options?.recentOnly ?? false) : nil,
+            startPadding: options?.startPadding,
+            endPadding: options?.endPadding,
+            maxEpisodesToKeep: options?.maxEpisodesToKeep,
+            server: options?.server
+        )
+        self.recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
         await loadRules()
     }
 

@@ -189,6 +189,66 @@ public struct HDHomeRunRecording: Identifiable, Codable, Sendable, Hashable {
         case provider
     }
 
+    public init(
+        recordingId: String? = nil,
+        sessionId: String? = nil,
+        playlistUrl: String? = nil,
+        seriesId: String? = nil,
+        title: String,
+        episodeTitle: String? = nil,
+        seasonNumber: Int? = nil,
+        episodeNumber: String? = nil,
+        synopsis: String? = nil,
+        channelNumber: String? = nil,
+        channelName: String? = nil,
+        start: TimeInterval? = nil,
+        recordEnd: TimeInterval? = nil,
+        playUrl: String? = nil,
+        imageUrl: String? = nil,
+        durationSeconds: Double? = nil,
+        fileSizeBytes: Int64? = nil,
+        hasCaptions: Bool? = nil,
+        videoCodec: String? = nil,
+        videoWidth: Int? = nil,
+        videoHeight: Int? = nil,
+        audioCodec: String? = nil,
+        audioChannels: Int? = nil,
+        originalAirDate: String? = nil,
+        category: String? = nil,
+        categoryType: String? = nil,
+        isDvrFile: Bool? = nil,
+        provider: String? = nil
+    ) {
+        self.recordingId = recordingId
+        self.sessionId = sessionId
+        self.playlistUrl = playlistUrl
+        self.seriesId = seriesId
+        self.title = title
+        self.episodeTitle = episodeTitle
+        self.seasonNumber = seasonNumber
+        self.episodeNumber = episodeNumber
+        self.synopsis = synopsis
+        self.channelNumber = channelNumber
+        self.channelName = channelName
+        self.start = start
+        self.recordEnd = recordEnd
+        self.playUrl = playUrl
+        self.imageUrl = imageUrl
+        self.durationSeconds = durationSeconds
+        self.fileSizeBytes = fileSizeBytes
+        self.hasCaptions = hasCaptions
+        self.videoCodec = videoCodec
+        self.videoWidth = videoWidth
+        self.videoHeight = videoHeight
+        self.audioCodec = audioCodec
+        self.audioChannels = audioChannels
+        self.originalAirDate = originalAirDate
+        self.category = category
+        self.categoryType = categoryType
+        self.isDvrFile = isDvrFile
+        self.provider = provider
+    }
+
     public var isInProgress: Bool {
         guard let end = recordEnd else { return false }
         return end > Date().timeIntervalSince1970

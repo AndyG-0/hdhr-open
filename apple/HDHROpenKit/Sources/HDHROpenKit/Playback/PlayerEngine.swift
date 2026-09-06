@@ -1,6 +1,9 @@
 import Foundation
 import AVFoundation
 import Combine
+#if os(iOS)
+import AVKit
+#endif
 
 public enum PlaybackState: Equatable, Sendable {
     case idle
@@ -12,7 +15,7 @@ public enum PlaybackState: Equatable, Sendable {
 }
 
 @MainActor
-public final class PlayerEngine: ObservableObject {
+public final class PlayerEngine: NSObject, ObservableObject {
     @Published public private(set) var state: PlaybackState = .idle
     @Published public private(set) var currentTime: Double = 0.0
     @Published public private(set) var duration: Double = 0.0
@@ -28,8 +31,24 @@ public final class PlayerEngine: ObservableObject {
     /// to skip tearing the player down on `scenePhase == .background`, since
     /// backgrounding is the normal, expected state while AirPlaying.
     @Published public private(set) var isExternalPlaybackActive: Bool = false
+    /// Whether this device/OS supports Picture in Picture at all - the
+    /// player toolbar reads this to hide the PiP button entirely rather
+    /// than show a control that can never work. Declared unconditionally
+    /// (like `isExternalPlaybackActive`) so tvOS/macOS-test-host code never
+    /// sees a missing symbol; it simply stays `false` off iOS.
+    @Published public private(set) var isPictureInPictureSupported: Bool = false
+    /// Whether a Picture in Picture session is currently active - read by
+    /// the app shell (`HDHROpeniOSApp`) to skip tearing the player down on
+    /// `scenePhase == .background`, mirroring `isExternalPlaybackActive`
+    /// above, since backgrounding is the normal, expected state while PiP
+    /// is showing the floating window.
+    @Published public private(set) var isPictureInPictureActive: Bool = false
 
     public private(set) var avPlayer: AVPlayer?
+
+    #if os(iOS)
+    private var pictureInPictureController: AVPictureInPictureController?
+    #endif
 
     private var timeObserverToken: Any?
     private var itemStatusObserver: AnyCancellable?
@@ -49,8 +68,9 @@ public final class PlayerEngine: ObservableObject {
     private var externalPlaybackObserver: AnyCancellable?
     private var cancellables = Set<AnyCancellable>()
 
-    public init() {
+    public override init() {
         let player = AVPlayer()
+        super.init()
         self.avPlayer = player
         timeControlStatusObserver = player.publisher(for: \.timeControlStatus)
             .receive(on: DispatchQueue.main)
@@ -102,6 +122,10 @@ public final class PlayerEngine: ObservableObject {
             .sink { [weak self] isActive in
                 self?.isExternalPlaybackActive = isActive
             }
+
+        #if os(iOS)
+        isPictureInPictureSupported = AVPictureInPictureController.isPictureInPictureSupported()
+        #endif
         #endif
     }
 
@@ -265,6 +289,36 @@ public final class PlayerEngine: ObservableObject {
         observedBitrate = nil
     }
 
+    #if os(iOS)
+    /// Called once by `PlayerLayerView.makeUIView` after it constructs the
+    /// `AVPlayerLayer`-bound `AVPictureInPictureController` for the current
+    /// playback session's container view - `PlayerEngine` has no
+    /// `AVPlayerLayer` of its own (only `AVPlayer`), so the controller must
+    /// be built where the layer lives, but engine-wide PiP state belongs
+    /// alongside every other `@Published` playback flag here, not buried in
+    /// a UIKit view. Each new playback session's container view calls this
+    /// again, overwriting the previous controller - safe because a
+    /// `PlayerLayerContainerView` (and therefore any controller bound to
+    /// it) is only ever deallocated once `closePlayer()` has run, which
+    /// can't happen while PiP is active (see `HDHROpeniOSApp`'s scenePhase
+    /// exception).
+    public func attachPictureInPictureController(_ controller: AVPictureInPictureController) {
+        controller.delegate = self
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        pictureInPictureController = controller
+        isPictureInPictureActive = controller.isPictureInPictureActive
+    }
+
+    public func togglePictureInPicture() {
+        guard let controller = pictureInPictureController else { return }
+        if controller.isPictureInPictureActive {
+            controller.stopPictureInPicture()
+        } else {
+            controller.startPictureInPicture()
+        }
+    }
+    #endif
+
     private func setupTimeObserver() {
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserverToken = avPlayer?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -339,3 +393,37 @@ public final class PlayerEngine: ObservableObject {
             }
     }
 }
+
+#if os(iOS)
+extension PlayerEngine: AVPictureInPictureControllerDelegate {
+    public func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        isPictureInPictureActive = true
+    }
+
+    public func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        isPictureInPictureActive = false
+    }
+
+    public func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        Log.player.error("PiP failed to start: \(error.localizedDescription, privacy: .public)")
+        isPictureInPictureActive = false
+    }
+
+    // `iOSPlayerView`'s visibility is driven entirely by
+    // `PlayerViewModel.activeChannel`/`activeRecording` (see `RootiOSView`),
+    // not a `.sheet`/`.fullScreenCover` presentation - and that state is
+    // guaranteed to still be set here, since the scenePhase background
+    // exception in `HDHROpeniOSApp` keeps `closePlayer()` from running while
+    // PiP is active. The player UI is therefore already showing by the time
+    // this fires; there is nothing to re-present.
+    public func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStop completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(true)
+    }
+}
+#endif

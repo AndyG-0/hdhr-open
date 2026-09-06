@@ -99,6 +99,10 @@ public final class RecordingsViewModel: ObservableObject {
         self.recordingRules = try await apiClient.addRecordingRule(payload: payload)
     }
 
+    public func updateRecordingRule(ruleId: String, payload: AddRecordingRulePayload) async throws {
+        self.recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
+    }
+
     /// Creates a standalone standing rule from scratch (no backing airing) —
     /// used by rules-management screens' "Add Keyword Rule" flow. Mirrors
     /// the web client's `HDHomeRunKeywordRuleDialog`: keyword/contains rules

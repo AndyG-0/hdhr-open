@@ -50,6 +50,10 @@
 		586989FFF0AD3FDF248217EC /* iOSSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC95D678F53BCC89C3EA8C6D /* iOSSettingsView.swift */; };
 		30B41E41046F0A198CD21A74 /* iOSTunerStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04A6116A3BF0B3DFF1F71E2D /* iOSTunerStatusView.swift */; };
 		A093BBB87C32259CAD3B7BC1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FCDECA3BEC6ABA05A8545594 /* Assets.xcassets */; };
+		A10000000000000000000002 /* iOSAIAssistantSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000001 /* iOSAIAssistantSheet.swift */; };
+		A10000000000000000000004 /* iOSSyncPlaySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003 /* iOSSyncPlaySheet.swift */; };
+		A10000000000000000000006 /* TVAIAssistantModal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* TVAIAssistantModal.swift */; };
+		A10000000000000000000008 /* TVSyncPlayOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* TVSyncPlayOverlay.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -100,6 +104,10 @@
 		FCDECA3BEC6ABA05A8545594 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets.xcassets"; sourceTree = "<group>"; };
 		7F74D3AE35A506DF445EDD2B /* HDHROpenTV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDHROpenTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46E8A74DEDAE46BF5AF91478 /* HDHROpeniOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDHROpeniOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000001 /* iOSAIAssistantSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSAIAssistantSheet.swift"; sourceTree = "<group>"; };
+		A10000000000000000000003 /* iOSSyncPlaySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSSyncPlaySheet.swift"; sourceTree = "<group>"; };
+		A10000000000000000000005 /* TVAIAssistantModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVAIAssistantModal.swift"; sourceTree = "<group>"; };
+		A10000000000000000000007 /* TVSyncPlayOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVSyncPlayOverlay.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +184,7 @@
 		ACBF4F4D1EF9821EFD23F209 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				A10000000000000000000010 /* AI */,
 				7E501416D4C2BD070F8D7503 /* Auth */,
 				BE8510594CF68F21CA547176 /* Guide */,
 				E45D593EFF7A0B174989EFA8 /* Player */,
@@ -184,6 +193,13 @@
 				E10FE56827FA3F46A8069537 /* Tuner */,
 			);
 			path = "Views"; sourceTree = "<group>";
+		};
+		A10000000000000000000010 /* AI */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000005 /* TVAIAssistantModal.swift */,
+			);
+			path = "AI"; sourceTree = "<group>";
 		};
 		7E501416D4C2BD070F8D7503 /* Auth */ = {
 			isa = PBXGroup;
@@ -213,6 +229,7 @@
 				632AF04A700246D0BDF0C12A /* TVPlayerRecordMenuOverlay.swift */,
 				716279684D7F5A6F31086A9C /* TVPlayerView.swift */,
 				CBEF6A29F6A0DE7134BEFA61 /* TVScrubBarView.swift */,
+				A10000000000000000000007 /* TVSyncPlayOverlay.swift */,
 			);
 			path = "Player"; sourceTree = "<group>";
 		};
@@ -271,6 +288,7 @@
 		810BB454F269D9F65A3206E9 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				A10000000000000000000011 /* AI */,
 				182CF35ED2CDCD12C3C7D6AF /* Auth */,
 				C5FE6BA24FD9932AED53D356 /* Guide */,
 				FDD8C976C0964DFF95FE3F2B /* Player */,
@@ -279,6 +297,13 @@
 				BB63F3D7E408110181B0188A /* Tuner */,
 			);
 			path = "Views"; sourceTree = "<group>";
+		};
+		A10000000000000000000011 /* AI */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000001 /* iOSAIAssistantSheet.swift */,
+			);
+			path = "AI"; sourceTree = "<group>";
 		};
 		182CF35ED2CDCD12C3C7D6AF /* Auth */ = {
 			isa = PBXGroup;
@@ -303,6 +328,7 @@
 				95F1061180084500A451A807 /* iOSPlayerView.swift */,
 				2150599F5C7EA54A93A727BB /* iOSScrubBarView.swift */,
 				D10290794CF0139AE16E7DE2 /* iOSPlaybackInfoOverlay.swift */,
+				A10000000000000000000003 /* iOSSyncPlaySheet.swift */,
 			);
 			path = "Player"; sourceTree = "<group>";
 		};
@@ -443,6 +469,8 @@
 				A12329298966778EBFB4D318 /* in Sources */,
 				C58BE20600F916024D9B2A9B /* in Sources */,
 				E59A382AB825DE9054336009 /* in Sources */,
+				A10000000000000000000006 /* TVAIAssistantModal.swift in Sources */,
+				A10000000000000000000008 /* TVSyncPlayOverlay.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -468,6 +496,8 @@
 				EFFA2CA7DC761D675140C14F /* in Sources */,
 				586989FFF0AD3FDF248217EC /* in Sources */,
 				30B41E41046F0A198CD21A74 /* in Sources */,
+				A10000000000000000000002 /* iOSAIAssistantSheet.swift in Sources */,
+				A10000000000000000000004 /* iOSSyncPlaySheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

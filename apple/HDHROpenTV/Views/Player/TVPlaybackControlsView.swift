@@ -13,7 +13,7 @@ public struct TVPlaybackControlsView: View {
     @FocusState private var focusedControl: ControlFocus?
 
     private enum ControlFocus {
-        case skipBack, playPause, skipForward, record, audio, captions, close
+        case skipBack, playPause, skipForward, record, syncplay, audio, captions, close
     }
 
     public init(
@@ -67,8 +67,7 @@ public struct TVPlaybackControlsView: View {
 
             Spacer()
 
-            // Record Menu Button (mirrors HDHomeRunPlayerRecordMenu.svelte's
-            // state machine: a scheduled rule collapses this to cancel-only)
+            // Record Menu Button
             if playerViewModel.isWatchSession {
                 let existingRule = guideViewModel.findRule(for: playerViewModel.activeChannel?.channelNumber, airing: playerViewModel.activeAiring)
 
@@ -90,6 +89,26 @@ public struct TVPlaybackControlsView: View {
                 .focused($focusedControl, equals: .record)
                 .disabled(playerViewModel.isPromoting)
             }
+
+            // SyncPlay Watch Party Button
+            Button(action: {
+                playerViewModel.showSyncPlaySheet.toggle()
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.2.fill")
+                        .font(.title3)
+                        .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .cyan : .white)
+                    if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
+                        Text("\(playerViewModel.syncPlayClient.participants.count)")
+                            .font(.callout.bold())
+                            .foregroundColor(.cyan)
+                    }
+                }
+                .frame(minWidth: 56, minHeight: 56)
+                .padding(.horizontal, 8)
+            }
+            .buttonStyle(.plain)
+            .focused($focusedControl, equals: .syncplay)
 
             // Audio Track Selector
             if !playerViewModel.playerEngine.availableAudioTracks.isEmpty {

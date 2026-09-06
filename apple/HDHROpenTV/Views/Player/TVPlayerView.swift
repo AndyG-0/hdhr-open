@@ -127,7 +127,7 @@ public struct TVPlayerView: View {
                         TVPlaybackControlsView(
                             playerViewModel: playerViewModel,
                             onTogglePlayPause: {
-                                playerViewModel.playerEngine.togglePlayPause()
+                                playerViewModel.togglePlayPause()
                                 resetControlsTimer()
                             },
                             onSkipBackward: {
@@ -155,14 +155,7 @@ public struct TVPlayerView: View {
                     .ignoresSafeArea()
                 )
                 .transition(.opacity)
-                // These controls stay mounted (not removed from the tree)
-                // while the channel switcher / audio menu overlays are open,
-                // so without this their buttons keep focus and swallow arrow
-                // presses meant for the overlay on top of them - the overlay
-                // views can claim focus onAppear, but the focus engine still
-                // considers these disabled buttons unless they're explicitly
-                // excluded.
-                .disabled(playerViewModel.showChannelSwitcher || playerViewModel.showAudioMenu || playerViewModel.showRecordMenu)
+                .disabled(playerViewModel.showChannelSwitcher || playerViewModel.showAudioMenu || playerViewModel.showRecordMenu || playerViewModel.showSyncPlaySheet)
             }
 
             // Channel Switcher Bottom Drawer
@@ -191,6 +184,15 @@ public struct TVPlayerView: View {
                 TVPlayerSettingsOverlay(
                     playerViewModel: playerViewModel,
                     onDismiss: { playerViewModel.showAudioMenu = false }
+                )
+                .transition(.opacity)
+            }
+
+            // SyncPlay Overlay
+            if playerViewModel.showSyncPlaySheet {
+                TVSyncPlayOverlay(
+                    playerViewModel: playerViewModel,
+                    onDismiss: { playerViewModel.showSyncPlaySheet = false }
                 )
                 .transition(.opacity)
             }
@@ -299,7 +301,16 @@ public struct TVPlayerView: View {
                     onConfirm: { recordSeries, options in
                         showRecordingOptionsSheet = false
                         Task {
-                            if recordSeries {
+                            if let rule = existingRule {
+                                try? await guideViewModel.updateRule(
+                                    ruleId: rule.recordingRuleId,
+                                    isSeries: recordSeries,
+                                    options: options,
+                                    seriesId: airing.seriesId,
+                                    start: airing.start,
+                                    channelNumber: channel.channelNumber
+                                )
+                            } else if recordSeries {
                                 try? await guideViewModel.recordSeries(
                                     seriesId: airing.seriesId ?? "",
                                     channelNumber: channel.channelNumber,

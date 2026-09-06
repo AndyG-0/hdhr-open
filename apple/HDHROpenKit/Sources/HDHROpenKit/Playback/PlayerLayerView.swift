@@ -2,6 +2,9 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+#if os(iOS)
+import AVKit
+#endif
 
 /// Renders an `AVPlayer`'s video output via a bare `AVPlayerLayer`, with none
 /// of AVKit's own transport chrome (`VideoPlayer`/`AVPlayerViewController`
@@ -15,13 +18,34 @@ import UIKit
 public struct PlayerLayerView: UIViewRepresentable {
     public let player: AVPlayer
 
+    #if os(iOS)
+    /// The engine that should own any `AVPictureInPictureController` built
+    /// for this view's `AVPlayerLayer` - `nil` on call sites (or platforms)
+    /// that don't want PiP wired up. Optional rather than a tvOS-only
+    /// separate initializer so the tvOS call site in `TVPlayerView.swift`
+    /// needs no changes.
+    public let pictureInPictureEngine: PlayerEngine?
+
+    public init(player: AVPlayer, pictureInPictureEngine: PlayerEngine? = nil) {
+        self.player = player
+        self.pictureInPictureEngine = pictureInPictureEngine
+    }
+    #else
     public init(player: AVPlayer) {
         self.player = player
     }
+    #endif
 
     public func makeUIView(context: Context) -> PlayerLayerContainerView {
         let view = PlayerLayerContainerView()
         view.playerLayer.player = player
+        #if os(iOS)
+        if let engine = pictureInPictureEngine,
+           AVPictureInPictureController.isPictureInPictureSupported(),
+           let pipController = AVPictureInPictureController(playerLayer: view.playerLayer) {
+            engine.attachPictureInPictureController(pipController)
+        }
+        #endif
         return view
     }
 

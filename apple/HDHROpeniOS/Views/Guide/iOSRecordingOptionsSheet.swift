@@ -43,7 +43,51 @@ public struct iOSRecordingOptionsSheet: View {
         self.existingRule = existingRule
         self.onConfirm = onConfirm
         self.onCancelRule = onCancelRule
-        _customChannels = State(initialValue: [channel.channelNumber])
+
+        let initialServer: String
+        if let provider = existingRule?.provider {
+            initialServer = provider == "hdhomerun" ? "hdhomerun" : (provider == "builtin" ? "builtin" : "default")
+        } else {
+            initialServer = "default"
+        }
+        _server = State(initialValue: initialServer)
+        _titleMatchMode = State(initialValue: existingRule?.titleMatchMode ?? "exact")
+        _keywordQuery = State(initialValue: existingRule?.keywordQuery ?? "")
+
+        let initialChannelMode: String
+        let initialCustomChannels: Set<String>
+        if let chOnly = existingRule?.channelOnly {
+            if chOnly.contains("|") {
+                initialChannelMode = "custom"
+                initialCustomChannels = Set(chOnly.split(separator: "|").map(String.init).filter { !$0.isEmpty })
+            } else if chOnly == channel.channelNumber {
+                initialChannelMode = "current"
+                initialCustomChannels = [channel.channelNumber]
+            } else {
+                initialChannelMode = "custom"
+                initialCustomChannels = [chOnly]
+            }
+        } else if existingRule != nil {
+            initialChannelMode = "any"
+            initialCustomChannels = [channel.channelNumber]
+        } else {
+            initialChannelMode = "current"
+            initialCustomChannels = [channel.channelNumber]
+        }
+        _channelMode = State(initialValue: initialChannelMode)
+        _customChannels = State(initialValue: initialCustomChannels)
+
+        _startPaddingMinutes = State(initialValue: (existingRule?.startPadding ?? 0) / 60)
+        _endPaddingMinutes = State(initialValue: (existingRule?.endPadding ?? 0) / 60)
+        _recentOnly = State(initialValue: (existingRule?.recentOnly ?? 0) != 0)
+
+        if let maxKeep = existingRule?.maxEpisodesToKeep, maxKeep > 0 {
+            _retentionMode = State(initialValue: "limited")
+            _retentionCount = State(initialValue: String(maxKeep))
+        } else {
+            _retentionMode = State(initialValue: "unlimited")
+            _retentionCount = State(initialValue: "3")
+        }
     }
 
     private var officialDvrActive: Bool {
@@ -187,14 +231,23 @@ public struct iOSRecordingOptionsSheet: View {
                 }
 
                 Section {
-                    if let rule = existingRule, let onCancelRule {
-                        Button(role: .destructive) {
-                            onCancelRule()
+                    if let rule = existingRule {
+                        Button {
+                            onConfirm(rule.isSeriesRule, buildOptions())
                             dismiss()
                         } label: {
-                            Text("Cancel Recording").frame(maxWidth: .infinity)
+                            Text(rule.isSeriesRule ? "Update Series Recording" : "Update Episode Recording")
+                                .frame(maxWidth: .infinity)
                         }
-                        .id(rule.recordingRuleId)
+                        if let onCancelRule {
+                            Button(role: .destructive) {
+                                onCancelRule()
+                                dismiss()
+                            } label: {
+                                Text("Cancel Recording").frame(maxWidth: .infinity)
+                            }
+                            .id(rule.recordingRuleId)
+                        }
                     } else {
                         Button {
                             onConfirm(false, buildOptions())

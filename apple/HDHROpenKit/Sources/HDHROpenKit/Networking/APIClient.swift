@@ -12,16 +12,16 @@ public struct HLSSessionResponse: Decodable, Sendable {
 
 public actor APIClient {
     public var baseURL: URL
-    private var bearerToken: String?
-    private var deviceId: String?
-    private let session: URLSession
+    var bearerToken: String?
+    var deviceId: String?
+    let session: URLSession
 
-    private let jsonDecoder: JSONDecoder = {
+    let jsonDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
         return decoder
     }()
 
-    private let jsonEncoder: JSONEncoder = {
+    let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
         return encoder
     }()
@@ -174,6 +174,10 @@ public actor APIClient {
 
     public func addRecordingRule(payload: AddRecordingRulePayload) async throws -> [HDHomeRunRecordingRule] {
         try await request(path: APIEndpoints.recordingRules(), method: "POST", body: payload)
+    }
+
+    public func updateRecordingRule(id: String, payload: AddRecordingRulePayload) async throws -> [HDHomeRunRecordingRule] {
+        try await request(path: APIEndpoints.updateRecordingRule(id), method: "PUT", body: payload)
     }
 
     public func deleteRecordingRule(id: String) async throws -> [HDHomeRunRecordingRule] {
@@ -330,5 +334,33 @@ public actor APIClient {
 
     public func updateNetworkIntegration(type: String, settings: [String: AnyCodable]) async throws -> NetworkIntegration {
         try await request(path: APIEndpoints.networkIntegration(type), method: "PATCH", body: settings)
+    }
+
+    // MARK: - SyncPlay APIs
+
+    public func createSyncPlayRoom(userName: String, initialContent: SyncPlayContent? = nil) async throws -> CreateSyncPlayRoomResponse {
+        struct CreateRoomBody: Encodable {
+            let user_name: String
+            let content: SyncPlayContent
+        }
+        let fallbackContent = initialContent ?? SyncPlayContent(type: "channel", channelNumber: "default", title: "Live TV")
+        let body = CreateRoomBody(user_name: userName, content: fallbackContent)
+        return try await request(path: APIEndpoints.syncPlayRooms(), method: "POST", body: body)
+    }
+
+    public func getSyncPlayRoom(code: String) async throws -> SyncPlayRoom {
+        try await request(path: APIEndpoints.syncPlayRoom(code))
+    }
+
+    public func syncPlayWsUrl(roomCode: String, userName: String? = nil) -> URL? {
+        let path = APIEndpoints.syncPlayWs(roomCode: roomCode, userName: userName, token: bearerToken)
+        guard let httpUrl = URL(string: path, relativeTo: baseURL)?.absoluteURL else { return nil }
+        var comps = URLComponents(url: httpUrl, resolvingAgainstBaseURL: true)
+        if comps?.scheme == "https" {
+            comps?.scheme = "wss"
+        } else {
+            comps?.scheme = "ws"
+        }
+        return comps?.url
     }
 }

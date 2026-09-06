@@ -33,6 +33,9 @@ public final class PlayerViewModel: ObservableObject {
     @Published public var showSettingsOverlay: Bool = false
     @Published public var showChannelSwitcher: Bool = false
     @Published public var showRecordMenu: Bool = false
+    @Published public var showSyncPlaySheet: Bool = false
+
+    public let syncPlayClient: SyncPlayClient
 
     private let apiClient: APIClient
     private var cancellables = Set<AnyCancellable>()
@@ -59,6 +62,7 @@ public final class PlayerViewModel: ObservableObject {
         self.watchSessionManager = watchSessionManager
         self.playerEngine = PlayerEngine()
         self.captionController = CaptionController()
+        self.syncPlayClient = SyncPlayClient()
 
         // Sync player engine time with captions
         playerEngine.$currentTime
@@ -70,16 +74,57 @@ public final class PlayerViewModel: ObservableObject {
         // Views only observe `playerViewModel` (via @EnvironmentObject), not
         // `playerEngine` directly - as a nested ObservableObject, playerEngine's
         // own @Published changes (state, currentTime, etc.) don't propagate to
-        // those views unless forwarded here. Without this, e.g. the loading
-        // spinner (driven by playerEngine.state) can go stale until some
-        // unrelated @Published change on playerViewModel itself (like toggling
-        // showAudioMenu) forces a redraw that happens to pick up the current
-        // value.
+        // those views unless forwarded here.
         playerEngine.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        // Forward syncPlayClient changes
+        syncPlayClient.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        syncPlayClient.getCurrentPosition = { [weak self] in
+            self?.playerEngine.currentTime ?? 0.0
+        }
+
+        syncPlayClient.isPlayerReady = { [weak self] in
+            guard let self = self else { return false }
+            return self.playerEngine.state == .playing || self.playerEngine.state == .paused
+        }
+
+        syncPlayClient.onRemotePlay = { [weak self] pos, rate in
+            guard let self = self else { return }
+            let diff = abs(self.playerEngine.currentTime - pos)
+            if diff > 2.0 {
+                self.playerEngine.seek(to: pos)
+            }
+            self.playerEngine.play()
+        }
+
+        syncPlayClient.onRemotePause = { [weak self] pos in
+            guard let self = self else { return }
+            self.playerEngine.pause()
+            let diff = abs(self.playerEngine.currentTime - pos)
+            if diff > 0.5 {
+                self.playerEngine.seek(to: pos)
+            }
+        }
+
+        syncPlayClient.onRemoteSeek = { [weak self] pos in
+            guard let self = self else { return }
+            self.playerEngine.seek(to: pos)
+        }
+
+        syncPlayClient.onRemoteContentChange = { [weak self] content in
+            Task { @MainActor [weak self] in
+                self?.handleRemoteContentChange(content)
+            }
+        }
     }
 
     public var isPlaying: Bool {
@@ -138,6 +183,16 @@ public final class PlayerViewModel: ObservableObject {
         self.activeAiring = airing ?? channel.now
         playerEngine.setLoading()
 
+        if syncPlayClient.isConnected && syncPlayClient.isHost {
+            syncPlayClient.changeContent(
+                SyncPlayContent(
+                    type: "channel",
+                    channelNumber: channel.channelNumber,
+                    title: airing?.title ?? channel.name
+                )
+            )
+        }
+
         let baseURL = await apiClient.baseURL
 
         // 1. Try starting a watch session for live pause/rewind, packaged as HLS
@@ -193,6 +248,18 @@ public final class PlayerViewModel: ObservableObject {
         self.activeAiring = nil
         self.isWatchSession = false
         playerEngine.setLoading()
+
+        if syncPlayClient.isConnected && syncPlayClient.isHost {
+            syncPlayClient.changeContent(
+                SyncPlayContent(
+                    type: "recording",
+                    recordingId: recording.recordingId,
+                    channelNumber: recording.channelNumber,
+                    title: recording.title,
+                    durationSeconds: recording.durationSeconds
+                )
+            )
+        }
 
         let baseURL = await apiClient.baseURL
         guard let playUrl = recording.playUrl, !playUrl.isEmpty else {
@@ -429,19 +496,88 @@ public final class PlayerViewModel: ObservableObject {
         }
     }
 
+    public func play() {
+        playerEngine.play()
+        if syncPlayClient.isConnected {
+            syncPlayClient.sendPlay(position: playerEngine.currentTime)
+        }
+    }
+
+    public func pause() {
+        playerEngine.pause()
+        if syncPlayClient.isConnected {
+            syncPlayClient.sendPause(position: playerEngine.currentTime)
+        }
+    }
+
+    public func togglePlayPause() {
+        if playerEngine.state == .playing {
+            pause()
+        } else {
+            play()
+        }
+    }
+
     public func seek(to seconds: Double) {
         playerEngine.seek(to: seconds)
         resyncCaptionsAfterSeek()
+        if syncPlayClient.isConnected {
+            syncPlayClient.sendSeek(position: seconds)
+        }
     }
 
     public func skipForward(seconds: Double = 10.0) {
-        playerEngine.skipForward(seconds: seconds)
-        resyncCaptionsAfterSeek()
+        let target = playerEngine.currentTime + seconds
+        seek(to: target)
     }
 
     public func skipBackward(seconds: Double = 10.0) {
-        playerEngine.skipBackward(seconds: seconds)
-        resyncCaptionsAfterSeek()
+        let target = max(0, playerEngine.currentTime - seconds)
+        seek(to: target)
+    }
+
+    public func createSyncPlayRoom(userName: String) async throws -> SyncPlayRoom {
+        let content = currentSyncPlayContent()
+        let resp = try await apiClient.createSyncPlayRoom(userName: userName, initialContent: content)
+        if let wsUrl = await apiClient.syncPlayWsUrl(roomCode: resp.room.roomCode, userName: userName) {
+            syncPlayClient.connect(url: wsUrl)
+        }
+        return resp.room
+    }
+
+    public func joinSyncPlayRoom(roomCode: String, userName: String) async throws {
+        guard let wsUrl = await apiClient.syncPlayWsUrl(roomCode: roomCode, userName: userName) else {
+            throw APIError.invalidURL
+        }
+        syncPlayClient.connect(url: wsUrl)
+    }
+
+    public func leaveSyncPlayRoom() {
+        syncPlayClient.disconnect()
+    }
+
+    public func transferSyncPlayHost(targetSessionId: String) {
+        syncPlayClient.transferHost(targetSessionId: targetSessionId)
+    }
+
+    public func currentSyncPlayContent() -> SyncPlayContent? {
+        if let rec = activeRecording {
+            return SyncPlayContent(
+                type: "recording",
+                recordingId: rec.recordingId,
+                channelNumber: rec.channelNumber,
+                title: rec.title,
+                durationSeconds: playerEngine.duration > 0 ? playerEngine.duration : rec.durationSeconds
+            )
+        }
+        if let ch = activeChannel {
+            return SyncPlayContent(
+                type: "channel",
+                channelNumber: ch.channelNumber,
+                title: activeAiring?.title ?? ch.name
+            )
+        }
+        return nil
     }
 
     /// Re-runs cue alignment against `lastRawCues` immediately after a
@@ -491,5 +627,34 @@ public final class PlayerViewModel: ObservableObject {
         isPromoted = false
         thumbnailCues = []
         thumbnailSpriteURL = nil
+    }
+
+    private func handleRemoteContentChange(_ content: SyncPlayContent) {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            if content.type == "recording", let recId = content.recordingId, !recId.isEmpty {
+                if activeRecording?.recordingId != recId {
+                    let dummyRec = HDHomeRunRecording(
+                        recordingId: recId,
+                        title: content.title ?? "Recording",
+                        channelNumber: content.channelNumber,
+                        playUrl: "/api/recordings/stream/\(recId)"
+                    )
+                    Task {
+                        await playRecording(dummyRec)
+                    }
+                }
+            } else if content.type == "channel", let chNum = content.channelNumber, !chNum.isEmpty {
+                if activeChannel?.channelNumber != chNum {
+                    let dummyCh = HDHomeRunChannel(
+                        channelNumber: chNum,
+                        name: content.title ?? chNum
+                    )
+                    Task {
+                        await playChannel(channel: dummyCh)
+                    }
+                }
+            }
+        }
     }
 }
