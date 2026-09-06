@@ -79,7 +79,7 @@ private data class RecordingStreamHLSBody(
 class APIClient(
     var baseURL: String,
     val cookieJar: InMemoryCookieJar = InMemoryCookieJar(),
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    val httpClient: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -94,6 +94,7 @@ class APIClient(
         isLenient = true
         encodeDefaults = true
         coerceInputValues = true
+        explicitNulls = false
     }
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -240,6 +241,9 @@ class APIClient(
     suspend fun addRecordingRule(payload: AddRecordingRulePayload): List<HDHomeRunRecordingRule> =
         request(APIEndpoints.recordingRules(), method = "POST", body = json.encodeToString(payload))
 
+    suspend fun updateRecordingRule(id: String, payload: AddRecordingRulePayload): List<HDHomeRunRecordingRule> =
+        request(APIEndpoints.updateRecordingRule(id), method = "PUT", body = json.encodeToString(payload))
+
     suspend fun deleteRecordingRule(id: String): List<HDHomeRunRecordingRule> =
         request(APIEndpoints.deleteRecordingRule(id), method = "DELETE")
 
@@ -360,6 +364,23 @@ class APIClient(
 
     suspend fun updateNetworkIntegration(type: String, settings: Map<String, JsonElement>): NetworkIntegration =
         request(APIEndpoints.networkIntegration(type), method = "PATCH", body = json.encodeToString(settings))
+
+    suspend fun createSyncPlayRoom(content: SyncPlayContent, userName: String? = null): CreateSyncPlayRoomResponse =
+        request(APIEndpoints.syncPlayRooms(), method = "POST", body = json.encodeToString(CreateSyncPlayRoomRequest(content, userName)))
+
+    suspend fun getSyncPlayRoom(code: String): SyncPlayRoom =
+        request(APIEndpoints.syncPlayRoom(code))
+
+    fun syncPlayWsUrl(code: String, userName: String? = null): String {
+        val path = APIEndpoints.syncPlayWs(code, bearerToken, userName)
+        val base = baseURL.removeSuffix("/")
+        val wsBase = if (base.startsWith("https://")) {
+            "wss://" + base.removePrefix("https://")
+        } else {
+            "ws://" + base.removePrefix("http://")
+        }
+        return "$wsBase$path"
+    }
 
     suspend fun fetchRawString(url: String): String = withContext(Dispatchers.IO) {
         val data = requestRaw(url)

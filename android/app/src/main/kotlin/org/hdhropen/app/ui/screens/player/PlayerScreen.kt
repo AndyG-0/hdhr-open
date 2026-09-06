@@ -1,5 +1,11 @@
 package org.hdhropen.app.ui.screens.player
-
+ 
+import android.app.Activity
+import android.app.PictureInPictureParams
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.Rect
+import android.os.Build
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -19,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,6 +40,7 @@ import com.google.android.gms.cast.framework.CastButtonFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.hdhropen.app.PipHelper
 import org.hdhropen.app.ui.screens.guide.RecordingOptionsBottomSheet
 import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.playback.LoadingQuips
@@ -39,15 +49,40 @@ import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
+fun enterPictureInPictureMode(activity: Activity, params: PictureInPictureParams): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        try {
+            activity.enterPictureInPictureMode(params)
+        } catch (e: Exception) {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+internal fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
 @UnstableApi
 @Composable
 fun PlayerScreen(
     playerViewModel: PlayerViewModel,
     guideViewModel: GuideViewModel,
     recordingsViewModel: RecordingsViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isInPipMode: Boolean = false,
+    onEnterPip: (() -> Unit)? = null,
+    onUpdateVideoBounds: ((Rect) -> Unit)? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
     val playerEngine = playerViewModel.playerEngine
     val state by playerEngine.state.collectAsState()
     val currentTime by playerEngine.currentTime.collectAsState()
@@ -81,15 +116,45 @@ fun PlayerScreen(
         guideViewModel.findRule(activeChannel?.channelNumber, activeAiring)
     }
 
+    val handleEnterPip: () -> Unit = {
+        if (state !is PlaybackState.Failed) {
+            if (onEnterPip != null) {
+                onEnterPip()
+            } else {
+                val activity = context.findActivity()
+                if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val isPlaying = state == PlaybackState.Playing
+                    val exoVideoSize = playerEngine.exoPlayer?.videoSize
+                    val width = videoSpecs?.width ?: exoVideoSize?.width
+                    val height = videoSpecs?.height ?: exoVideoSize?.height
+                    val params = PictureInPictureParams.Builder()
+                        .setAspectRatio(PipHelper.calculateAspectRatio(width, height))
+                        .setActions(PipHelper.buildRemoteActions(context, isPlaying, isSeekable))
+                        .apply {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                setAutoEnterEnabled(isPlaying)
+                            }
+                        }
+                        .build()
+                    enterPictureInPictureMode(activity, params)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (dvrInfo == null) {
             recordingsViewModel.loadDvrInfo()
         }
     }
 
+    val syncPlayRoom by playerViewModel.syncPlayRoom.collectAsState()
+    val syncPlayParticipants by playerViewModel.syncPlayParticipants.collectAsState()
+
     var showControls by remember { mutableStateOf(true) }
     var showAudioMenu by remember { mutableStateOf(false) }
     var showPlaybackInfo by remember { mutableStateOf(false) }
+    var showSyncPlaySheet by remember { mutableStateOf(false) }
     var showRecordMenu by remember { mutableStateOf(false) }
     var showRecordingOptionsSheet by remember { mutableStateOf(false) }
     var loadingQuip by remember { mutableStateOf(LoadingQuips.getRandomQuip()) }
@@ -113,7 +178,7 @@ fun PlayerScreen(
         }
     }
 
-    BackHandler {
+    BackHandler(enabled = !isInPipMode) {
         playerViewModel.closePlayer()
         onDismiss()
     }
@@ -122,12 +187,16 @@ fun PlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                showControls = !showControls
-            }
+            .then(
+                if (!isInPipMode) {
+                    Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        showControls = !showControls
+                    }
+                } else Modifier
+            )
     ) {
         // Video View (Media3 ExoPlayer)
         AndroidView(
@@ -144,11 +213,23 @@ fun PlayerScreen(
             update = { view ->
                 view.player = playerEngine.exoPlayer
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInWindow()
+                    onUpdateVideoBounds?.invoke(
+                        Rect(
+                            bounds.left.toInt(),
+                            bounds.top.toInt(),
+                            bounds.right.toInt(),
+                            bounds.bottom.toInt()
+                        )
+                    )
+                }
         )
 
         // Captions Overlay
-        if (isCaptionsEnabled && !activeCaptionText.isNullOrEmpty()) {
+        if (!isInPipMode && isCaptionsEnabled && !activeCaptionText.isNullOrEmpty()) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -206,10 +287,10 @@ fun PlayerScreen(
 
         // Error Card
         if (state is PlaybackState.Failed) {
-            val errorMsg = (state as PlaybackState.Failed).message
+            val failedState = state as PlaybackState.Failed
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(32.dp)
@@ -219,30 +300,51 @@ fun PlayerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        Icons.Default.Warning,
+                        if (failedState.statusCode in 500..599 || failedState.isNetworkError) Icons.Default.CloudOff else Icons.Default.Warning,
                         contentDescription = "Error",
                         tint = YellowAccent,
                         modifier = Modifier.size(48.dp)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Playback Error",
+                        text = if (failedState.statusCode in 500..599 || failedState.isNetworkError) "Server / Tuner Unavailable" else "Playback Error",
                         style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = errorMsg,
-                        style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                        text = failedState.message,
+                        style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = {
-                            playerViewModel.closePlayer()
-                            onDismiss()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    val detail = failedState.detail
+                    if (!detail.isNullOrBlank() && detail != failedState.message) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = detail,
+                            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Close", color = MaterialTheme.colorScheme.onSurface)
+                        OutlinedButton(
+                            onClick = {
+                                playerViewModel.closePlayer()
+                                onDismiss()
+                            }
+                        ) {
+                            Text("Close")
+                        }
+                        Button(
+                            onClick = {
+                                playerViewModel.retry()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Retry", color = Color.White)
+                        }
                     }
                 }
             }
@@ -250,7 +352,7 @@ fun PlayerScreen(
 
         // Overlay Controls
         AnimatedVisibility(
-            visible = showControls,
+            visible = showControls && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
@@ -322,12 +424,39 @@ fun PlayerScreen(
                     // to the shared CastContext, so `update` has nothing to sync.
                     AndroidView(
                         factory = { ctx ->
-                            MediaRouteButton(ctx).apply {
-                                CastButtonFactory.setUpMediaRouteButton(ctx, this)
+                            try {
+                                val themedContext = android.view.ContextThemeWrapper(
+                                    ctx,
+                                    androidx.appcompat.R.style.Theme_AppCompat_NoActionBar
+                                )
+                                MediaRouteButton(themedContext).apply {
+                                    runCatching { CastButtonFactory.setUpMediaRouteButton(themedContext, this) }
+                                }
+                            } catch (e: Throwable) {
+                                android.view.View(ctx)
                             }
                         },
                         modifier = Modifier.size(48.dp)
                     )
+
+                    // SyncPlay Watch Party Toggle
+                    IconButton(onClick = { showSyncPlaySheet = true }) {
+                        BadgedBox(
+                            badge = {
+                                if (syncPlayRoom != null && syncPlayParticipants.isNotEmpty()) {
+                                    Badge(containerColor = BluePrimary) {
+                                        Text(syncPlayParticipants.size.toString())
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Group,
+                                contentDescription = "SyncPlay Watch Party",
+                                tint = if (syncPlayRoom != null) BluePrimary else Color.White
+                            )
+                        }
+                    }
 
                     // Playback Info Toggle
                     IconButton(onClick = { showPlaybackInfo = true }) {
@@ -345,6 +474,17 @@ fun PlayerScreen(
                             contentDescription = "Captions",
                             tint = if (isCaptionsEnabled) YellowAccent else Color.White
                         )
+                    }
+
+                    // Picture-in-Picture Toggle (suppressed when casting to remote TV)
+                    if (!isCasting) {
+                        IconButton(onClick = handleEnterPip) {
+                            Icon(
+                                Icons.Default.PictureInPictureAlt,
+                                contentDescription = "Picture-in-Picture",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
 
@@ -369,7 +509,7 @@ fun PlayerScreen(
                     }
 
                     IconButton(
-                        onClick = { playerEngine.togglePlayPause() },
+                        onClick = { playerViewModel.togglePlayPause() },
                         modifier = Modifier.size(72.dp)
                     ) {
                         Icon(
@@ -461,6 +601,13 @@ fun PlayerScreen(
                                                 coroutineScope.launch { guideViewModel.cancelRule(existingRule.recordingRuleId) }
                                             }
                                         )
+                                        DropdownMenuItem(
+                                            text = { Text("Recording Options…") },
+                                            onClick = {
+                                                showRecordMenu = false
+                                                showRecordingOptionsSheet = true
+                                            }
+                                        )
                                     } else {
                                         DropdownMenuItem(
                                             text = { Text(if (isPromoted) "Recording Saved" else "Save Current Recording") },
@@ -550,7 +697,7 @@ fun PlayerScreen(
             }
         }
 
-        if (showPlaybackInfo) {
+        if (!isInPipMode && showPlaybackInfo) {
             PlaybackInfoDialog(
                 playbackMode = playbackMode,
                 transcodeInfo = transcodeInfo,
@@ -561,7 +708,7 @@ fun PlayerScreen(
             )
         }
 
-        if (showRecordingOptionsSheet && activeChannel != null && activeAiring != null) {
+        if (!isInPipMode && showRecordingOptionsSheet && activeChannel != null && activeAiring != null) {
             RecordingOptionsBottomSheet(
                 channel = activeChannel!!,
                 airing = activeAiring!!,
@@ -571,7 +718,16 @@ fun PlayerScreen(
                 existingRule = existingRule,
                 onConfirm = { isSeries, options ->
                     coroutineScope.launch {
-                        if (isSeries) {
+                        if (existingRule != null) {
+                            guideViewModel.updateRule(
+                                ruleId = existingRule.recordingRuleId,
+                                isSeries = isSeries,
+                                options = options,
+                                seriesId = activeAiring?.seriesId,
+                                start = activeAiring?.start,
+                                channelNumber = activeChannel?.channelNumber
+                            )
+                        } else if (isSeries) {
                             guideViewModel.recordSeries(
                                 seriesId = activeAiring?.seriesId ?: "",
                                 channelNumber = activeChannel?.channelNumber,
@@ -591,6 +747,13 @@ fun PlayerScreen(
                     { coroutineScope.launch { guideViewModel.cancelRule(rule.recordingRuleId) } }
                 },
                 onDismiss = { showRecordingOptionsSheet = false }
+            )
+        }
+
+        if (!isInPipMode && showSyncPlaySheet) {
+            SyncPlayBottomSheet(
+                playerViewModel = playerViewModel,
+                onDismiss = { showSyncPlaySheet = false }
             )
         }
     }

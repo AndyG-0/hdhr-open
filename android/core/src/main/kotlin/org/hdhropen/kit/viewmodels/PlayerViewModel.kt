@@ -13,9 +13,11 @@ import kotlinx.coroutines.launch
 import org.hdhropen.kit.models.*
 import org.hdhropen.kit.networking.APIClient
 import org.hdhropen.kit.networking.APIError
+import org.hdhropen.kit.networking.SyncPlayClient
 import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.*
 import org.hdhropen.kit.utilities.Log
+import kotlin.math.abs
 
 /** How the current session is being delivered - set by PlayerViewModel at
  * each stream-URL-construction call site, since PlayerEngine has no way to
@@ -116,12 +118,58 @@ class PlayerViewModel(
     val showAudioMenu = MutableStateFlow(false)
     val showSettingsOverlay = MutableStateFlow(false)
 
+    val syncPlayClient: SyncPlayClient = runCatching {
+        SyncPlayClient(
+            httpClient = apiClient.httpClient,
+            json = apiClient.json,
+            coroutineScope = viewModelScope
+        )
+    }.getOrElse {
+        SyncPlayClient(
+            httpClient = okhttp3.OkHttpClient(),
+            json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true; encodeDefaults = true; coerceInputValues = true },
+            coroutineScope = viewModelScope
+        )
+    }
+
+    val syncPlayRoom: StateFlow<SyncPlayRoom?> = syncPlayClient.room
+    val syncPlayParticipants: StateFlow<List<SyncPlayParticipant>> = syncPlayClient.participants
+    val isSyncPlayHost: StateFlow<Boolean> = syncPlayClient.isHost
+    val syncPlayConnected: StateFlow<Boolean> = syncPlayClient.isConnected
+    val syncPlayPingMs: StateFlow<Double> = syncPlayClient.pingMs
+
     init {
         // Sync player engine time with captions
         viewModelScope.launch {
             playerEngine.currentTime.collect { time ->
                 captionController.updatePlaybackTime(time)
             }
+        }
+
+        // Wire SyncPlayClient callbacks
+        syncPlayClient.getCurrentPosition = { playerEngine.currentTime.value }
+        syncPlayClient.isPlayerReady = {
+            playerEngine.state.value == PlaybackState.Playing || playerEngine.state.value == PlaybackState.Paused
+        }
+        syncPlayClient.onRemotePlay = { position, rate ->
+            val diff = abs(playerEngine.currentTime.value - position)
+            if (diff > 2.0) {
+                playerEngine.seek(position)
+            }
+            playerEngine.play()
+        }
+        syncPlayClient.onRemotePause = { position ->
+            playerEngine.pause()
+            val diff = abs(playerEngine.currentTime.value - position)
+            if (diff > 0.5) {
+                playerEngine.seek(position)
+            }
+        }
+        syncPlayClient.onRemoteSeek = { position ->
+            playerEngine.seek(position)
+        }
+        syncPlayClient.onRemoteContentChange = { content ->
+            handleRemoteContentChange(content)
         }
     }
 
@@ -162,6 +210,18 @@ class PlayerViewModel(
             closePlayer()
             _activeChannel.value = channel
             _activeAiring.value = airing ?: channel.now
+
+            if (syncPlayClient.isConnected.value && syncPlayClient.isHost.value) {
+                syncPlayClient.changeContent(
+                    SyncPlayContent(
+                        type = "channel",
+                        id = channel.channelNumber,
+                        title = airing?.title ?: channel.name,
+                        channelNumber = channel.channelNumber,
+                        playUrl = channel.playbackUrl
+                    )
+                )
+            }
 
             val baseURL = apiClient.baseURL
 
@@ -249,7 +309,7 @@ class PlayerViewModel(
                 }
             } catch (e: Exception) {
                 Log.player.error("Direct HLS channel stream failed: ${e.localizedMessage}")
-                playerEngine.setFailed(e.localizedMessage ?: "Failed to start stream")
+                setPlaybackError(e)
             }
         }
     }
@@ -261,6 +321,18 @@ class PlayerViewModel(
             _activeChannel.value = null
             _activeAiring.value = null
             _isWatchSession.value = false
+
+            if (syncPlayClient.isConnected.value && syncPlayClient.isHost.value) {
+                syncPlayClient.changeContent(
+                    SyncPlayContent(
+                        type = "recording",
+                        id = recording.recordingId ?: "",
+                        title = recording.title,
+                        channelNumber = recording.channelNumber,
+                        playUrl = recording.playUrl
+                    )
+                )
+            }
 
             val baseURL = apiClient.baseURL
             val playUrl = recording.playUrl ?: return@launch
@@ -286,8 +358,76 @@ class PlayerViewModel(
                 loadRecordingMetadata(recording)
             } catch (e: Exception) {
                 Log.player.error("Recording HLS stream failed: ${e.localizedMessage}")
-                playerEngine.setFailed(e.localizedMessage ?: "Failed to play recording")
+                setPlaybackError(e)
             }
+        }
+    }
+
+    private fun setPlaybackError(e: Throwable) {
+        when (e) {
+            is APIError.ServerError -> {
+                val msg = if (e.statusCode == 502) {
+                    "Tuner or streaming server unavailable (HTTP 502)"
+                } else {
+                    "Server error (HTTP ${e.statusCode})"
+                }
+                playerEngine.setFailed(
+                    message = msg,
+                    detail = e.message,
+                    statusCode = e.statusCode,
+                    isNetworkError = true
+                )
+            }
+            is APIError.NetworkError -> {
+                playerEngine.setFailed(
+                    message = "Network connection error",
+                    detail = "Unable to connect to the HDHomeRun Open server. Please check your network connection.",
+                    statusCode = null,
+                    isNetworkError = true
+                )
+            }
+            is APIError.Unauthorized -> {
+                playerEngine.setFailed(
+                    message = "Authentication required (HTTP 401)",
+                    detail = e.message,
+                    statusCode = 401,
+                    isNetworkError = true
+                )
+            }
+            is APIError.NotFound -> {
+                playerEngine.setFailed(
+                    message = "Stream or channel not found (HTTP 404)",
+                    detail = e.message,
+                    statusCode = 404,
+                    isNetworkError = true
+                )
+            }
+            is APIError.LockedOut -> {
+                playerEngine.setFailed(
+                    message = "Account locked out (HTTP 429)",
+                    detail = e.message,
+                    statusCode = 429,
+                    isNetworkError = false
+                )
+            }
+            else -> {
+                playerEngine.setFailed(
+                    message = "Failed to start stream",
+                    detail = e.localizedMessage ?: "An unexpected error occurred while starting stream",
+                    statusCode = null,
+                    isNetworkError = false
+                )
+            }
+        }
+    }
+
+    fun retry() {
+        val channel = _activeChannel.value
+        val airing = _activeAiring.value
+        val recording = _activeRecording.value
+        when {
+            channel != null -> playChannel(channel, airing)
+            recording != null -> playRecording(recording)
         }
     }
 
@@ -463,26 +603,126 @@ class PlayerViewModel(
         }
     }
 
-    /** Seek/skip wrappers that delegate to playerEngine and then immediately
-     * re-run live-cue alignment against the new position, instead of leaving
-     * captions stale until the next poll tick (up to CAPTION_POLL_INTERVAL_MS
-     * away). This covers scrubbing, FF/rewind on an in-progress recording,
-     * and rewinding live TV (which is just an in-progress watch-session
-     * recording under the hood). Callers should use these instead of calling
-     * playerEngine's seek/skipForward/skipBackward directly. */
+    fun play() {
+        playerEngine.play()
+        if (syncPlayClient.isConnected.value) {
+            syncPlayClient.sendPlay(playerEngine.currentTime.value)
+        }
+    }
+
+    fun pause() {
+        playerEngine.pause()
+        if (syncPlayClient.isConnected.value) {
+            syncPlayClient.sendPause(playerEngine.currentTime.value)
+        }
+    }
+
+    fun togglePlayPause() {
+        if (playerEngine.state.value == PlaybackState.Playing) {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    /** Seek/skip wrappers that delegate to playerEngine, broadcast via SyncPlay
+     * if connected, and immediately re-run live-cue alignment against the new position. */
     fun seek(seconds: Double) {
         playerEngine.seek(seconds)
         resyncCaptionsAfterSeek()
+        if (syncPlayClient.isConnected.value) {
+            syncPlayClient.sendSeek(seconds)
+        }
     }
 
     fun skipForward(seconds: Double = 10.0) {
-        playerEngine.skipForward(seconds)
-        resyncCaptionsAfterSeek()
+        val target = playerEngine.currentTime.value + seconds
+        seek(target)
     }
 
     fun skipBackward(seconds: Double = 10.0) {
-        playerEngine.skipBackward(seconds)
-        resyncCaptionsAfterSeek()
+        val target = (playerEngine.currentTime.value - seconds).coerceAtLeast(0.0)
+        seek(target)
+    }
+
+    fun createSyncPlayRoom(userName: String, onComplete: ((Result<SyncPlayRoom>) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val content = currentSyncPlayContent() ?: SyncPlayContent(type = "channel", id = "")
+                val resp = apiClient.createSyncPlayRoom(content = content, userName = userName)
+                val wsUrl = apiClient.syncPlayWsUrl(resp.room.roomCode, userName)
+                syncPlayClient.connect(wsUrl)
+                onComplete?.invoke(Result.success(resp.room))
+            } catch (e: Exception) {
+                Log.network.error("Failed to create SyncPlay room: ${e.localizedMessage}")
+                onComplete?.invoke(Result.failure(e))
+            }
+        }
+    }
+
+    fun joinSyncPlayRoom(roomCode: String, userName: String, onComplete: ((Result<Unit>) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                val wsUrl = apiClient.syncPlayWsUrl(roomCode, userName)
+                syncPlayClient.connect(wsUrl)
+                onComplete?.invoke(Result.success(Unit))
+            } catch (e: Exception) {
+                Log.network.error("Failed to join SyncPlay room: ${e.localizedMessage}")
+                onComplete?.invoke(Result.failure(e))
+            }
+        }
+    }
+
+    fun leaveSyncPlayRoom() {
+        syncPlayClient.disconnect()
+    }
+
+    fun transferSyncPlayHost(targetSessionId: String) {
+        syncPlayClient.transferHost(targetSessionId)
+    }
+
+    private fun currentSyncPlayContent(): SyncPlayContent? {
+        _activeRecording.value?.let { rec ->
+            return SyncPlayContent(
+                type = "recording",
+                id = rec.recordingId ?: "",
+                title = rec.title,
+                channelNumber = rec.channelNumber,
+                playUrl = rec.playUrl
+            )
+        }
+        _activeChannel.value?.let { ch ->
+            return SyncPlayContent(
+                type = "channel",
+                id = ch.channelNumber,
+                channelNumber = ch.channelNumber,
+                title = _activeAiring.value?.title ?: ch.name
+            )
+        }
+        return null
+    }
+
+    private fun handleRemoteContentChange(content: SyncPlayContent) {
+        if (content.type == "recording" && content.id.isNotEmpty()) {
+            if (_activeRecording.value?.recordingId != content.id) {
+                val dummyRec = HDHomeRunRecording(
+                    recordingId = content.id,
+                    title = content.title.ifEmpty { "Recording" },
+                    channelNumber = content.channelNumber,
+                    playUrl = content.playUrl ?: "/api/recordings/stream/${content.id}"
+                )
+                playRecording(dummyRec)
+            }
+        } else if (content.type == "channel" && (content.channelNumber != null || content.id.isNotEmpty())) {
+            val chNum = content.channelNumber ?: content.id
+            if (_activeChannel.value?.channelNumber != chNum) {
+                val dummyCh = HDHomeRunChannel(
+                    channelNumber = chNum,
+                    name = content.title.ifEmpty { chNum }
+                )
+                playChannel(dummyCh)
+            }
+        }
     }
 
     /** Deliberately does NOT call resetCueStretch(): stretchedCueDisplay's

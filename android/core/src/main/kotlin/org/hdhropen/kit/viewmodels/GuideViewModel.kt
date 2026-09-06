@@ -16,7 +16,7 @@ import org.hdhropen.kit.utilities.Log
 import org.hdhropen.kit.utilities.RecordingRuleMatcher
 
 class GuideViewModel(
-    private val apiClient: APIClient
+    val apiClient: APIClient
 ) : ViewModel() {
     private val _channels = MutableStateFlow<List<HDHomeRunChannel>>(emptyList())
     val channels: StateFlow<List<HDHomeRunChannel>> = _channels.asStateFlow()
@@ -179,6 +179,31 @@ class GuideViewModel(
             server = options?.server
         )
         _recordingRules.value = apiClient.addRecordingRule(payload)
+        loadRules()
+    }
+
+    suspend fun updateRule(
+        ruleId: String,
+        isSeries: Boolean,
+        options: RecordingRuleOptions? = null,
+        seriesId: String? = null,
+        start: Double? = null,
+        channelNumber: String? = null
+    ) {
+        val payload = AddRecordingRulePayload(
+            seriesId = if (seriesId.isNullOrEmpty()) "auto" else seriesId,
+            dateTime = if (isSeries) null else start,
+            channel = options?.channel ?: channelNumber,
+            title = options?.title,
+            titleMatchMode = options?.titleMatchMode,
+            keywordQuery = options?.keywordQuery,
+            recentOnly = if (isSeries) (options?.recentOnly ?: false) else null,
+            startPadding = options?.startPadding,
+            endPadding = options?.endPadding,
+            maxEpisodesToKeep = options?.maxEpisodesToKeep,
+            server = options?.server
+        )
+        _recordingRules.value = apiClient.updateRecordingRule(ruleId, payload)
         loadRules()
     }
 

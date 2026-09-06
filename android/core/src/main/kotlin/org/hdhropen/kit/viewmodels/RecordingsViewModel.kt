@@ -124,6 +124,10 @@ class RecordingsViewModel(
         _recordingRules.value = apiClient.addRecordingRule(payload)
     }
 
+    suspend fun updateRecordingRule(ruleId: String, payload: AddRecordingRulePayload) {
+        _recordingRules.value = apiClient.updateRecordingRule(ruleId, payload)
+    }
+
     // Creates a standalone standing rule from scratch (no backing airing) —
     // used by rules-management screens' "Add Keyword Rule" flow. Mirrors
     // the web client's `HDHomeRunKeywordRuleDialog`: keyword/contains rules

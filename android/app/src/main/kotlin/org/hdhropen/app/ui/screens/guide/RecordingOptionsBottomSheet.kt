@@ -34,16 +34,50 @@ fun RecordingOptionsBottomSheet(
     onCancelRule: (() -> Unit)?,
     onDismiss: () -> Unit
 ) {
-    var server by remember { mutableStateOf("default") }
-    var titleMatchMode by remember { mutableStateOf("exact") }
-    var keywordQuery by remember { mutableStateOf("") }
-    var channelMode by remember { mutableStateOf("current") }
-    var customChannels by remember { mutableStateOf(setOf(channel.channelNumber)) }
-    var startPaddingMinutes by remember { mutableStateOf("0") }
-    var endPaddingMinutes by remember { mutableStateOf("0") }
-    var recentOnly by remember { mutableStateOf(false) }
-    var retentionMode by remember { mutableStateOf("unlimited") }
-    var retentionCount by remember { mutableStateOf("3") }
+    val chOnly = existingRule?.channelOnly
+    val maxKeep = existingRule?.maxEpisodesToKeep
+
+    var server by remember {
+        mutableStateOf(
+            if (existingRule?.provider == "hdhomerun") "hdhomerun"
+            else if (existingRule?.provider == "builtin") "builtin"
+            else "default"
+        )
+    }
+    var titleMatchMode by remember { mutableStateOf(existingRule?.titleMatchMode ?: "exact") }
+    var keywordQuery by remember { mutableStateOf(existingRule?.keywordQuery ?: "") }
+    var channelMode by remember {
+        mutableStateOf(
+            if (chOnly != null) {
+                if (chOnly.contains("|")) "custom"
+                else if (chOnly == channel.channelNumber) "current"
+                else "custom"
+            } else if (existingRule != null) {
+                "any"
+            } else {
+                "current"
+            }
+        )
+    }
+    var customChannels by remember {
+        mutableStateOf(
+            if (chOnly != null) {
+                chOnly.split("|").filter { it.isNotBlank() }.toSet()
+            } else {
+                setOf(channel.channelNumber)
+            }
+        )
+    }
+    var startPaddingMinutes by remember { mutableStateOf(((existingRule?.startPadding ?: 0) / 60).toString()) }
+    var endPaddingMinutes by remember { mutableStateOf(((existingRule?.endPadding ?: 0) / 60).toString()) }
+    var recentOnly by remember { mutableStateOf((existingRule?.recentOnly ?: 0) != 0) }
+    var retentionMode by remember {
+        mutableStateOf(
+            if (maxKeep != null && maxKeep > 0) "limited"
+            else "unlimited"
+        )
+    }
+    var retentionCount by remember { mutableStateOf((maxKeep ?: 3).toString()) }
 
     val isKeywordActive = keywordQuery.trim().isNotEmpty() || titleMatchMode == "contains"
     val isOfficialDvrTarget = !isKeywordActive && (server == "hdhomerun" || (server == "default" && officialDvrActive))
@@ -220,13 +254,22 @@ fun RecordingOptionsBottomSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            if (existingRule != null && onCancelRule != null) {
-                OutlinedButton(
-                    onClick = { onCancelRule(); onDismiss() },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = RedLive)
+            if (existingRule != null) {
+                Button(
+                    onClick = { onConfirm(existingRule.isSeriesRule, buildOptions()); onDismiss() },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
-                    Text("Cancel Recording")
+                    Text(if (existingRule.isSeriesRule) "Update Series Recording" else "Update Episode Recording")
+                }
+                if (onCancelRule != null) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { onCancelRule(); onDismiss() },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RedLive)
+                    ) {
+                        Text("Cancel Recording")
+                    }
                 }
             } else {
                 Button(

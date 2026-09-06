@@ -4,4 +4,11 @@
     <string name="tab_recordings">Recordings</string>
     <string name="tab_tuners">Tuners</string>
     <string name="tab_settings">Settings</string>
+    <string name="pip_play">Play</string>
+    <string name="pip_pause">Pause</string>
+    <string name="pip_rewind">Rewind 10s</string>
+    <string name="pip_rewind_desc">Rewind playback by 10 seconds</string>
+    <string name="pip_forward">Forward 10s</string>
+    <string name="pip_forward_desc">Fast-forward playback by 10 seconds</string>
+    <string name="pip_enter">Picture-in-Picture</string>
 </resources>

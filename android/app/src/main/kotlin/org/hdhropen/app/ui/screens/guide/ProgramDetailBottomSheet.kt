@@ -290,6 +290,16 @@ fun ProgramDetailBottomSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Cancel Recording (${if (existingRule.isSeriesRule) "Series" else "Episode"})", color = RedLive)
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = { showOptionsSheet = true },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Recording Options…", style = MaterialTheme.typography.labelMedium)
+                }
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -362,7 +372,16 @@ fun ProgramDetailBottomSheet(
             existingRule = existingRule,
             onConfirm = { isSeries, options ->
                 coroutineScope.launch {
-                    if (isSeries) {
+                    if (existingRule != null) {
+                        guideViewModel.updateRule(
+                            ruleId = existingRule.recordingRuleId,
+                            isSeries = isSeries,
+                            options = options,
+                            seriesId = airing.seriesId,
+                            start = airing.start,
+                            channelNumber = channel.channelNumber
+                        )
+                    } else if (isSeries) {
                         guideViewModel.recordSeries(
                             seriesId = airing.seriesId ?: "",
                             channelNumber = channel.channelNumber,

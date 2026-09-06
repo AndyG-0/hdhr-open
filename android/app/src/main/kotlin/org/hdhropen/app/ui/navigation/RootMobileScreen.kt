@@ -18,7 +18,12 @@ import org.hdhropen.kit.viewmodels.AppEnvironment
 
 @UnstableApi
 @Composable
-fun RootMobileScreen(appEnvironment: AppEnvironment) {
+fun RootMobileScreen(
+    appEnvironment: AppEnvironment,
+    isInPipMode: Boolean = false,
+    onEnterPip: (() -> Unit)? = null,
+    onUpdateVideoBounds: ((android.graphics.Rect) -> Unit)? = null
+) {
     val coroutineScope = rememberCoroutineScope()
     val authManager = appEnvironment.authManager
     val currentUser by authManager.currentUser.collectAsState()
@@ -117,7 +122,10 @@ fun RootMobileScreen(appEnvironment: AppEnvironment) {
                 playerViewModel = playerViewModel,
                 guideViewModel = appEnvironment.guideViewModel,
                 recordingsViewModel = appEnvironment.recordingsViewModel,
-                onDismiss = { playerViewModel.closePlayer() }
+                onDismiss = { playerViewModel.closePlayer() },
+                isInPipMode = isInPipMode,
+                onEnterPip = onEnterPip,
+                onUpdateVideoBounds = onUpdateVideoBounds
             )
         }
     }

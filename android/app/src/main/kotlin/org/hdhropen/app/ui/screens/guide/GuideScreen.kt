@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
@@ -15,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
+import org.hdhropen.app.ui.screens.ai.AIAssistantBottomSheet
 import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
@@ -42,6 +44,7 @@ fun GuideScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedAiringForSheet by remember { mutableStateOf<Pair<HDHomeRunChannel, HDHomeRunGuideEntry>?>(null) }
+    var showAIAssistant by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         if (channels.isEmpty()) {
@@ -80,6 +83,15 @@ fun GuideScreen(
                             if (filterOnlyFavorites) Icons.Default.Star else Icons.Default.StarOutline,
                             contentDescription = "Filter Favorites",
                             tint = if (filterOnlyFavorites) YellowAccent else MaterialTheme.extendedColors.textMuted
+                        )
+                    }
+
+                    // AI Assistant Button
+                    IconButton(onClick = { showAIAssistant = true }) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = "AI Assistant",
+                            tint = BluePrimary
                         )
                     }
 
@@ -146,6 +158,13 @@ fun GuideScreen(
                 guideViewModel = guideViewModel,
                 onDismiss = { selectedAiringForSheet = null },
                 onTune = { playerViewModel.playChannel(channel, airing) }
+            )
+        }
+
+        if (showAIAssistant) {
+            AIAssistantBottomSheet(
+                apiClient = guideViewModel.apiClient,
+                onDismiss = { showAIAssistant = false }
             )
         }
     }

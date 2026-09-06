@@ -56,6 +56,7 @@ object APIEndpoints {
     }
 
     fun recordingRules(): String = "/api/dvr/recording-rules"
+    fun updateRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
     fun deleteRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
 
     fun hlsChannelSession(channelNumber: String, forCast: Boolean = false, audioIndex: Int? = null): String {
@@ -98,4 +99,22 @@ object APIEndpoints {
     fun networkIntegration(type: String): String = "/api/network-settings/$type"
     fun testTunerConnection(): String = "/api/network-settings/hdhomerun/test-tuner-connection"
     fun testDvrConnection(): String = "/api/network-settings/hdhomerun/test-dvr-connection"
+
+    fun syncPlayRooms(): String = "/api/syncplay/rooms"
+    fun syncPlayRoom(code: String): String = "/api/syncplay/rooms/$code"
+    fun syncPlayWs(code: String, token: String? = null, userName: String? = null): String {
+        val params = mutableListOf<String>()
+        if (token != null) params.add("token=${URLEncoder.encode(token, "UTF-8")}")
+        if (userName != null) params.add("user_name=${URLEncoder.encode(userName, "UTF-8")}")
+        val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
+        return "/api/syncplay/ws/$code$query"
+    }
+
+    // MARK: - AI Assistant APIs
+
+    fun aiChat(): String = "/api/ai/chat"
+    fun aiTestConnection(): String = "/api/ai/test-connection"
+    fun aiListModels(): String = "/api/ai/list-models"
+    fun aiConfirmAction(id: String): String = "/api/ai/actions/$id/confirm"
+    fun aiCancelAction(id: String): String = "/api/ai/actions/$id/cancel"
 }
