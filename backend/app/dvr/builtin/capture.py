@@ -409,8 +409,8 @@ class CapturePipeline:
     async def get_or_start_capture(
         self,
         channel_number: str,
-        start_fn: Callable[[], Awaitable["ActiveCapture | None"]],
-    ) -> tuple["ActiveCapture | None", bool]:
+        start_fn: Callable[[], Awaitable[ActiveCapture | None]],
+    ) -> tuple[ActiveCapture | None, bool]:
         """Atomically get the capture already running on channel_number, or
         run start_fn() to create one if none exists yet. Serializes every
         caller for a given channel behind one lock so at most one of them

@@ -281,7 +281,7 @@ _LIVE_CAPTION_TRACK2_GRACE_SECONDS = 20.0
 # _live_caption_tasks, defeating the breaker. Cleared by stop_live_captions.
 _live_caption_disabled: set[tuple[str, int]] = set()
 
-_LIVE_CAPTION_EMPTY_HEADER_SIZE = len("WEBVTT\n\n".encode())
+_LIVE_CAPTION_EMPTY_HEADER_SIZE = len(b"WEBVTT\n\n")
 
 
 def _live_caption_output_has_cues(path: Path) -> bool:
