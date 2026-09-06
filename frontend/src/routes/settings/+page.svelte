@@ -9,6 +9,7 @@
 	import { loadOnceWhen } from '$lib/load-once.svelte';
 	import PriorityList from '$lib/components/settings/PriorityList.svelte';
 	import TmdbSection from '$lib/components/settings/TmdbSection.svelte';
+	import AISettingsSection from '$lib/components/settings/AISettingsSection.svelte';
 	import HouseholdMembersSection from '$lib/components/settings/HouseholdMembersSection.svelte';
 	import ProfileSection from '$lib/components/settings/ProfileSection.svelte';
 	import LanguageSection from '$lib/components/settings/LanguageSection.svelte';
@@ -26,10 +27,7 @@
 
 	// /api/settings is admin-only — load it lazily once $user is known to be
 	// an admin, so a member never fires a request that's guaranteed to 403.
-	loadOnceWhen(
-		() => $user?.role === 'admin',
-		loadSettings,
-	);
+	loadOnceWhen(() => $user?.role === 'admin', loadSettings);
 
 	const VALID_GUIDE_PROVIDERS = ['xmltv', 'schedules_direct', 'hdhomerun_cloud'] as const;
 	type GuideProviderId = (typeof VALID_GUIDE_PROVIDERS)[number];
@@ -149,10 +147,10 @@
 	// TMDB settings — seeded via loadNetworkIntegrations() below, owned by TmdbSection
 	let tmdbInitialHasApiKey = $state<boolean | null>(null);
 
-	loadOnceWhen(
-		() => $user?.role === 'admin',
-		loadNetworkIntegrations,
-	);
+	// AI assistant settings — seeded via loadNetworkIntegrations() below, owned by AISettingsSection
+	let aiInitialSettings = $state<Record<string, unknown> | null>(null);
+
+	loadOnceWhen(() => $user?.role === 'admin', loadNetworkIntegrations);
 
 	async function loadNetworkIntegrations() {
 		try {
@@ -170,6 +168,9 @@
 
 			const tmdb = rows.find((r) => r.type === 'tmdb');
 			tmdbInitialHasApiKey = Boolean(tmdb?.settings.has_api_key);
+
+			const ai = rows.find((r) => r.type === 'ai');
+			aiInitialSettings = ai?.settings ?? {};
 		} catch {
 			error = 'Could not load network settings.';
 		}
@@ -229,6 +230,8 @@
 			/>
 
 			<TmdbSection initialHasApiKey={tmdbInitialHasApiKey} />
+
+			<AISettingsSection initialSettings={aiInitialSettings} />
 
 			<PriorityList
 				heading={$_('network_settings.guide_priority_heading')}
@@ -502,4 +505,3 @@
 		font-size: 0.85rem;
 	}
 </style>
-
