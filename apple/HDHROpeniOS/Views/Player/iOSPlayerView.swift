@@ -118,25 +118,54 @@ public struct iOSPlayerView: View {
                         Spacer()
 
                         // SyncPlay Watch Party Button
-                        Button(action: {
-                            playerViewModel.showSyncPlaySheet = true
-                        }) {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "person.2.fill")
-                                    .font(.title3)
-                                    .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .accentColor : .white)
-                                if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
-                                    Text("\(playerViewModel.syncPlayClient.participants.count)")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 2)
-                                        .background(Capsule().fill(Color.blue))
-                                        .offset(x: 10, y: -8)
+                        if !playerViewModel.sharePlayCoordinator.isSessionActive {
+                            Button(action: {
+                                playerViewModel.showSyncPlaySheet = true
+                            }) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "person.2.fill")
+                                        .font(.title3)
+                                        .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .accentColor : .white)
+                                    if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
+                                        Text("\(playerViewModel.syncPlayClient.participants.count)")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule().fill(Color.blue))
+                                            .offset(x: 10, y: -8)
+                                    }
                                 }
                             }
+                            .padding(.trailing, 8)
                         }
-                        .padding(.trailing, 8)
+
+                        // SharePlay Button
+                        if !playerViewModel.syncPlayClient.isConnected && playerViewModel.currentSyncPlayContent() != nil {
+                            Button(action: {
+                                if playerViewModel.sharePlayCoordinator.isSessionActive {
+                                    playerViewModel.leaveSharePlaySession()
+                                } else {
+                                    playerViewModel.showSharePlaySheet = true
+                                }
+                            }) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "shareplay")
+                                        .font(.title3)
+                                        .foregroundColor(playerViewModel.sharePlayCoordinator.isSessionActive ? .accentColor : .white)
+                                    if playerViewModel.sharePlayCoordinator.isSessionActive && playerViewModel.sharePlayCoordinator.participantCount > 0 {
+                                        Text("\(playerViewModel.sharePlayCoordinator.participantCount)")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 2)
+                                            .background(Capsule().fill(Color.blue))
+                                            .offset(x: 10, y: -8)
+                                    }
+                                }
+                            }
+                            .padding(.trailing, 8)
+                        }
 
                         // Playback Info Button
                         Button(action: {
@@ -386,6 +415,14 @@ public struct iOSPlayerView: View {
         .sheet(isPresented: $playerViewModel.showSyncPlaySheet) {
             iOSSyncPlaySheet()
                 .environmentObject(playerViewModel)
+        }
+        .sheet(isPresented: $playerViewModel.showSharePlaySheet) {
+            if let content = playerViewModel.currentSyncPlayContent() {
+                SharePlayActivitySheet(
+                    activity: WatchProgramActivity(content: content),
+                    onDismiss: { playerViewModel.showSharePlaySheet = false }
+                )
+            }
         }
         .onChange(of: playerViewModel.playerEngine.state) { _, newState in
             // The auto-hide countdown must only run once there's actually

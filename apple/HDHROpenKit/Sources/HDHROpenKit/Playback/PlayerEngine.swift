@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import GroupActivities
 #if os(iOS)
 import AVKit
 #endif
@@ -220,6 +221,16 @@ public final class PlayerEngine: NSObject, ObservableObject {
 
     public func skipBackward(seconds: Double = 10.0) {
         seek(to: max(0, currentTime - seconds))
+    }
+
+    /// Hands the current `avPlayer` off to `AVPlayerPlaybackCoordinator` for
+    /// a SharePlay `GroupSession` (SHARE-1) - from here on, `AVPlayer`
+    /// itself synchronizes play/pause/seek/rate/buffering with every other
+    /// participant. Safe to call once and forget: `avPlayer` is a single
+    /// long-lived instance reused via `replaceCurrentItem` across every
+    /// `loadMedia()` call, so coordination persists across content switches.
+    public func coordinateWithGroupSession(_ session: GroupSession<WatchProgramActivity>) {
+        avPlayer?.playbackCoordinator.coordinateWithSession(session)
     }
 
     public func setAudioTracks(_ tracks: [HDHomeRunRecordingAudioInfo], selectedTrack: HDHomeRunRecordingAudioInfo? = nil) {

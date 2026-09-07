@@ -13,7 +13,7 @@ public struct TVPlaybackControlsView: View {
     @FocusState private var focusedControl: ControlFocus?
 
     private enum ControlFocus {
-        case skipBack, playPause, skipForward, record, syncplay, audio, captions, close
+        case skipBack, playPause, skipForward, record, syncplay, shareplay, audio, captions, close
     }
 
     public init(
@@ -91,24 +91,52 @@ public struct TVPlaybackControlsView: View {
             }
 
             // SyncPlay Watch Party Button
-            Button(action: {
-                playerViewModel.showSyncPlaySheet.toggle()
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "person.2.fill")
-                        .font(.title3)
-                        .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .cyan : .white)
-                    if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
-                        Text("\(playerViewModel.syncPlayClient.participants.count)")
-                            .font(.callout.bold())
-                            .foregroundColor(.cyan)
+            if !playerViewModel.sharePlayCoordinator.isSessionActive {
+                Button(action: {
+                    playerViewModel.showSyncPlaySheet.toggle()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.2.fill")
+                            .font(.title3)
+                            .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .cyan : .white)
+                        if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
+                            Text("\(playerViewModel.syncPlayClient.participants.count)")
+                                .font(.callout.bold())
+                                .foregroundColor(.cyan)
+                        }
                     }
+                    .frame(minWidth: 56, minHeight: 56)
+                    .padding(.horizontal, 8)
                 }
-                .frame(minWidth: 56, minHeight: 56)
-                .padding(.horizontal, 8)
+                .buttonStyle(.plain)
+                .focused($focusedControl, equals: .syncplay)
             }
-            .buttonStyle(.plain)
-            .focused($focusedControl, equals: .syncplay)
+
+            // SharePlay Button
+            if !playerViewModel.syncPlayClient.isConnected {
+                Button(action: {
+                    if playerViewModel.sharePlayCoordinator.isSessionActive {
+                        playerViewModel.leaveSharePlaySession()
+                    } else {
+                        Task { await playerViewModel.startSharePlayOnTV() }
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "shareplay")
+                            .font(.title3)
+                            .foregroundColor(playerViewModel.sharePlayCoordinator.isSessionActive ? .cyan : .white)
+                        if playerViewModel.sharePlayCoordinator.isSessionActive && playerViewModel.sharePlayCoordinator.participantCount > 0 {
+                            Text("\(playerViewModel.sharePlayCoordinator.participantCount)")
+                                .font(.callout.bold())
+                                .foregroundColor(.cyan)
+                        }
+                    }
+                    .frame(minWidth: 56, minHeight: 56)
+                    .padding(.horizontal, 8)
+                }
+                .buttonStyle(.plain)
+                .focused($focusedControl, equals: .shareplay)
+            }
 
             // Audio Track Selector
             if !playerViewModel.playerEngine.availableAudioTracks.isEmpty {

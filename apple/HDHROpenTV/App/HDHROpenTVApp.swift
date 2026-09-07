@@ -18,7 +18,9 @@ struct HDHROpenTVApp: App {
             // to keep playing on the external device once this app
             // backgrounds - tearing the player down here would kill it the
             // instant the user leaves the app (CAST-2).
-            if newPhase == .background && !environment.playerViewModel.playerEngine.isExternalPlaybackActive {
+            if newPhase == .background
+                && !environment.playerViewModel.playerEngine.isExternalPlaybackActive
+                && !environment.playerViewModel.sharePlayCoordinator.isSessionActive {
                 environment.playerViewModel.closePlayer()
             }
         }

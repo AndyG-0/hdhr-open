@@ -25,7 +25,7 @@ def scan_files(directory: Path):
         # folder reference, not scanned file-by-file.
         dirs[:] = [d for d in dirs if not d.endswith('.xcassets')]
         for f in filenames:
-            if f.endswith('.swift') or f.endswith('.plist'):
+            if f.endswith('.swift') or f.endswith('.plist') or f.endswith('.entitlements'):
                 p = Path(root) / f
                 rel = p.relative_to(BASE_DIR)
                 files.append(rel)
@@ -66,6 +66,8 @@ for f in tv_files:
         tv_sources.append(b_id)
     elif f.suffix == '.plist':
         file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "{name}"; sourceTree = "<group>"; }};')
+    elif f.suffix == '.entitlements':
+        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "{name}"; sourceTree = "<group>"; }};')
 
 for f in ios_files:
     f_id = gid(f"file_{f}")
@@ -78,6 +80,8 @@ for f in ios_files:
         ios_sources.append(b_id)
     elif f.suffix == '.plist':
         file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "{name}"; sourceTree = "<group>"; }};')
+    elif f.suffix == '.entitlements':
+        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "{name}"; sourceTree = "<group>"; }};')
 
 for f in tv_catalogs:
     f_id = gid(f"file_{f}")
@@ -423,6 +427,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 			isa = XCBuildConfiguration;
 			buildSettings = {{
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				CODE_SIGN_ENTITLEMENTS = HDHROpenTV/HDHROpenTV.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -447,6 +452,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 			isa = XCBuildConfiguration;
 			buildSettings = {{
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
+				CODE_SIGN_ENTITLEMENTS = HDHROpenTV/HDHROpenTV.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -471,6 +477,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 			isa = XCBuildConfiguration;
 			buildSettings = {{
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HDHROpeniOS/HDHROpeniOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -495,6 +502,7 @@ pbxproj_content = f"""// !$*UTF8*$!
 			isa = XCBuildConfiguration;
 			buildSettings = {{
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = HDHROpeniOS/HDHROpeniOS.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;

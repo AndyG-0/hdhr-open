@@ -23,7 +23,8 @@ struct HDHROpeniOSApp: App {
             // leaves the app.
             if newPhase == .background
                 && !environment.playerViewModel.playerEngine.isExternalPlaybackActive
-                && !environment.playerViewModel.playerEngine.isPictureInPictureActive {
+                && !environment.playerViewModel.playerEngine.isPictureInPictureActive
+                && !environment.playerViewModel.sharePlayCoordinator.isSessionActive {
                 environment.playerViewModel.closePlayer()
             }
         }

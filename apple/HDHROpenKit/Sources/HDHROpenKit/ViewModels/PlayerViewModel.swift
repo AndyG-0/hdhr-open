@@ -34,8 +34,10 @@ public final class PlayerViewModel: ObservableObject {
     @Published public var showChannelSwitcher: Bool = false
     @Published public var showRecordMenu: Bool = false
     @Published public var showSyncPlaySheet: Bool = false
+    @Published public var showSharePlaySheet: Bool = false
 
     public let syncPlayClient: SyncPlayClient
+    public let sharePlayCoordinator: SharePlayCoordinator
 
     private let apiClient: APIClient
     private var cancellables = Set<AnyCancellable>()
@@ -63,6 +65,7 @@ public final class PlayerViewModel: ObservableObject {
         self.playerEngine = PlayerEngine()
         self.captionController = CaptionController()
         self.syncPlayClient = SyncPlayClient()
+        self.sharePlayCoordinator = SharePlayCoordinator()
 
         // Sync player engine time with captions
         playerEngine.$currentTime
@@ -125,10 +128,36 @@ public final class PlayerViewModel: ObservableObject {
                 self?.handleRemoteContentChange(content)
             }
         }
+
+        // Forward sharePlayCoordinator changes
+        sharePlayCoordinator.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        sharePlayCoordinator.onSessionAvailable = { [weak self] session in
+            self?.playerEngine.coordinateWithGroupSession(session)
+        }
+
+        sharePlayCoordinator.onRemoteContentChange = { [weak self] content in
+            Task { @MainActor [weak self] in
+                self?.handleRemoteContentChange(content)
+            }
+        }
     }
 
     public var isPlaying: Bool {
         playerEngine.state == .playing
+    }
+
+    /// Whether either cross-device watch-party transport (SyncPlay or
+    /// SharePlay) is currently running. Both independently drive
+    /// `playerEngine.play/pause/seek/loadMedia` with no cross-suppression,
+    /// so they can't run simultaneously - UI trigger buttons and every
+    /// session-start call site gate on this to enforce that.
+    public var isCrossDeviceSyncActive: Bool {
+        syncPlayClient.isConnected || sharePlayCoordinator.isSessionActive
     }
 
     public var mediaTitle: String {
@@ -183,14 +212,16 @@ public final class PlayerViewModel: ObservableObject {
         self.activeAiring = airing ?? channel.now
         playerEngine.setLoading()
 
+        let syncContent = SyncPlayContent(
+            type: "channel",
+            channelNumber: channel.channelNumber,
+            title: airing?.title ?? channel.name
+        )
         if syncPlayClient.isConnected && syncPlayClient.isHost {
-            syncPlayClient.changeContent(
-                SyncPlayContent(
-                    type: "channel",
-                    channelNumber: channel.channelNumber,
-                    title: airing?.title ?? channel.name
-                )
-            )
+            syncPlayClient.changeContent(syncContent)
+        }
+        if sharePlayCoordinator.isSessionActive {
+            sharePlayCoordinator.sendContentChange(syncContent)
         }
 
         let baseURL = await apiClient.baseURL
@@ -249,16 +280,18 @@ public final class PlayerViewModel: ObservableObject {
         self.isWatchSession = false
         playerEngine.setLoading()
 
+        let syncContent = SyncPlayContent(
+            type: "recording",
+            recordingId: recording.recordingId,
+            channelNumber: recording.channelNumber,
+            title: recording.title,
+            durationSeconds: recording.durationSeconds
+        )
         if syncPlayClient.isConnected && syncPlayClient.isHost {
-            syncPlayClient.changeContent(
-                SyncPlayContent(
-                    type: "recording",
-                    recordingId: recording.recordingId,
-                    channelNumber: recording.channelNumber,
-                    title: recording.title,
-                    durationSeconds: recording.durationSeconds
-                )
-            )
+            syncPlayClient.changeContent(syncContent)
+        }
+        if sharePlayCoordinator.isSessionActive {
+            sharePlayCoordinator.sendContentChange(syncContent)
         }
 
         let baseURL = await apiClient.baseURL
@@ -537,6 +570,7 @@ public final class PlayerViewModel: ObservableObject {
     }
 
     public func createSyncPlayRoom(userName: String) async throws -> SyncPlayRoom {
+        guard !sharePlayCoordinator.isSessionActive else { throw APIError.crossDeviceSyncActive }
         let content = currentSyncPlayContent()
         let resp = try await apiClient.createSyncPlayRoom(userName: userName, initialContent: content)
         if let wsUrl = await apiClient.syncPlayWsUrl(roomCode: resp.room.roomCode, userName: userName) {
@@ -546,6 +580,7 @@ public final class PlayerViewModel: ObservableObject {
     }
 
     public func joinSyncPlayRoom(roomCode: String, userName: String) async throws {
+        guard !sharePlayCoordinator.isSessionActive else { throw APIError.crossDeviceSyncActive }
         guard let wsUrl = await apiClient.syncPlayWsUrl(roomCode: roomCode, userName: userName) else {
             throw APIError.invalidURL
         }
@@ -558,6 +593,24 @@ public final class PlayerViewModel: ObservableObject {
 
     public func transferSyncPlayHost(targetSessionId: String) {
         syncPlayClient.transferHost(targetSessionId: targetSessionId)
+    }
+
+    /// tvOS SharePlay entry point - no `GroupActivitySharingController`
+    /// exists there, so this activates the shared activity directly (see
+    /// `SharePlayCoordinator.activateOnTV(content:)`). No-op (rather than
+    /// throwing) when there's nothing playing or SyncPlay already owns
+    /// cross-device sync, matching the SyncPlay button's own visibility gate.
+    public func startSharePlayOnTV() async {
+        guard !syncPlayClient.isConnected, let content = currentSyncPlayContent() else { return }
+        do {
+            try await sharePlayCoordinator.activateOnTV(content: content)
+        } catch {
+            Log.player.error("SharePlay activation failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    public func leaveSharePlaySession() {
+        sharePlayCoordinator.leaveSession()
     }
 
     public func currentSyncPlayContent() -> SyncPlayContent? {
