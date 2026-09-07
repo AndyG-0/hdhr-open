@@ -1,139 +1,7 @@
 import SwiftUI
 import HDHROpenKit
 
-/// Pure layout math mirroring the web guide grid (frontend/src/lib/components/details/HDHomeRunGuideGrid.svelte).
-/// Kept free of any HDHROpenKit changes -- this is view-layer-only logic.
-enum GuideGridMath {
-    static let pxPerSecond: CGFloat = 4.0 / 60.0
-    static let minCellWidth: CGFloat = 90
-    static let hourSeconds: TimeInterval = 3600
-    static let daySeconds: TimeInterval = 86400
 
-    static func windowBounds(
-        nowSeconds: TimeInterval,
-        fullGuide: [HDHomeRunFullGuideChannel]
-    ) -> (start: TimeInterval, end: TimeInterval) {
-        var minStart = nowSeconds - 2 * hourSeconds
-        var maxEnd = nowSeconds + 4 * hourSeconds
-        let earliestAllowed = nowSeconds - 6 * hourSeconds
-        let latestAllowed = nowSeconds + 48 * hourSeconds
-
-        for entry in fullGuide {
-            for airing in entry.airings {
-                if let start = airing.start { minStart = min(minStart, start) }
-                if let end = airing.end { maxEnd = max(maxEnd, end) }
-            }
-        }
-
-        minStart = max(minStart, earliestAllowed)
-        maxEnd = min(maxEnd, latestAllowed)
-        let start = (minStart / 1800).rounded(.down) * 1800
-        return (start, maxEnd)
-    }
-
-    struct CellLayout: Identifiable {
-        var id: String { airing.id }
-        let airing: HDHomeRunGuideEntry
-        let left: CGFloat
-        let width: CGFloat
-    }
-
-    static func cellLayouts(
-        airings: [HDHomeRunGuideEntry],
-        windowStart: TimeInterval,
-        windowEnd: TimeInterval
-    ) -> [CellLayout] {
-        var layouts: [CellLayout] = []
-        for airing in airings {
-            guard let airingStart = airing.start, let airingEnd = airing.end else { continue }
-            let start = max(airingStart, windowStart)
-            let end = min(airingEnd, windowEnd)
-            guard end > start else { continue }
-            let left = CGFloat(start - windowStart) * pxPerSecond
-            let width = max(CGFloat(end - start) * pxPerSecond, minCellWidth)
-            layouts.append(CellLayout(airing: airing, left: left, width: width))
-        }
-        return layouts
-    }
-
-    struct HourMark: Identifiable {
-        var id: TimeInterval { seconds }
-        let seconds: TimeInterval
-        let left: CGFloat
-        let label: String
-    }
-
-    struct DayMark: Identifiable {
-        var id: TimeInterval { start }
-        let start: TimeInterval
-        let left: CGFloat
-        let width: CGFloat
-        let label: String
-    }
-
-    private static let hourFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "h a"
-        return f
-    }()
-
-    private static let weekdayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE"
-        return f
-    }()
-
-    static func hourMarks(windowStart: TimeInterval, windowEnd: TimeInterval) -> [HourMark] {
-        var marks: [HourMark] = []
-        let calendar = Calendar.current
-        let startDate = Date(timeIntervalSince1970: windowStart)
-        let endDate = Date(timeIntervalSince1970: windowEnd)
-        guard var cursor = calendar.dateInterval(of: .hour, for: startDate)?.start else { return marks }
-
-        while cursor < endDate {
-            let seconds = cursor.timeIntervalSince1970
-            if seconds >= windowStart {
-                let left = CGFloat(seconds - windowStart) * pxPerSecond
-                marks.append(HourMark(seconds: seconds, left: left, label: hourFormatter.string(from: cursor)))
-            }
-            guard let next = calendar.date(byAdding: .hour, value: 1, to: cursor) else { break }
-            cursor = next
-        }
-        return marks
-    }
-
-    static func dayMarks(windowStart: TimeInterval, windowEnd: TimeInterval) -> [DayMark] {
-        var marks: [DayMark] = []
-        let calendar = Calendar.current
-        let endDate = Date(timeIntervalSince1970: windowEnd)
-        guard var dayStart = calendar.dateInterval(of: .day, for: Date(timeIntervalSince1970: windowStart))?.start else {
-            return marks
-        }
-        let today = calendar.startOfDay(for: Date())
-
-        while dayStart < endDate {
-            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { break }
-            let segStart = max(dayStart.timeIntervalSince1970, windowStart)
-            let segEnd = min(dayEnd.timeIntervalSince1970, windowEnd)
-            if segEnd > segStart {
-                let left = CGFloat(segStart - windowStart) * pxPerSecond
-                let width = CGFloat(segEnd - segStart) * pxPerSecond
-                let label: String
-                if calendar.isDate(dayStart, inSameDayAs: today) {
-                    label = "Today"
-                } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: today),
-                          calendar.isDate(dayStart, inSameDayAs: tomorrow) {
-                    label = "Tomorrow"
-                } else {
-                    label = weekdayFormatter.string(from: dayStart)
-                }
-                marks.append(DayMark(start: dayStart.timeIntervalSince1970, left: left, width: width, label: label))
-            }
-            dayStart = dayEnd
-        }
-        return marks
-    }
-}
 
 /// iOS EPG grid: channels as rows with a fixed leading channel column, a horizontally scrollable
 /// per-channel track of time-positioned program cells, a shared hour/day ruler, and a live "now" line.
@@ -142,10 +10,10 @@ enum GuideGridMath {
 ///
 /// The ruler does not scroll in lockstep with the program track: keeping them in sync was prototyped
 /// using a `GeometryReader`/`PreferenceKey` pair, but that reproduced a continuous-CPU-pegging bug
-/// seen elsewhere in this view. Dropped rather than worked around; the ruler still shows the correct
-/// initial window, and users can scroll horizontally manually. Auto-scroll-to-"now" on initial load
-/// (and on every reload) IS implemented, but via `.defaultScrollAnchor` rather than `ScrollViewReader`,
-/// which was also prototyped for this and independently reproduced the same CPU-pegging bug.
+/// seen elsewhere in this view. Instead, the ruler synchronizes horizontally via `scrollOffsetX` tracked
+/// by `onScrollGeometryChange`. Auto-scroll-to-"now" on initial load (and on reload) is implemented
+/// via iOS 18's native `ScrollPosition` (`.scrollPosition($scrollPosition)`), positioning "now" with a
+/// 60pt leading inset to match the web and Android clients.
 public struct iOSGuideGridView: View {
     let channels: [HDHomeRunChannel]
     let onSelectAiring: (HDHomeRunChannel, HDHomeRunGuideEntry) -> Void
@@ -154,7 +22,7 @@ public struct iOSGuideGridView: View {
     @EnvironmentObject private var guideViewModel: GuideViewModel
 
     @State private var nowSeconds: TimeInterval = Date().timeIntervalSince1970
-    @State private var scrollAnchor: UnitPoint = .leading
+    @State private var scrollPosition = ScrollPosition()
     @State private var hasAutoScrolledToNow = false
     @State private var scrollOffsetX: CGFloat = 0
 
@@ -197,27 +65,25 @@ public struct iOSGuideGridView: View {
         maybeScrollToNow()
     }
 
-    /// One-shot: the first time real guide data has settled after a load, bias `defaultScrollAnchor`
-    /// so the horizontal track's initial layout centers near "now" instead of the leading edge
-    /// (~now-6h). Mirrors the web client's one-time `scrollEl.scrollLeft = nowLeft - 60`
-    /// (HDHomeRunGuideGrid.svelte), but via `.defaultScrollAnchor` instead of `ScrollViewReader`,
-    /// which this view cannot use -- see the doc comment above `iOSGuideGridView`.
-    ///
-    /// The anchor is reset back to `.leading` shortly after the jump takes effect so later,
-    /// unrelated content-size changes (e.g. the 30s timer nudging `windowBounds`) don't re-consult
-    /// a stale "now" fraction and fight any manual scrolling the user has since done.
+    /// One-shot per load: once real guide data has settled, scroll the horizontal track to "now"
+    /// so the live indicator sits 60pt in from the left edge of the visible track.
+    /// Mirrors the web client's `scrollEl.scrollLeft = nowLeft - 60` (HDHomeRunGuideGrid.svelte)
+    /// and Android client's `horizontalScrollState.scrollTo(targetPx)` (GuideGridView.kt).
     private func maybeScrollToNow() {
         guard !hasAutoScrolledToNow, !guideViewModel.isLoading, !guideViewModel.fullGuide.isEmpty else { return }
         hasAutoScrolledToNow = true
 
-        let span = windowBounds.end - windowBounds.start
-        guard span > 0 else { return }
-        let fraction = min(max((nowSeconds - windowBounds.start) / span, 0), 1)
-        scrollAnchor = UnitPoint(x: fraction, y: 0)
+        let targetX = GuideGridMath.targetScrollOffset(
+            nowSeconds: nowSeconds,
+            windowStart: windowBounds.start
+        )
+        scrollPosition.scrollTo(x: targetX)
 
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            scrollAnchor = .leading
+            // Allow SwiftUI a layout pass to settle updated content width, then re-apply
+            // in case the initial attempt clamped against pre-load content size.
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            scrollPosition.scrollTo(x: targetX)
         }
     }
 
@@ -241,6 +107,12 @@ public struct iOSGuideGridView: View {
             if newValue { hasAutoScrolledToNow = false }
             nowSeconds = Date().timeIntervalSince1970
             recomputeWindowBounds()
+        }
+        .onChange(of: guideViewModel.fullGuide.isEmpty) { _, isEmpty in
+            if !isEmpty {
+                nowSeconds = Date().timeIntervalSince1970
+                recomputeWindowBounds()
+            }
         }
     }
 
@@ -322,7 +194,7 @@ public struct iOSGuideGridView: View {
                     }
                 }
                 .frame(width: trackWidth)
-                .defaultScrollAnchor(scrollAnchor)
+                .scrollPosition($scrollPosition)
                 .onScrollGeometryChange(for: CGFloat.self) { geometry in
                     geometry.contentOffset.x
                 } action: { _, newValue in
