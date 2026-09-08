@@ -28,6 +28,7 @@ from app.api import watch as watch_api
 from app.config import DB_PATH, SECRET_KEY_PATH, settings
 from app.dvr.builtin import engine as dvr_engine
 from app.dvr.builtin.capture import CAPTION_EXTRACTION_JOB_ID
+from app.guide import cleanup as guide_cleanup
 from app.guide import schedules_direct as schedules_direct_guide
 from app.guide import service as hdhomerun_guide
 from app.guide import xmltv as xmltv_guide
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI):
     hdhomerun_guide.register(scheduler)
     xmltv_guide.register(scheduler)
     schedules_direct_guide.register(scheduler)
+    guide_cleanup.register(scheduler)
     dvr_engine.register(scheduler)
     await hls_streaming.sweep_session_dir_on_startup()
     hls_streaming.register(scheduler)

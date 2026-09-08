@@ -106,6 +106,13 @@ def delete_guide_programs_by_provider(source_provider: str) -> None:
         conn.execute("DELETE FROM guide_programs WHERE source_provider = ?", (source_provider,))
 
 
+def delete_old_guide_programs(before_ts: float) -> int:
+    """Delete guide programs that ended on or before before_ts across all providers."""
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM guide_programs WHERE end_ts <= ?", (before_ts,))
+        return cursor.rowcount
+
+
 def get_guide_provider_state(provider: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute("SELECT * FROM guide_provider_state WHERE provider = ?", (provider,)).fetchone()

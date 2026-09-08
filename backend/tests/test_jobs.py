@@ -24,6 +24,7 @@ def test_app_startup_registers_the_hls_and_caption_jobs(tmp_db):
     assert "caption_extraction" in registered
     assert "hls_streaming_reap_idle_sessions" in registered
     assert "hls_streaming_sweep_orphaned_session_dirs" in registered
+    assert "guide_cleanup_old_programs" in registered
 
 
 @pytest.mark.asyncio
