@@ -83,6 +83,20 @@ whatever reverse proxy you put in front of it) as the real security
 perimeter. Don't expose this directly to the internet without a reverse
 proxy and TLS in front of it.
 
+## Releasing
+
+HDHR Open uses semantic versioning (`X.Y.Z` in `VERSION`, `backend/pyproject.toml`, and `frontend/package.json`; `vX.Y.Z` for git tags and GitHub releases). From an up-to-date `main` with a clean working tree:
+
+```bash
+./scripts/release.sh patch   # or: minor / major
+git push origin main
+git push origin vX.Y.Z       # printed by the script — triggers release workflows
+```
+
+The script bumps `VERSION`, `backend/pyproject.toml`, and `frontend/package.json` (regenerating `backend/uv.lock` and `frontend/package-lock.json`), then commits and tags the release locally (pass `--push` to push automatically).
+
+Pushing the tag triggers `.github/workflows/publish-images.yml` (GHCR images for `docker-compose.prod.yml`) and `.github/workflows/release.yml` (GitHub Release with auto-generated notes).
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
