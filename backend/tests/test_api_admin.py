@@ -107,3 +107,115 @@ def test_delete_yourself_via_this_route_is_refused(client):
     response = client.delete("/api/admin/users/admin1")
 
     assert response.status_code == 400
+
+
+def test_create_household_user_success(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    response = client.post("/api/admin/users", json={"name": "Charlie", "avatar": "🦊", "role": "member"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Charlie"
+    assert data["avatar"] == "🦊"
+    assert data["role"] == "member"
+    assert data["has_pin"] is False
+    assert "id" in data
+
+    stored = db.get_user(data["id"])
+    assert stored is not None
+    assert stored["name"] == "Charlie"
+    assert stored["pin_hash"] is None
+
+
+def test_create_household_user_with_pin(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    response = client.post(
+        "/api/admin/users",
+        json={"name": "Bob", "avatar": None, "role": "admin", "pin": "1234"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Bob"
+    assert data["role"] == "admin"
+    assert data["has_pin"] is True
+
+    stored = db.get_user(data["id"])
+    assert stored is not None
+    assert stored["pin_hash"] is not None
+
+
+def test_create_household_user_validation(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    # Empty name
+    res1 = client.post("/api/admin/users", json={"name": "   "})
+    assert res1.status_code == 400
+
+    # Non-digit PIN
+    res2 = client.post("/api/admin/users", json={"name": "Test", "pin": "abcd"})
+    assert res2.status_code == 422
+
+    # Too short PIN (<4 digits)
+    res3 = client.post("/api/admin/users", json={"name": "Test", "pin": "12"})
+    assert res3.status_code == 422
+
+
+def test_update_household_user_details(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    response = client.patch(
+        "/api/admin/users/member1",
+        json={"name": "Member Renamed", "avatar": "🌟"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Member Renamed"
+    assert data["avatar"] == "🌟"
+    assert data["role"] == "member"
+
+    stored = db.get_user("member1")
+    assert stored["name"] == "Member Renamed"
+    assert stored["avatar"] == "🌟"
+
+
+def test_update_household_user_reset_and_clear_pin(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    # Set PIN
+    res1 = client.patch("/api/admin/users/member1", json={"pin": "9876"})
+    assert res1.status_code == 200
+    assert res1.json()["has_pin"] is True
+    assert db.get_user("member1")["pin_hash"] is not None
+
+    # Clear PIN
+    res2 = client.patch("/api/admin/users/member1", json={"pin": ""})
+    assert res2.status_code == 200
+    assert res2.json()["has_pin"] is False
+    assert db.get_user("member1")["pin_hash"] is None
+
+
+def test_update_household_user_cannot_demote_last_admin(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    response = client.patch("/api/admin/users/admin1", json={"role": "member"})
+    assert response.status_code == 400
+    assert "last remaining admin" in response.json()["detail"]
+
+
+def test_update_household_user_404_unknown(client):
+    _seed_users()
+    client.app.dependency_overrides[get_current_admin] = lambda: db.get_user("admin1")
+
+    response = client.patch("/api/admin/users/ghost", json={"name": "Ghost"})
+    assert response.status_code == 404
+

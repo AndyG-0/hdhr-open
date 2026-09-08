@@ -369,6 +369,36 @@ describe('api', () => {
 		expect(result).toEqual(member);
 	});
 
+	it('createHouseholdUser POSTs payload to admin users endpoint', async () => {
+		const created = { id: 'u2', name: 'Bob', avatar: '🦊', has_pin: true, role: 'member', created_at: '2026-01-02' };
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => created }));
+
+		const result = await api.createHouseholdUser({ name: 'Bob', avatar: '🦊', pin: '1234', role: 'member' });
+
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users', {
+			method: 'POST',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'Bob', avatar: '🦊', pin: '1234', role: 'member' }),
+		});
+		expect(result).toEqual(created);
+	});
+
+	it('updateHouseholdUser PATCHes the given user endpoint with payload', async () => {
+		const updated = { id: 'u2', name: 'Bobby', avatar: '🦊', has_pin: false, role: 'admin', created_at: '2026-01-02' };
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => updated }));
+
+		const result = await api.updateHouseholdUser('u2', { name: 'Bobby', pin: '', role: 'admin' });
+
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users/u2', {
+			method: 'PATCH',
+			credentials: 'include',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'Bobby', pin: '', role: 'admin' }),
+		});
+		expect(result).toEqual(updated);
+	});
+
 	it('removeHouseholdUser DELETEs the given member endpoint', async () => {
 		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: 'ok' }) }));
 

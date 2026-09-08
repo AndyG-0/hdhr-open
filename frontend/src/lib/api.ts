@@ -926,6 +926,21 @@ export const api = {
 			...(pin !== undefined && { pin }),
 		}),
 	listHouseholdUsers: () => getJSON<HouseholdUser[]>('/api/admin/users'),
+	createHouseholdUser: (payload: {
+		name: string;
+		avatar?: string | null;
+		pin?: string | null;
+		role?: UserRole;
+	}) => postJSON<HouseholdUser>('/api/admin/users', payload),
+	updateHouseholdUser: (
+		id: string,
+		payload: {
+			name?: string;
+			avatar?: string | null;
+			pin?: string | null;
+			role?: UserRole;
+		},
+	) => patchJSON<HouseholdUser>(`/api/admin/users/${id}`, payload),
 	updateUserRole: (id: string, role: UserRole) => patchJSON<HouseholdUser>(`/api/admin/users/${id}/role`, { role }),
 	removeHouseholdUser: (id: string) => deleteJSON<{ status: string }>(`/api/admin/users/${id}`),
 	listJobs: () => getJSON<AdminJob[]>('/api/admin/jobs'),
