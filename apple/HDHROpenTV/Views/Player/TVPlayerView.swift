@@ -6,6 +6,7 @@ public struct TVPlayerView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
     @State private var showControls = true
     @State private var controlsTimer: Task<Void, Never>?
@@ -140,6 +141,15 @@ public struct TVPlayerView: View {
                             },
                             onClose: {
                                 playerViewModel.closePlayer()
+                            },
+                            onAddToMultiView: {
+                                if let ch = playerViewModel.activeChannel {
+                                    let airing = playerViewModel.activeAiring
+                                    playerViewModel.closePlayer()
+                                    Task {
+                                        try? await multiPlayerViewModel.addFeed(channel: ch, airing: airing)
+                                    }
+                                }
                             }
                         )
                     }

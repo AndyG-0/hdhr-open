@@ -22,7 +22,7 @@ and shipped features are documented in the commit history rather than repeated h
 
 ## Multi-Feed / Multi-View Playback
 
-- [ ] **MULTI-1 — Multi-Feed Core Engine & Session Orchestration (`HDHROpenKit`).**
+- [x] **MULTI-1 — Multi-Feed Core Engine & Session Orchestration (`HDHROpenKit`).**
   Build the underlying multi-stream management layer supporting up to 4 concurrent feeds:
   - **Screen Size & Platform Feasibility**:
     - **tvOS (Primary Target)**: 10-foot television experience (55"+, 4K/1080p displays) is ideal for multi-game sports and breaking news watching (e.g. Quad-Box / 2x2 grid, 1-hero + 2-side, 2-up split).
@@ -55,7 +55,7 @@ and shipped features are documented in the commit history rather than repeated h
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/MultiPlayerViewModel.swift` (NEW: multi-stream state, audio focus, tuner-aware slot orchestration)
     - `apple/HDHROpenKit/Tests/HDHROpenKitTests/MultiPlayerViewModelTests.swift` (NEW: slot lifecycle and audio focus tests)
 
-- [ ] **MULTI-2 — tvOS Native Quad-Box & Multi-View UI with Focus Engine (`HDHROpenTV`).**
+- [x] **MULTI-2 — tvOS Native Quad-Box & Multi-View UI with Focus Engine (`HDHROpenTV`).**
   Implement the Apple TV 10-foot multi-view playback interface:
   - **Focus & Siri Remote Interaction**:
     - Each video tile in the grid acts as a `@FocusState` target with an active highlight border and channel badge.
@@ -74,11 +74,11 @@ and shipped features are documented in the commit history rather than repeated h
     - `apple/HDHROpenTV/Views/Player/TVPlaybackControlsView.swift` (MODIFY: add multi-view transition button)
     - `apple/HDHROpenTV/App/RootTVView.swift` (MODIFY: route to TVMultiPlayerView when multi-view active)
 
-- [ ] **MULTI-3 — iPadOS / macOS Regular Size-Class Adaptation (`HDHROpeniOS`).**
+- [x] **MULTI-3 — iPadOS / macOS Regular Size-Class Adaptation (`HDHROpeniOS`).**
   Adapt multi-view playback for iPad and Mac windowed environments:
   - Conditionally present multi-view when `horizontalSizeClass == .regular`.
   - Tap-to-focus audio routing and touch drag-and-drop / long-press tile swap.
   - **Files**:
-    - `apple/HDHROpeniOS/Views/Player/iOSMultiPlayerView.swift` (NEW: iPadOS / regular size class multi-view grid)
+    - `apple/HDHROpeniOS/Views/Player/MultiView/iOSMultiPlayerView.swift` (NEW: iPadOS / regular size class multi-view grid)
     - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY: multi-view button when size class is regular)
     - `apple/HDHROpeniOS/App/RootiOSView.swift` (MODIFY: route to iOSMultiPlayerView when active)

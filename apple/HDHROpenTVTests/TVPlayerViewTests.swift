@@ -18,12 +18,21 @@ final class TVPlayerViewTests: XCTestCase {
     private func makeView(
         _ playerViewModel: PlayerViewModel,
         _ guideViewModel: GuideViewModel,
-        _ recordingsViewModel: RecordingsViewModel
+        _ recordingsViewModel: RecordingsViewModel,
+        _ multiPlayerViewModel: MultiPlayerViewModel? = nil
     ) -> some View {
-        TVPlayerView()
+        let multiVM = multiPlayerViewModel ?? MultiPlayerViewModel(
+            apiClient: APIClient(baseURL: URL(string: "http://localhost:8000")!, session: MockURLProtocol.makeSession()),
+            watchSessionManager: WatchSessionManager(apiClient: APIClient(
+                baseURL: URL(string: "http://localhost:8000")!,
+                session: MockURLProtocol.makeSession()
+            ))
+        )
+        return TVPlayerView()
             .environmentObject(playerViewModel)
             .environmentObject(guideViewModel)
             .environmentObject(recordingsViewModel)
+            .environmentObject(multiVM)
     }
 
     func testShowsLiveTVTitleByDefault() throws {

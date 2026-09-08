@@ -9,6 +9,11 @@ public struct iOSPlayerView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
+    private var isRegularSizeClass: Bool {
+        horizontalSizeClass == .regular ||
+            (horizontalSizeClass == nil && (UIDevice.current.userInterfaceIdiom == .pad || UIDevice.current.userInterfaceIdiom == .mac))
+    }
+
     @State private var showControls = true
     @State private var controlsTimer: Task<Void, Never>?
     @State private var showPlaybackInfo = false
@@ -170,7 +175,7 @@ public struct iOSPlayerView: View {
                         }
 
                         // Multi-View Button (iPad / Mac regular size class)
-                        if horizontalSizeClass == .regular, let channel = playerViewModel.activeChannel {
+                        if isRegularSizeClass, let channel = playerViewModel.activeChannel {
                             Button(action: {
                                 let airing = playerViewModel.activeAiring
                                 playerViewModel.closePlayer()

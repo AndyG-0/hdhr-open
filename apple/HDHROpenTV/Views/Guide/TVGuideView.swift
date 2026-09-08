@@ -13,6 +13,7 @@ private struct SelectedAiring: Identifiable {
 public struct TVGuideView: View {
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
     @State private var selectedAiringForModal: SelectedAiring?
     @State private var showAIAssistantModal = false
@@ -158,6 +159,12 @@ public struct TVGuideView: View {
                 },
                 onDismiss: {
                     selectedAiringForModal = nil
+                },
+                onAddToMultiView: {
+                    selectedAiringForModal = nil
+                    Task {
+                        try? await multiPlayerViewModel.addFeed(channel: selection.channel, airing: selection.airing)
+                    }
                 }
             )
         }

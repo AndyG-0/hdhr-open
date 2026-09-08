@@ -29,7 +29,7 @@ public struct TVMultiViewGrid: View {
         self.slots = slots
         self.layout = layout
         self.activeSlotIndex = activeSlotIndex
-        self._focusedSlotIndex = focusedSlotIndex
+        _focusedSlotIndex = focusedSlotIndex
         self.onSlotSelect = onSlotSelect
         self.onAddSlot = onAddSlot
         self.onExpandToFullScreen = onExpandToFullScreen

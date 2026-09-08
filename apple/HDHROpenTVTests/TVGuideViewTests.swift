@@ -19,13 +19,21 @@ final class TVGuideViewTests: XCTestCase {
         super.tearDown()
     }
 
+    private func makeView(_ guideViewModel: GuideViewModel, _ playerViewModel: PlayerViewModel) -> some View {
+        let apiClient = APIClient(baseURL: URL(string: "http://localhost:8000")!, session: MockURLProtocol.makeSession())
+        let watchSessionManager = WatchSessionManager(apiClient: apiClient)
+        let multiPlayerViewModel = MultiPlayerViewModel(apiClient: apiClient, watchSessionManager: watchSessionManager)
+        return TVGuideView()
+            .environmentObject(guideViewModel)
+            .environmentObject(playerViewModel)
+            .environmentObject(multiPlayerViewModel)
+    }
+
     func testShowsEmptyStateWhenNoChannels() throws {
         let (guideViewModel, playerViewModel) = makeEnvironmentObjects()
         XCTAssertTrue(guideViewModel.channels.isEmpty)
 
-        let view = TVGuideView()
-            .environmentObject(guideViewModel)
-            .environmentObject(playerViewModel)
+        let view = makeView(guideViewModel, playerViewModel)
 
         XCTAssertNoThrow(try view.inspect().find(text: "No channels discovered"))
     }
@@ -34,9 +42,7 @@ final class TVGuideViewTests: XCTestCase {
         let (guideViewModel, playerViewModel) = makeEnvironmentObjects()
         guideViewModel.filterOnlyFavorites = true
 
-        let view = TVGuideView()
-            .environmentObject(guideViewModel)
-            .environmentObject(playerViewModel)
+        let view = makeView(guideViewModel, playerViewModel)
 
         XCTAssertNoThrow(try view.inspect().find(text: "No favorite channels"))
     }
@@ -53,9 +59,7 @@ final class TVGuideViewTests: XCTestCase {
         await guideViewModel.loadChannels()
         XCTAssertEqual(guideViewModel.channels.count, 2)
 
-        let view = TVGuideView()
-            .environmentObject(guideViewModel)
-            .environmentObject(playerViewModel)
+        let view = makeView(guideViewModel, playerViewModel)
 
         XCTAssertThrowsError(try view.inspect().find(text: "No channels discovered"))
         XCTAssertEqual(try view.inspect().findAll(TVChannelRowView.self).count, 2)
@@ -65,9 +69,7 @@ final class TVGuideViewTests: XCTestCase {
 
     func testShowsLiveTVGuideHeader() throws {
         let (guideViewModel, playerViewModel) = makeEnvironmentObjects()
-        let view = TVGuideView()
-            .environmentObject(guideViewModel)
-            .environmentObject(playerViewModel)
+        let view = makeView(guideViewModel, playerViewModel)
 
         XCTAssertNoThrow(try view.inspect().find(text: "Live TV Guide"))
     }
@@ -76,9 +78,7 @@ final class TVGuideViewTests: XCTestCase {
         let (guideViewModel, playerViewModel) = makeEnvironmentObjects()
         XCTAssertFalse(guideViewModel.filterOnlyFavorites)
 
-        let view = TVGuideView()
-            .environmentObject(guideViewModel)
-            .environmentObject(playerViewModel)
+        let view = makeView(guideViewModel, playerViewModel)
 
         try view.inspect().find(button: "Favorites Only").tap()
 

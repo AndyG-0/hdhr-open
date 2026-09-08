@@ -4,12 +4,12 @@ import SwiftUI
 public struct TVPlaybackControlsView: View {
     @ObservedObject var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
-    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
     let onTogglePlayPause: () -> Void
     let onSkipBackward: () -> Void
     let onSkipForward: () -> Void
     let onClose: () -> Void
+    let onAddToMultiView: (() -> Void)?
 
     @FocusState private var focusedControl: ControlFocus?
 
@@ -22,13 +22,15 @@ public struct TVPlaybackControlsView: View {
         onTogglePlayPause: @escaping () -> Void,
         onSkipBackward: @escaping () -> Void,
         onSkipForward: @escaping () -> Void,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        onAddToMultiView: (() -> Void)? = nil
     ) {
         self.playerViewModel = playerViewModel
         self.onTogglePlayPause = onTogglePlayPause
         self.onSkipBackward = onSkipBackward
         self.onSkipForward = onSkipForward
         self.onClose = onClose
+        self.onAddToMultiView = onAddToMultiView
     }
 
     public var body: some View {
@@ -140,16 +142,8 @@ public struct TVPlaybackControlsView: View {
             }
 
             // Multi-View Transition Button (Live Channels)
-            if playerViewModel.activeChannel != nil {
-                Button(action: {
-                    if let ch = playerViewModel.activeChannel {
-                        let airing = playerViewModel.activeAiring
-                        playerViewModel.closePlayer()
-                        Task {
-                            try? await multiPlayerViewModel.addFeed(channel: ch, airing: airing)
-                        }
-                    }
-                }) {
+            if playerViewModel.activeChannel != nil, let onAddToMultiView {
+                Button(action: onAddToMultiView) {
                     Image(systemName: "square.grid.2x2")
                         .font(.title3)
                         .frame(width: 56, height: 56)

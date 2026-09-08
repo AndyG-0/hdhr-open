@@ -13,10 +13,10 @@ public struct TVProgramDetailModal: View {
     let onCancelRule: (String) -> Void
     let onToggleFavorite: () -> Void
     let onDismiss: () -> Void
+    let onAddToMultiView: (() -> Void)?
 
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
-    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
     @Namespace private var focusNamespace
     @State private var showOptionsModal = false
@@ -31,7 +31,8 @@ public struct TVProgramDetailModal: View {
         onRecordSeries: @escaping () -> Void,
         onCancelRule: @escaping (String) -> Void,
         onToggleFavorite: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping () -> Void,
+        onAddToMultiView: (() -> Void)? = nil
     ) {
         self.channel = channel
         self.airing = airing
@@ -43,6 +44,7 @@ public struct TVProgramDetailModal: View {
         self.onCancelRule = onCancelRule
         self.onToggleFavorite = onToggleFavorite
         self.onDismiss = onDismiss
+        self.onAddToMultiView = onAddToMultiView
     }
 
     public var body: some View {
@@ -186,17 +188,13 @@ public struct TVProgramDetailModal: View {
                         }
                         .prefersDefaultFocus(true, in: focusNamespace)
 
-                        Button(action: {
-                            onDismiss()
-                            Task {
-                                try? await multiPlayerViewModel.addFeed(channel: channel, airing: airing)
+                        if let onAddToMultiView {
+                            Button(action: onAddToMultiView) {
+                                Label("Add to Multi-View", systemImage: "square.grid.2x2")
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
                             }
-                        }) {
-                            Label("Add to Multi-View", systemImage: "square.grid.2x2")
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
                         }
-                        .disabled(!multiPlayerViewModel.canAddFeed)
                     }
 
                     if let rule = existingRule {

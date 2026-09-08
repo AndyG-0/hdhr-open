@@ -21,8 +21,10 @@ final class TVMultiPlayerViewTests: XCTestCase {
     }
 
     private func setupMockFeed(channelNumber: String, sessId: String) {
+        let json = "{\"recording_id\":\"rec_\(sessId)\",\"session_id\":\"\(sessId)\","
+            + "\"title\":\"Channel \(channelNumber)\",\"play_url\":\"/stream/\(channelNumber)\"}"
         MockURLProtocol.handlers["/api/watch/\(channelNumber)/start"] = (
-            Data("{\"recording_id\":\"rec_\(sessId)\",\"session_id\":\"\(sessId)\",\"title\":\"Channel \(channelNumber)\",\"play_url\":\"/stream/\(channelNumber)\"}".utf8), 200
+            Data(json.utf8), 200
         )
         MockURLProtocol.handlers["/api/dvr/recording-stream-hls"] = (
             Data("{\"session_id\":\"hls_\(sessId)\",\"playlist_url\":\"/api/streaming/hls/hls_\(sessId)/playlist.m3u8\"}".utf8), 200
@@ -84,7 +86,7 @@ final class TVMultiPlayerViewTests: XCTestCase {
 
     func testTVPlaybackControlsViewIncludesMultiViewButtonWhenLive() async throws {
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
-        let apiClient = APIClient(baseURL: URL(string: "http://localhost:8000")!, session: MockURLProtocol.makeSession())
+        let apiClient = try APIClient(baseURL: XCTUnwrap(URL(string: "http://localhost:8000")), session: MockURLProtocol.makeSession())
         let watchSessionManager = WatchSessionManager(apiClient: apiClient)
         let playerViewModel = PlayerViewModel(apiClient: apiClient, watchSessionManager: watchSessionManager)
         let multiPlayerViewModel = MultiPlayerViewModel(apiClient: apiClient, watchSessionManager: watchSessionManager)
@@ -97,10 +99,10 @@ final class TVMultiPlayerViewTests: XCTestCase {
             onTogglePlayPause: {},
             onSkipBackward: {},
             onSkipForward: {},
-            onClose: {}
+            onClose: {},
+            onAddToMultiView: {}
         )
         .environmentObject(guideViewModel)
-        .environmentObject(multiPlayerViewModel)
 
         let inspection = try controls.inspect()
         XCTAssertNoThrow(try inspection.find(where: { view in

@@ -241,7 +241,7 @@ public struct iOSMultiPlayerView: View {
         }
     }
 
-    private func emptyTileView(at index: Int) -> some View {
+    private func emptyTileView(at _: Int) -> some View {
         Button(action: {
             targetSlotIndexForChannelChange = nil
             showChannelSheet = true
@@ -267,7 +267,7 @@ public struct iOSMultiPlayerView: View {
         .buttonStyle(.plain)
     }
 
-    private func slotOverlay(for slot: MultiViewSlot, index: Int, isActiveAudio: Bool) -> some View {
+    private func slotOverlay(for slot: MultiViewSlot, index _: Int, isActiveAudio: Bool) -> some View {
         VStack {
             // Top badges
             HStack {
