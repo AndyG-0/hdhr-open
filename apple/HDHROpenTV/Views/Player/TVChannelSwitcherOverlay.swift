@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVChannelSwitcherOverlay: View {
     let channels: [HDHomeRunChannel]

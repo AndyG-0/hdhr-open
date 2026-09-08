@@ -20,9 +20,9 @@ public struct WatchProgramActivity: GroupActivity, Sendable {
     }
 
     public init(content: SyncPlayContent) {
-        self.channelNumber = content.channelNumber
-        self.recordingId = content.recordingId
-        self.title = content.title
+        channelNumber = content.channelNumber
+        recordingId = content.recordingId
+        title = content.title
     }
 
     public var metadata: GroupActivityMetadata {

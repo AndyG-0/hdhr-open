@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVPlayerSettingsOverlay: View {
     @ObservedObject var playerViewModel: PlayerViewModel
@@ -7,7 +7,9 @@ public struct TVPlayerSettingsOverlay: View {
 
     @FocusState private var focusedElement: SettingsFocus?
 
-    private var playerEngine: PlayerEngine { playerViewModel.playerEngine }
+    private var playerEngine: PlayerEngine {
+        playerViewModel.playerEngine
+    }
 
     private enum SettingsFocus: Hashable {
         case close

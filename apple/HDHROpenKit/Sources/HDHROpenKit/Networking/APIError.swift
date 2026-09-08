@@ -15,25 +15,25 @@ public enum APIError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .invalidURL:
-            return "Invalid server URL."
-        case .networkError(let msg):
-            return "Network connection error: \(msg)"
-        case .serverError(let code, let msg):
-            return "Server error (\(code)): \(msg)"
-        case .unauthorized(let msg):
-            return msg
+            "Invalid server URL."
+        case let .networkError(msg):
+            "Network connection error: \(msg)"
+        case let .serverError(code, msg):
+            "Server error (\(code)): \(msg)"
+        case let .unauthorized(msg):
+            msg
         case .forbidden:
-            return "Admin privileges required for this action."
-        case .notFound(let resource):
-            return "Resource not found: \(resource)"
-        case .decodingError(let msg):
-            return "Data parsing error: \(msg)"
+            "Admin privileges required for this action."
+        case let .notFound(resource):
+            "Resource not found: \(resource)"
+        case let .decodingError(msg):
+            "Data parsing error: \(msg)"
         case .noActiveWatchSession:
-            return "No active watch session."
-        case .lockedOut(let msg):
-            return msg
+            "No active watch session."
+        case let .lockedOut(msg):
+            msg
         case .crossDeviceSyncActive:
-            return "SyncPlay and SharePlay can't run at the same time. Leave the current session first."
+            "SyncPlay and SharePlay can't run at the same time. Leave the current session first."
         }
     }
 }

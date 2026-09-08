@@ -1,9 +1,10 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVPlaybackControlsView: View {
     @ObservedObject var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
     let onTogglePlayPause: () -> Void
     let onSkipBackward: () -> Void
@@ -13,7 +14,7 @@ public struct TVPlaybackControlsView: View {
     @FocusState private var focusedControl: ControlFocus?
 
     private enum ControlFocus {
-        case skipBack, playPause, skipForward, record, syncplay, shareplay, audio, captions, close
+        case skipBack, playPause, skipForward, record, syncplay, shareplay, multiview, audio, captions, close
     }
 
     public init(
@@ -99,7 +100,7 @@ public struct TVPlaybackControlsView: View {
                         Image(systemName: "person.2.fill")
                             .font(.title3)
                             .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .cyan : .white)
-                        if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
+                        if playerViewModel.syncPlayClient.room != nil, !playerViewModel.syncPlayClient.participants.isEmpty {
                             Text("\(playerViewModel.syncPlayClient.participants.count)")
                                 .font(.callout.bold())
                                 .foregroundColor(.cyan)
@@ -125,7 +126,7 @@ public struct TVPlaybackControlsView: View {
                         Image(systemName: "shareplay")
                             .font(.title3)
                             .foregroundColor(playerViewModel.sharePlayCoordinator.isSessionActive ? .cyan : .white)
-                        if playerViewModel.sharePlayCoordinator.isSessionActive && playerViewModel.sharePlayCoordinator.participantCount > 0 {
+                        if playerViewModel.sharePlayCoordinator.isSessionActive, playerViewModel.sharePlayCoordinator.participantCount > 0 {
                             Text("\(playerViewModel.sharePlayCoordinator.participantCount)")
                                 .font(.callout.bold())
                                 .foregroundColor(.cyan)
@@ -136,6 +137,25 @@ public struct TVPlaybackControlsView: View {
                 }
                 .buttonStyle(.plain)
                 .focused($focusedControl, equals: .shareplay)
+            }
+
+            // Multi-View Transition Button (Live Channels)
+            if playerViewModel.activeChannel != nil {
+                Button(action: {
+                    if let ch = playerViewModel.activeChannel {
+                        let airing = playerViewModel.activeAiring
+                        playerViewModel.closePlayer()
+                        Task {
+                            try? await multiPlayerViewModel.addFeed(channel: ch, airing: airing)
+                        }
+                    }
+                }) {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.title3)
+                        .frame(width: 56, height: 56)
+                }
+                .buttonStyle(.plain)
+                .focused($focusedControl, equals: .multiview)
             }
 
             // Audio Track Selector

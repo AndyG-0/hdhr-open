@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Pure layout math mirroring the web guide grid (frontend/src/lib/components/details/HDHomeRunGuideGrid.svelte)
 /// and Android client (android/app/src/main/kotlin/org/hdhropen/app/ui/screens/guide/GuideGridView.kt).
@@ -20,8 +20,12 @@ public enum GuideGridMath {
 
         for entry in fullGuide {
             for airing in entry.airings {
-                if let start = airing.start { minStart = min(minStart, start) }
-                if let end = airing.end { maxEnd = max(maxEnd, end) }
+                if let start = airing.start {
+                    minStart = min(minStart, start)
+                }
+                if let end = airing.end {
+                    maxEnd = max(maxEnd, end)
+                }
             }
         }
 
@@ -44,7 +48,10 @@ public enum GuideGridMath {
     }
 
     public struct CellLayout: Identifiable, Sendable {
-        public var id: String { airing.id }
+        public var id: String {
+            airing.id
+        }
+
         public let airing: HDHomeRunGuideEntry
         public let left: CGFloat
         public let width: CGFloat
@@ -75,7 +82,10 @@ public enum GuideGridMath {
     }
 
     public struct HourMark: Identifiable, Sendable {
-        public var id: TimeInterval { seconds }
+        public var id: TimeInterval {
+            seconds
+        }
+
         public let seconds: TimeInterval
         public let left: CGFloat
         public let label: String
@@ -88,7 +98,10 @@ public enum GuideGridMath {
     }
 
     public struct DayMark: Identifiable, Sendable {
-        public var id: TimeInterval { start }
+        public var id: TimeInterval {
+            start
+        }
+
         public let start: TimeInterval
         public let left: CGFloat
         public let width: CGFloat
@@ -149,14 +162,14 @@ public enum GuideGridMath {
             if segEnd > segStart {
                 let left = CGFloat(segStart - windowStart) * pxPerSecond
                 let width = CGFloat(segEnd - segStart) * pxPerSecond
-                let label: String
-                if calendar.isDate(dayStart, inSameDayAs: today) {
-                    label = "Today"
+                let label: String = if calendar.isDate(dayStart, inSameDayAs: today) {
+                    "Today"
                 } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: today),
-                          calendar.isDate(dayStart, inSameDayAs: tomorrow) {
-                    label = "Tomorrow"
+                          calendar.isDate(dayStart, inSameDayAs: tomorrow)
+                {
+                    "Tomorrow"
                 } else {
-                    label = weekdayFormatter.string(from: dayStart)
+                    weekdayFormatter.string(from: dayStart)
                 }
                 marks.append(DayMark(start: dayStart.timeIntervalSince1970, left: left, width: width, label: label))
             }

@@ -8,9 +8,9 @@ public enum ThemeMode: String, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .light: return "Light"
-        case .dark: return "Dark"
-        case .system: return "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        case .system: "System"
         }
     }
 }
@@ -27,16 +27,16 @@ public final class ThemeManager: ObservableObject {
 
     public init() {
         let stored = UserDefaults.standard.string(forKey: "org.hdhropen.client.themeMode")
-        self.mode = stored.flatMap(ThemeMode.init(rawValue:)) ?? .system
+        mode = stored.flatMap(ThemeMode.init(rawValue:)) ?? .system
     }
 
-    // `nil` tells SwiftUI to defer to the OS setting, which already live-updates
-    // on system appearance change with no manual observation needed.
+    /// `nil` tells SwiftUI to defer to the OS setting, which already live-updates
+    /// on system appearance change with no manual observation needed.
     public var colorScheme: ColorScheme? {
         switch mode {
-        case .light: return .light
-        case .dark: return .dark
-        case .system: return nil
+        case .light: .light
+        case .dark: .dark
+        case .system: nil
         }
     }
 }

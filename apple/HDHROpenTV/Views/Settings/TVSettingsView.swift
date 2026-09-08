@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVSettingsView: View {
     @EnvironmentObject private var settingsViewModel: SettingsViewModel

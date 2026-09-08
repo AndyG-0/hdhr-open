@@ -4,8 +4,8 @@ import Foundation
 public final class TunerViewModel: ObservableObject {
     @Published public private(set) var tuners: [HDHomeRunTuner] = []
     @Published public private(set) var tunerInfo: HDHomeRunTunerInfo?
-    @Published public private(set) var isLoading: Bool = false
-    @Published public private(set) var isPolling: Bool = false
+    @Published public private(set) var isLoading = false
+    @Published public private(set) var isPolling = false
 
     private let apiClient: APIClient
     private var pollTask: Task<Void, Never>?
@@ -25,7 +25,7 @@ public final class TunerViewModel: ObservableObject {
 
     public func loadStatus() async {
         do {
-            self.tuners = try await apiClient.getTunerStatus()
+            tuners = try await apiClient.getTunerStatus()
         } catch {
             Log.general.warning("Failed to load tuner status: \(error.localizedDescription)")
         }
@@ -33,7 +33,7 @@ public final class TunerViewModel: ObservableObject {
 
     public func loadInfo() async {
         do {
-            self.tunerInfo = try await apiClient.getTunerInfo()
+            tunerInfo = try await apiClient.getTunerInfo()
         } catch {
             Log.general.warning("Failed to load tuner info: \(error.localizedDescription)")
         }
@@ -44,8 +44,8 @@ public final class TunerViewModel: ObservableObject {
         isPolling = true
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                guard let self = self else { break }
-                await self.loadStatus()
+                guard let self else { break }
+                await loadStatus()
                 try? await Task.sleep(nanoseconds: intervalSeconds * 1_000_000_000)
             }
         }

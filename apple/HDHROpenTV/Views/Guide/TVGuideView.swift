@@ -1,11 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 private struct SelectedAiring: Identifiable {
     let channel: HDHomeRunChannel
     let airing: HDHomeRunGuideEntry
 
-    var id: String { "\(channel.channelNumber)_\(airing.id)" }
+    var id: String {
+        "\(channel.channelNumber)_\(airing.id)"
+    }
 }
 
 public struct TVGuideView: View {
@@ -13,7 +15,7 @@ public struct TVGuideView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
 
     @State private var selectedAiringForModal: SelectedAiring?
-    @State private var showAIAssistantModal: Bool = false
+    @State private var showAIAssistantModal = false
 
     public init() {}
 
@@ -56,7 +58,7 @@ public struct TVGuideView: View {
                 .padding(.top, 24)
 
                 // EPG Guide Grid List
-                if guideViewModel.isLoading && guideViewModel.channels.isEmpty {
+                if guideViewModel.isLoading, guideViewModel.channels.isEmpty {
                     VStack {
                         Spacer()
                         ProgressView("Loading Guide...")

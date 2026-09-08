@@ -1,13 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVServerConnectionFields: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var serverDiscovery: ServerDiscovery
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
-    @State private var serverURLInput: String = ""
-    @State private var isEditingServer: Bool = false
+    @State private var serverURLInput = ""
+    @State private var isEditingServer = false
 
     public init() {}
 

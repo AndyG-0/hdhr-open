@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSTunerStatusView: View {
     @EnvironmentObject private var tunerViewModel: TunerViewModel
@@ -97,7 +97,6 @@ public struct iOSTunerStatusView: View {
         }
     }
 
-    @ViewBuilder
     private func miniMeter(label: String, value: Int) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(label): \(value)%")

@@ -1,12 +1,12 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVRecordingsView: View {
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
 
     @State private var selectedRecording: HDHomeRunRecording?
-    @State private var showRulesModal: Bool = false
+    @State private var showRulesModal = false
 
     @FocusState private var focusedFilter: RecordingCategoryFilter?
     @FocusState private var isRulesFocused: Bool
@@ -103,7 +103,7 @@ public struct TVRecordingsView: View {
                 .padding(.top, 24)
 
                 // Recordings Grid
-                if recordingsViewModel.isLoading && recordingsViewModel.recordings.isEmpty {
+                if recordingsViewModel.isLoading, recordingsViewModel.recordings.isEmpty {
                     VStack {
                         Spacer()
                         ProgressView("Loading Recordings...")

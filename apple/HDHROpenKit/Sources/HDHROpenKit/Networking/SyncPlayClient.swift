@@ -1,14 +1,14 @@
-import Foundation
 import Combine
+import Foundation
 
 @MainActor
 public final class SyncPlayClient: ObservableObject {
     @Published public private(set) var room: SyncPlayRoom?
     @Published public private(set) var participants: [SyncPlayParticipant] = []
     @Published public private(set) var sessionId: String?
-    @Published public private(set) var isHost: Bool = false
-    @Published public private(set) var pingMs: Double = 0.0
-    @Published public private(set) var isConnected: Bool = false
+    @Published public private(set) var isHost = false
+    @Published public private(set) var pingMs = 0.0
+    @Published public private(set) var isConnected = false
 
     public var onRemotePlay: ((Double, Double) -> Void)?
     public var onRemotePause: ((Double) -> Void)?
@@ -30,8 +30,8 @@ public final class SyncPlayClient: ObservableObject {
 
         let session = URLSession(configuration: .default)
         let task = session.webSocketTask(with: url)
-        self.webSocketTask = task
-        self.isConnected = true
+        webSocketTask = task
+        isConnected = true
         task.resume()
 
         receiveMessage()
@@ -62,13 +62,13 @@ public final class SyncPlayClient: ObservableObject {
         guard let task = webSocketTask else { return }
         task.receive { [weak self] result in
             Task { @MainActor in
-                guard let self = self, self.isConnected else { return }
+                guard let self, self.isConnected else { return }
                 switch result {
-                case .success(let message):
+                case let .success(message):
                     switch message {
-                    case .string(let text):
+                    case let .string(text):
                         self.handleRawMessage(text)
-                    case .data(let data):
+                    case let .data(data):
                         if let text = String(data: data, encoding: .utf8) {
                             self.handleRawMessage(text)
                         }
@@ -76,7 +76,7 @@ public final class SyncPlayClient: ObservableObject {
                         break
                     }
                     self.receiveMessage()
-                case .failure(let error):
+                case let .failure(error):
                     Log.network.error("SyncPlay WebSocket receive error: \(error.localizedDescription)")
                     self.handleDisconnected()
                 }
@@ -98,11 +98,11 @@ public final class SyncPlayClient: ObservableObject {
         switch msg.type {
         case "room_state":
             if let r = msg.room {
-                self.room = r
-                self.participants = r.participants
+                room = r
+                participants = r.participants
                 if let sid = msg.yourSessionId {
-                    self.sessionId = sid
-                    self.isHost = (r.hostSessionId == sid)
+                    sessionId = sid
+                    isHost = (r.hostSessionId == sid)
                 }
             }
         case "participant_joined":
@@ -148,13 +148,13 @@ public final class SyncPlayClient: ObservableObject {
                     playbackRate: rate,
                     updatedAt: serverTime
                 )
-                self.room = SyncPlayRoom(
+                room = SyncPlayRoom(
                     roomCode: currentRoom.roomCode,
                     hostSessionId: currentRoom.hostSessionId,
                     createdAt: currentRoom.createdAt,
                     playbackState: newState,
                     currentContent: currentRoom.currentContent,
-                    participants: self.participants
+                    participants: participants
                 )
             }
 
@@ -175,8 +175,8 @@ public final class SyncPlayClient: ObservableObject {
                 onRemoteContentChange?(content)
             }
             if let r = msg.room {
-                self.room = r
-                self.participants = r.participants
+                room = r
+                participants = r.participants
             }
         case "host_changed":
             if let newHostId = msg.newHostSessionId {
@@ -196,7 +196,7 @@ public final class SyncPlayClient: ObservableObject {
             if let clientTime = msg.clientTime {
                 let now = Date().timeIntervalSince1970 * 1000.0
                 let rtt = max(1.0, now - clientTime)
-                self.pingMs = rtt
+                pingMs = rtt
             }
         default:
             break
@@ -208,9 +208,9 @@ public final class SyncPlayClient: ObservableObject {
         pingTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
-                guard let self = self, self.isConnected else { break }
+                guard let self, isConnected else { break }
                 let now = Date().timeIntervalSince1970 * 1000.0
-                self.sendJson(["type": "ping", "client_time": now])
+                sendJson(["type": "ping", "client_time": now])
             }
         }
 
@@ -218,14 +218,14 @@ public final class SyncPlayClient: ObservableObject {
         progressTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard let self = self, self.isConnected else { break }
-                let pos = self.getCurrentPosition?() ?? 0.0
-                let ready = self.isPlayerReady?() ?? true
-                self.sendJson([
+                guard let self, isConnected else { break }
+                let pos = getCurrentPosition?() ?? 0.0
+                let ready = isPlayerReady?() ?? true
+                sendJson([
                     "type": "progress",
                     "position": pos,
                     "is_ready": ready,
-                    "ping_ms": self.pingMs
+                    "ping_ms": pingMs
                 ])
             }
         }

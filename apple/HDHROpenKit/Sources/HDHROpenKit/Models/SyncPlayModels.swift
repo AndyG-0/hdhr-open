@@ -27,10 +27,10 @@ public struct SyncPlayPlaybackState: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.isPlaying = try container.decodeIfPresent(Bool.self, forKey: .isPlaying) ?? false
-        self.position = try container.decodeIfPresent(Double.self, forKey: .position) ?? 0.0
-        self.playbackRate = try container.decodeIfPresent(Double.self, forKey: .playbackRate) ?? 1.0
-        self.updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt)
+        isPlaying = try container.decodeIfPresent(Bool.self, forKey: .isPlaying) ?? false
+        position = try container.decodeIfPresent(Double.self, forKey: .position) ?? 0.0
+        playbackRate = try container.decodeIfPresent(Double.self, forKey: .playbackRate) ?? 1.0
+        updatedAt = try container.decodeIfPresent(Double.self, forKey: .updatedAt)
     }
 }
 
@@ -65,16 +65,19 @@ public struct SyncPlayContent: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.type = try container.decode(String.self, forKey: .type)
-        self.recordingId = try container.decodeIfPresent(String.self, forKey: .recordingId)
-        self.channelNumber = try container.decodeIfPresent(String.self, forKey: .channelNumber)
-        self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
-        self.durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
+        type = try container.decode(String.self, forKey: .type)
+        recordingId = try container.decodeIfPresent(String.self, forKey: .recordingId)
+        channelNumber = try container.decodeIfPresent(String.self, forKey: .channelNumber)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
     }
 }
 
 public struct SyncPlayParticipant: Codable, Sendable, Identifiable, Equatable {
-    public var id: String { sessionId }
+    public var id: String {
+        sessionId
+    }
+
     public let sessionId: String
     public let userName: String
     public let isHost: Bool
@@ -109,12 +112,12 @@ public struct SyncPlayParticipant: Codable, Sendable, Identifiable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.sessionId = try container.decode(String.self, forKey: .sessionId)
-        self.userName = try container.decodeIfPresent(String.self, forKey: .userName) ?? "Viewer"
-        self.isHost = try container.decodeIfPresent(Bool.self, forKey: .isHost) ?? false
-        self.isReady = try container.decodeIfPresent(Bool.self, forKey: .isReady) ?? true
-        self.position = try container.decodeIfPresent(Double.self, forKey: .position) ?? 0.0
-        self.pingMs = try container.decodeIfPresent(Double.self, forKey: .pingMs)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        userName = try container.decodeIfPresent(String.self, forKey: .userName) ?? "Viewer"
+        isHost = try container.decodeIfPresent(Bool.self, forKey: .isHost) ?? false
+        isReady = try container.decodeIfPresent(Bool.self, forKey: .isReady) ?? true
+        position = try container.decodeIfPresent(Double.self, forKey: .position) ?? 0.0
+        pingMs = try container.decodeIfPresent(Double.self, forKey: .pingMs)
     }
 }
 
@@ -153,12 +156,12 @@ public struct SyncPlayRoom: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.roomCode = try container.decode(String.self, forKey: .roomCode)
-        self.hostSessionId = try container.decodeIfPresent(String.self, forKey: .hostSessionId) ?? ""
-        self.createdAt = try container.decodeIfPresent(Double.self, forKey: .createdAt) ?? 0.0
-        self.playbackState = try container.decodeIfPresent(SyncPlayPlaybackState.self, forKey: .playbackState) ?? SyncPlayPlaybackState()
-        self.currentContent = try container.decodeIfPresent(SyncPlayContent.self, forKey: .currentContent)
-        self.participants = try container.decodeIfPresent([SyncPlayParticipant].self, forKey: .participants) ?? []
+        roomCode = try container.decode(String.self, forKey: .roomCode)
+        hostSessionId = try container.decodeIfPresent(String.self, forKey: .hostSessionId) ?? ""
+        createdAt = try container.decodeIfPresent(Double.self, forKey: .createdAt) ?? 0.0
+        playbackState = try container.decodeIfPresent(SyncPlayPlaybackState.self, forKey: .playbackState) ?? SyncPlayPlaybackState()
+        currentContent = try container.decodeIfPresent(SyncPlayContent.self, forKey: .currentContent)
+        participants = try container.decodeIfPresent([SyncPlayParticipant].self, forKey: .participants) ?? []
     }
 }
 

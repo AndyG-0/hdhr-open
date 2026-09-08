@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 import GroupActivities
 
 /// Sibling object to `SyncPlayClient` (see `SyncPlayClient.swift`), same
@@ -11,8 +11,8 @@ import GroupActivities
 /// `PlayerEngine.coordinateWithGroupSession(_:)` via `onSessionAvailable`.
 @MainActor
 public final class SharePlayCoordinator: ObservableObject {
-    @Published public private(set) var isSessionActive: Bool = false
-    @Published public private(set) var participantCount: Int = 0
+    @Published public private(set) var isSessionActive = false
+    @Published public private(set) var participantCount = 0
 
     public var onRemoteContentChange: ((SyncPlayContent) -> Void)?
     public var onSessionAvailable: ((GroupSession<WatchProgramActivity>) -> Void)?
@@ -30,7 +30,7 @@ public final class SharePlayCoordinator: ObservableObject {
         sessionsTask = Task { [weak self] in
             for await session in WatchProgramActivity.sessions() {
                 guard let self else { return }
-                self.configure(session)
+                configure(session)
             }
         }
     }
@@ -90,8 +90,8 @@ public final class SharePlayCoordinator: ObservableObject {
                 case .waiting, .joined:
                     break
                 case .invalidated:
-                    self.teardownSession()
-                    self.onSessionEnded?()
+                    teardownSession()
+                    onSessionEnded?()
                 @unknown default:
                     break
                 }
@@ -101,14 +101,14 @@ public final class SharePlayCoordinator: ObservableObject {
         participantsTask = Task { [weak self] in
             for await participants in session.$activeParticipants.values {
                 guard let self else { return }
-                self.participantCount = participants.count
+                participantCount = participants.count
             }
         }
 
         messagesTask = Task { [weak self] in
             for await (content, _) in messenger.messages(of: SyncPlayContent.self) {
                 guard let self else { return }
-                self.onRemoteContentChange?(content)
+                onRemoteContentChange?(content)
             }
         }
 

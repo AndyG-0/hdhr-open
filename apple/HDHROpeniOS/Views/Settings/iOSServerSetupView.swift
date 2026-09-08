@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSServerSetupView: View {
     @EnvironmentObject private var authManager: AuthManager

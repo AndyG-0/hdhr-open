@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVRecordingCardView: View {
     let recording: HDHomeRunRecording
@@ -21,7 +21,7 @@ public struct TVRecordingCardView: View {
                         AsyncImage(url: url) { image in
                             image
                                 .resizable()
-                                .aspectRatio(16/9, contentMode: .fill)
+                                .aspectRatio(16 / 9, contentMode: .fill)
                         } placeholder: {
                             Theme.appSurfaceVariant
                         }

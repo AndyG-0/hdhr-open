@@ -1,10 +1,9 @@
-import XCTest
 import GroupActivities
+import XCTest
 @testable import HDHROpenKit
 
 @MainActor
 final class SharePlayCoordinatorTests: XCTestCase {
-
     func testWatchProgramActivityFromContent() {
         let content = SyncPlayContent(type: "channel", recordingId: nil, channelNumber: "5.1", title: "Local News", durationSeconds: nil)
         let activity = WatchProgramActivity(content: content)
@@ -31,8 +30,8 @@ final class SharePlayCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.participantCount, 0)
     }
 
-    func testPlayerViewModelSharePlayWiring() {
-        let apiClient = APIClient(baseURL: URL(string: "http://localhost:8000")!)
+    func testPlayerViewModelSharePlayWiring() throws {
+        let apiClient = try APIClient(baseURL: XCTUnwrap(URL(string: "http://localhost:8000")))
         let vm = PlayerViewModel(apiClient: apiClient, watchSessionManager: WatchSessionManager(apiClient: apiClient))
 
         XCTAssertNotNil(vm.sharePlayCoordinator)
@@ -40,21 +39,56 @@ final class SharePlayCoordinatorTests: XCTestCase {
         XCTAssertFalse(vm.isCrossDeviceSyncActive)
     }
 
-    // Real `GroupSession` join/leave/messenger behavior needs two physical
-    // devices in a live FaceTime call, and `isSessionActive` is a
-    // `private(set)` driven only by an incoming `GroupSession`, so it can't
-    // be forced true from a unit test. This only exercises the guard
-    // direction that *is* reachable without a real session: SharePlay
-    // declining to activate while SyncPlay already owns cross-device sync.
-    func testStartSharePlayOnTVNoOpsWhileSyncPlayConnected() async {
-        let apiClient = APIClient(baseURL: URL(string: "http://localhost:8000")!)
+    /// Real `GroupSession` join/leave/messenger behavior needs two physical
+    /// devices in a live FaceTime call, and `isSessionActive` is a
+    /// `private(set)` driven only by an incoming `GroupSession`, so it can't
+    /// be forced true from a unit test. This only exercises the guard
+    /// direction that *is* reachable without a real session: SharePlay
+    /// declining to activate while SyncPlay already owns cross-device sync.
+    func testStartSharePlayOnTVNoOpsWhileSyncPlayConnected() async throws {
+        let apiClient = try APIClient(baseURL: XCTUnwrap(URL(string: "http://localhost:8000")))
         let vm = PlayerViewModel(apiClient: apiClient, watchSessionManager: WatchSessionManager(apiClient: apiClient))
-        vm.syncPlayClient.connect(url: URL(string: "ws://localhost:8000/ws")!)
+        try vm.syncPlayClient.connect(url: XCTUnwrap(URL(string: "ws://localhost:8000/ws")))
 
         XCTAssertTrue(vm.syncPlayClient.isConnected)
 
         await vm.startSharePlayOnTV()
 
         XCTAssertFalse(vm.sharePlayCoordinator.isSessionActive)
+    }
+
+    func testSendContentChangeIsNoOpWithoutActiveSession() {
+        let coordinator = SharePlayCoordinator()
+        let content = SyncPlayContent(type: "channel", recordingId: nil, channelNumber: "5.1", title: "Local News", durationSeconds: nil)
+
+        // No messenger exists without a real GroupSession, so this should
+        // simply return without crashing or mutating state.
+        coordinator.sendContentChange(content)
+
+        XCTAssertFalse(coordinator.isSessionActive)
+    }
+
+    func testLeaveSessionIsSafeWithoutActiveSession() {
+        let coordinator = SharePlayCoordinator()
+
+        coordinator.leaveSession()
+
+        XCTAssertFalse(coordinator.isSessionActive)
+        XCTAssertEqual(coordinator.participantCount, 0)
+    }
+
+    func testOnSessionCallbacksCanBeAssignedAndAreUnusedWithoutASession() {
+        let coordinator = SharePlayCoordinator()
+        var contentChangeCalled = false
+        var sessionEndedCalled = false
+
+        coordinator.onRemoteContentChange = { _ in contentChangeCalled = true }
+        coordinator.onSessionEnded = { sessionEndedCalled = true }
+        coordinator.onSessionAvailable = { _ in }
+
+        coordinator.leaveSession()
+
+        XCTAssertFalse(contentChangeCalled)
+        XCTAssertFalse(sessionEndedCalled)
     }
 }

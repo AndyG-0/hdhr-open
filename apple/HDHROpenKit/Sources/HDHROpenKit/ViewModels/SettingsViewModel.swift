@@ -8,10 +8,10 @@ public final class SettingsViewModel: ObservableObject {
     @Published public private(set) var networkIntegrations: [NetworkIntegration] = []
     @Published public private(set) var registeredDevices: [DeviceListEntry] = []
     @Published public private(set) var currentDevice: DeviceInfo?
-    @Published public private(set) var currentPresetId: String = "software"
-    @Published public private(set) var isSavingPreset: Bool = false
-    @Published public private(set) var isLoading: Bool = false
-    @Published public private(set) var isTestingConnection: Bool = false
+    @Published public private(set) var currentPresetId = "software"
+    @Published public private(set) var isSavingPreset = false
+    @Published public private(set) var isLoading = false
+    @Published public private(set) var isTestingConnection = false
     @Published public private(set) var connectionStatus: String?
 
     private let apiClient: APIClient
@@ -36,7 +36,7 @@ public final class SettingsViewModel: ObservableObject {
 
     public func loadAppSettings() async {
         do {
-            self.appSettings = try await apiClient.getSettings()
+            appSettings = try await apiClient.getSettings()
         } catch {
             Log.general.warning("Failed to load settings: \(error.localizedDescription)")
         }
@@ -44,7 +44,7 @@ public final class SettingsViewModel: ObservableObject {
 
     public func loadPresets() async {
         do {
-            self.transcodePresets = try await apiClient.getTranscodePresets()
+            transcodePresets = try await apiClient.getTranscodePresets()
         } catch {
             Log.general.debug("Failed to load transcode presets: \(error.localizedDescription)")
         }
@@ -52,8 +52,8 @@ public final class SettingsViewModel: ObservableObject {
 
     public func loadIntegrations() async {
         do {
-            self.networkIntegrations = try await apiClient.listNetworkIntegrations()
-            self.currentPresetId = Self.presetId(from: networkIntegrations)
+            networkIntegrations = try await apiClient.listNetworkIntegrations()
+            currentPresetId = Self.presetId(from: networkIntegrations)
         } catch {
             Log.general.debug("Failed to load network integrations: \(error.localizedDescription)")
         }
@@ -80,7 +80,8 @@ public final class SettingsViewModel: ObservableObject {
 
     private static func presetId(from integrations: [NetworkIntegration]) -> String {
         guard let hdhomerun = integrations.first(where: { $0.type == "hdhomerun" }),
-              let hwaccel = hdhomerun.settings["hwaccel"]?.value as? String else {
+              let hwaccel = hdhomerun.settings["hwaccel"]?.value as? String
+        else {
             return "software"
         }
         return hwaccel
@@ -88,8 +89,8 @@ public final class SettingsViewModel: ObservableObject {
 
     public func loadDevices() async {
         do {
-            self.registeredDevices = try await apiClient.listDevices()
-            self.currentDevice = try await apiClient.getCurrentDevice()
+            registeredDevices = try await apiClient.listDevices()
+            currentDevice = try await apiClient.getCurrentDevice()
         } catch {
             Log.general.debug("Failed to load devices: \(error.localizedDescription)")
         }

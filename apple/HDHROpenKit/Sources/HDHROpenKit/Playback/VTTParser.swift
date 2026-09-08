@@ -1,8 +1,11 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 public struct CaptionCue: Identifiable, Sendable, Hashable {
-    public var id: String { "\(start)_\(end)_\(text)" }
+    public var id: String {
+        "\(start)_\(end)_\(text)"
+    }
+
     public let start: Double
     public let end: Double
     public let text: String
@@ -19,7 +22,10 @@ public struct CaptionCue: Identifiable, Sendable, Hashable {
 }
 
 public struct ThumbnailCue: Identifiable, Sendable, Hashable {
-    public var id: String { "\(start)_\(end)_\(x)_\(y)" }
+    public var id: String {
+        "\(start)_\(end)_\(x)_\(y)"
+    }
+
     public let start: Double
     public let end: Double
     public let x: Int
@@ -54,14 +60,16 @@ public enum VTTParser {
 
         if parts.count == 2 {
             guard let minutes = Double(parts[0]),
-                  let seconds = Double(parts[1].replacingOccurrences(of: ",", with: ".")) else {
+                  let seconds = Double(parts[1].replacingOccurrences(of: ",", with: "."))
+            else {
                 return nil
             }
             return minutes * 60.0 + seconds
         } else {
             guard let hours = Double(parts[0]),
                   let minutes = Double(parts[1]),
-                  let seconds = Double(parts[2].replacingOccurrences(of: ",", with: ".")) else {
+                  let seconds = Double(parts[2].replacingOccurrences(of: ",", with: "."))
+            else {
                 return nil
             }
             return hours * 3600.0 + minutes * 60.0 + seconds
@@ -83,7 +91,7 @@ public enum VTTParser {
                     if let start = parseTime(startStr), let end = parseTime(endStr) {
                         var textLines: [String] = []
                         i += 1
-                        while i < lines.count && !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
                             textLines.append(lines[i].trimmingCharacters(in: .whitespaces))
                             i += 1
                         }

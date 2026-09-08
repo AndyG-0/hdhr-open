@@ -61,7 +61,7 @@ public struct NetworkTestConnectionResult: Codable, Sendable {
     public let error: String?
 }
 
-// AnyCodable helper for flexible JSON dictionaries
+/// AnyCodable helper for flexible JSON dictionaries
 public struct AnyCodable: Codable, @unchecked Sendable {
     public let value: Any
 
@@ -80,7 +80,7 @@ public struct AnyCodable: Codable, @unchecked Sendable {
         } else if let string = try? container.decode(String.self) {
             value = string
         } else if let array = try? container.decode([AnyCodable].self) {
-            value = array.map { $0.value }
+            value = array.map(\.value)
         } else if let dict = try? container.decode([String: AnyCodable].self) {
             value = dict.mapValues { $0.value }
         } else {

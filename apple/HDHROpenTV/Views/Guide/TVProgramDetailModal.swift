@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVProgramDetailModal: View {
     let channel: HDHomeRunChannel
@@ -16,6 +16,7 @@ public struct TVProgramDetailModal: View {
 
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
     @Namespace private var focusNamespace
     @State private var showOptionsModal = false
@@ -184,6 +185,18 @@ public struct TVProgramDetailModal: View {
                                 .padding(.vertical, 12)
                         }
                         .prefersDefaultFocus(true, in: focusNamespace)
+
+                        Button(action: {
+                            onDismiss()
+                            Task {
+                                try? await multiPlayerViewModel.addFeed(channel: channel, airing: airing)
+                            }
+                        }) {
+                            Label("Add to Multi-View", systemImage: "square.grid.2x2")
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                        }
+                        .disabled(!multiPlayerViewModel.canAddFeed)
                     }
 
                     if let rule = existingRule {

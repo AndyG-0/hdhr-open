@@ -1,8 +1,8 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
-// Mirrors the web client's rules-management list and Android's
-// RecordingRulesDialog.kt badge set.
+/// Mirrors the web client's rules-management list and Android's
+/// RecordingRulesDialog.kt badge set.
 public struct iOSRecordingRulesSheet: View {
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
     @Environment(\.dismiss) private var dismiss

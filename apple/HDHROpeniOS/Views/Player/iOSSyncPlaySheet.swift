@@ -1,18 +1,18 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 public struct iOSSyncPlaySheet: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var userName: String = "Apple User"
-    @State private var roomCodeInput: String = ""
-    @State private var isBusy: Bool = false
+    @State private var userName = "Apple User"
+    @State private var roomCodeInput = ""
+    @State private var isBusy = false
     @State private var errorMessage: String? = nil
-    @State private var copiedCode: Bool = false
+    @State private var copiedCode = false
 
     public init() {}
 
@@ -43,7 +43,7 @@ public struct iOSSyncPlaySheet: View {
                             Spacer()
                             Button(action: {
                                 #if canImport(UIKit)
-                                UIPasteboard.general.string = room.roomCode
+                                    UIPasteboard.general.string = room.roomCode
                                 #endif
                                 copiedCode = true
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -106,7 +106,7 @@ public struct iOSSyncPlaySheet: View {
 
                                 Spacer()
 
-                                if playerViewModel.syncPlayClient.isHost && !isMe {
+                                if playerViewModel.syncPlayClient.isHost, !isMe {
                                     Button("Make Host") {
                                         playerViewModel.transferSyncPlayHost(targetSessionId: participant.sessionId)
                                     }

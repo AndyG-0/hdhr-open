@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 @main
 struct HDHROpeniOSApp: App {
@@ -21,30 +21,32 @@ struct HDHROpeniOSApp: App {
             // once this app backgrounds (PIP-4) - tearing the player down
             // in either case here would kill it the instant the user
             // leaves the app.
-            if newPhase == .background
-                && !environment.playerViewModel.playerEngine.isExternalPlaybackActive
-                && !environment.playerViewModel.playerEngine.isPictureInPictureActive
-                && !environment.playerViewModel.sharePlayCoordinator.isSessionActive {
+            if newPhase == .background,
+               !environment.playerViewModel.playerEngine.isExternalPlaybackActive,
+               !environment.playerViewModel.playerEngine.isPictureInPictureActive,
+               !environment.playerViewModel.sharePlayCoordinator.isSessionActive
+            {
                 environment.playerViewModel.closePlayer()
+                environment.multiPlayerViewModel.closeAll()
             }
         }
     }
 }
 
-// `.preferredColorScheme` needs to be recomputed whenever `themeMode`
-// changes. Evaluating it directly in `HDHROpeniOSApp.body` doesn't work -
-// SwiftUI only re-invokes a Scene's body when something it directly
-// observes (here, only `environment`'s own `@Published` properties, of
-// which there are none) changes; `themeManager` is a plain `let` on
-// `AppEnvironment`, so its changes never propagate up. A real View that
-// observes `themeManager` itself re-renders correctly instead.
+/// `.preferredColorScheme` needs to be recomputed whenever `themeMode`
+/// changes. Evaluating it directly in `HDHROpeniOSApp.body` doesn't work -
+/// SwiftUI only re-invokes a Scene's body when something it directly
+/// observes (here, only `environment`'s own `@Published` properties, of
+/// which there are none) changes; `themeManager` is a plain `let` on
+/// `AppEnvironment`, so its changes never propagate up. A real View that
+/// observes `themeManager` itself re-renders correctly instead.
 private struct ThemedRootView: View {
     @ObservedObject var environment: AppEnvironment
     @ObservedObject var themeManager: ThemeManager
 
     init(environment: AppEnvironment) {
         self.environment = environment
-        self.themeManager = environment.themeManager
+        themeManager = environment.themeManager
     }
 
     var body: some View {
@@ -53,6 +55,7 @@ private struct ThemedRootView: View {
             .environmentObject(environment.guideViewModel)
             .environmentObject(environment.recordingsViewModel)
             .environmentObject(environment.playerViewModel)
+            .environmentObject(environment.multiPlayerViewModel)
             .environmentObject(environment.tunerViewModel)
             .environmentObject(environment.settingsViewModel)
             .environmentObject(environment.authViewModel)

@@ -1,12 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct RootTVView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
 
-    @State private var selectedTab: Int = 0
+    @State private var selectedTab = 0
 
     public init() {}
 
@@ -16,6 +17,8 @@ public struct RootTVView: View {
 
             if !authManager.isAuthenticated {
                 TVProfilePickerView()
+            } else if multiPlayerViewModel.isMultiViewActive {
+                TVMultiPlayerView()
             } else if playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil {
                 TVPlayerView()
             } else {

@@ -1,29 +1,6 @@
 import XCTest
 @testable import HDHROpenKit
 
-/// Intercepts requests by exact path suffix, so tests can stub specific
-/// endpoints without spinning up a real server. Unregistered paths get a
-/// 404 - fire-and-forget calls made by `loadRecordingMetadata` (audio/video
-/// detail, thumbnails, captions) are expected to hit this and fail silently
-/// via `try?`, which is fine for these tests.
-final class MockURLProtocol: URLProtocol {
-    static var handlers: [String: (Data, Int)] = [:]
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        let path = request.url?.path ?? ""
-        let (data, status) = MockURLProtocol.handlers[path] ?? (Data("{}".utf8), 404)
-        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
-}
-
 @MainActor
 final class PlayerViewModelChannelFallbackTests: XCTestCase {
     private func makeChannel() -> HDHomeRunChannel {
@@ -40,10 +17,7 @@ final class PlayerViewModelChannelFallbackTests: XCTestCase {
     }
 
     private func makeMockedAPIClient() -> APIClient {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        let session = URLSession(configuration: config)
-        return APIClient(baseURL: URL(string: "http://localhost:8000")!, session: session)
+        APIClient(baseURL: URL(string: "http://localhost:8000")!, session: MockURLProtocol.makeSession())
     }
 
     override func tearDown() {

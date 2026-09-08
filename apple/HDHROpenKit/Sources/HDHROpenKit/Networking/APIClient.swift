@@ -16,15 +16,9 @@ public actor APIClient {
     var deviceId: String?
     let session: URLSession
 
-    let jsonDecoder: JSONDecoder = {
-        let decoder = JSONDecoder()
-        return decoder
-    }()
+    let jsonDecoder = JSONDecoder()
 
-    let jsonEncoder: JSONEncoder = {
-        let encoder = JSONEncoder()
-        return encoder
-    }()
+    let jsonEncoder = JSONEncoder()
 
     public init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -32,11 +26,11 @@ public actor APIClient {
     }
 
     public func setBaseURL(_ url: URL) {
-        self.baseURL = url
+        baseURL = url
     }
 
     public func setBearerToken(_ token: String?) {
-        self.bearerToken = token
+        bearerToken = token
     }
 
     public func currentBearerToken() -> String? {
@@ -44,7 +38,7 @@ public actor APIClient {
     }
 
     public func setDeviceId(_ id: String?) {
-        self.deviceId = id
+        deviceId = id
     }
 
     public func currentDeviceId() -> String? {
@@ -93,7 +87,7 @@ public actor APIClient {
             urlRequest.setValue(v, forHTTPHeaderField: k)
         }
 
-        if let body = body {
+        if let body {
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
             urlRequest.httpBody = try jsonEncoder.encode(body)
         }
@@ -130,7 +124,8 @@ public actor APIClient {
 
     private func extractErrorDetail(from data: Data) -> String? {
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let detail = json["detail"] as? String {
+           let detail = json["detail"] as? String
+        {
             return detail
         }
         return nil
@@ -188,7 +183,7 @@ public actor APIClient {
 
     public func startWatch(channelNumber: String) async throws -> HDHomeRunRecording? {
         let resp: HDHomeRunRecording = try await request(path: APIEndpoints.startWatch(channelNumber: channelNumber), method: "POST")
-        if resp.recordingId == nil && resp.sessionId == nil {
+        if resp.recordingId == nil, resp.sessionId == nil {
             return nil
         }
         return resp
@@ -294,7 +289,7 @@ public actor APIClient {
 
     public func registerDevice() async throws -> DeviceRegisterResult {
         let result: DeviceRegisterResult = try await request(path: APIEndpoints.registerDevice(), method: "POST")
-        self.deviceId = result.id
+        deviceId = result.id
         return result
     }
 
@@ -340,11 +335,16 @@ public actor APIClient {
 
     public func createSyncPlayRoom(userName: String, initialContent: SyncPlayContent? = nil) async throws -> CreateSyncPlayRoomResponse {
         struct CreateRoomBody: Encodable {
-            let user_name: String
+            let userName: String
             let content: SyncPlayContent
+
+            enum CodingKeys: String, CodingKey {
+                case userName = "user_name"
+                case content
+            }
         }
         let fallbackContent = initialContent ?? SyncPlayContent(type: "channel", channelNumber: "default", title: "Live TV")
-        let body = CreateRoomBody(user_name: userName, content: fallbackContent)
+        let body = CreateRoomBody(userName: userName, content: fallbackContent)
         return try await request(path: APIEndpoints.syncPlayRooms(), method: "POST", body: body)
     }
 

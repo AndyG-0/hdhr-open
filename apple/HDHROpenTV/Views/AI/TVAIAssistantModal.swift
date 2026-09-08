@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVAIAssistantModal: View {
     let apiClient: APIClient
@@ -7,8 +7,8 @@ public struct TVAIAssistantModal: View {
 
     @Namespace private var focusNamespace
     @State private var turns: [AIChatTurn] = []
-    @State private var inputText: String = ""
-    @State private var isSending: Bool = false
+    @State private var inputText = ""
+    @State private var isSending = false
     @State private var errorText: String?
 
     public init(apiClient: APIClient) {
@@ -120,7 +120,7 @@ public struct TVAIAssistantModal: View {
                             turnView(turn)
                         }
 
-                        if isSending && (turns.last?.text.isEmpty ?? true) && (turns.last?.toolStatuses.isEmpty ?? true) {
+                        if isSending, turns.last?.text.isEmpty ?? true, turns.last?.toolStatuses.isEmpty ?? true {
                             HStack(spacing: 12) {
                                 ProgressView()
                                 Text("Thinking...")
@@ -150,7 +150,6 @@ public struct TVAIAssistantModal: View {
 
     // MARK: - Turn View
 
-    @ViewBuilder
     private func turnView(_ turn: AIChatTurn) -> some View {
         VStack(alignment: turn.role == "user" ? .trailing : .leading, spacing: 8) {
             if turn.role == "user" {
@@ -193,7 +192,6 @@ public struct TVAIAssistantModal: View {
 
     // MARK: - Tool Badges
 
-    @ViewBuilder
     private func toolBadges(_ statuses: [AIToolStatusEntry]) -> some View {
         HStack(spacing: 10) {
             ForEach(statuses) { status in
@@ -222,7 +220,6 @@ public struct TVAIAssistantModal: View {
 
     // MARK: - TV Action Card
 
-    @ViewBuilder
     private func tvActionCard(_ action: AIActionPreviewEntry) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -336,7 +333,7 @@ public struct TVAIAssistantModal: View {
 
     private func sendPrompt(_ content: String) {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty && !isSending else { return }
+        guard !trimmed.isEmpty, !isSending else { return }
 
         inputText = ""
         errorText = nil
@@ -360,11 +357,11 @@ public struct TVAIAssistantModal: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorText = error.localizedDescription
+                    errorText = error.localizedDescription
                 }
             }
             await MainActor.run {
-                self.isSending = false
+                isSending = false
             }
         }
     }
@@ -449,10 +446,10 @@ public struct TVAIAssistantModal: View {
 
     private func humanReadableToolName(_ tool: String) -> String {
         switch tool {
-        case "schedule_recording": return "Schedule Recording"
-        case "cancel_recording_rule": return "Cancel Recording Rule"
-        case "delete_recording": return "Delete Recording"
-        default: return tool.replacingOccurrences(of: "_", with: " ").capitalized
+        case "schedule_recording": "Schedule Recording"
+        case "cancel_recording_rule": "Cancel Recording Rule"
+        case "delete_recording": "Delete Recording"
+        default: tool.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 }

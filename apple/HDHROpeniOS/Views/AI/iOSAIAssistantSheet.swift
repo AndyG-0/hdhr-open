@@ -1,13 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSAIAssistantSheet: View {
     let apiClient: APIClient
     @Environment(\.dismiss) private var dismiss
 
     @State private var turns: [AIChatTurn] = []
-    @State private var inputText: String = ""
-    @State private var isSending: Bool = false
+    @State private var inputText = ""
+    @State private var isSending = false
     @State private var errorText: String?
 
     public init(apiClient: APIClient) {
@@ -67,7 +67,7 @@ public struct iOSAIAssistantSheet: View {
                             chatTurnView(turn)
                         }
 
-                        if isSending && (turns.last?.text.isEmpty ?? true) && (turns.last?.toolStatuses.isEmpty ?? true) {
+                        if isSending, turns.last?.text.isEmpty ?? true, turns.last?.toolStatuses.isEmpty ?? true {
                             HStack(spacing: 8) {
                                 ProgressView()
                                     .scaleEffect(0.8)
@@ -149,7 +149,6 @@ public struct iOSAIAssistantSheet: View {
 
     // MARK: - Chat Turn Item
 
-    @ViewBuilder
     private func chatTurnView(_ turn: AIChatTurn) -> some View {
         VStack(alignment: turn.role == "user" ? .trailing : .leading, spacing: 8) {
             if turn.role == "user" {
@@ -194,7 +193,6 @@ public struct iOSAIAssistantSheet: View {
 
     // MARK: - Tool Badges
 
-    @ViewBuilder
     private func toolStatusesView(_ statuses: [AIToolStatusEntry]) -> some View {
         HStack(spacing: 6) {
             ForEach(statuses) { status in
@@ -229,7 +227,6 @@ public struct iOSAIAssistantSheet: View {
 
     // MARK: - Action Confirmation Card
 
-    @ViewBuilder
     private func actionCardView(_ action: AIActionPreviewEntry) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -365,7 +362,7 @@ public struct iOSAIAssistantSheet: View {
 
     private func sendPrompt(_ content: String) {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty && !isSending else { return }
+        guard !trimmed.isEmpty, !isSending else { return }
 
         inputText = ""
         errorText = nil
@@ -389,11 +386,11 @@ public struct iOSAIAssistantSheet: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorText = error.localizedDescription
+                    errorText = error.localizedDescription
                 }
             }
             await MainActor.run {
-                self.isSending = false
+                isSending = false
             }
         }
     }
@@ -478,10 +475,10 @@ public struct iOSAIAssistantSheet: View {
 
     private func humanReadableToolName(_ tool: String) -> String {
         switch tool {
-        case "schedule_recording": return "Schedule Recording"
-        case "cancel_recording_rule": return "Cancel Recording Rule"
-        case "delete_recording": return "Delete Recording"
-        default: return tool.replacingOccurrences(of: "_", with: " ").capitalized
+        case "schedule_recording": "Schedule Recording"
+        case "cancel_recording_rule": "Cancel Recording Rule"
+        case "delete_recording": "Delete Recording"
+        default: tool.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 }

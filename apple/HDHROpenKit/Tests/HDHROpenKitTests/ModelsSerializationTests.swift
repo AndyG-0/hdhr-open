@@ -198,6 +198,10 @@ final class ModelsSerializationTests: XCTestCase {
 
     private func encodeToDictionary(_ payload: AddRecordingRulePayload) throws -> [String: Any] {
         let data = try JSONEncoder().encode(payload)
-        return try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        guard let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Expected JSON object")
+            return [:]
+        }
+        return dict
     }
 }

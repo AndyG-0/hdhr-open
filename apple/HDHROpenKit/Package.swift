@@ -14,7 +14,9 @@ let package = Package(
             targets: ["HDHROpenKit"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/nalexn/ViewInspector", from: "0.9.0")
+    ],
     targets: [
         .target(
             name: "HDHROpenKit",
@@ -23,7 +25,10 @@ let package = Package(
         ),
         .testTarget(
             name: "HDHROpenKitTests",
-            dependencies: ["HDHROpenKit"],
+            dependencies: [
+                "HDHROpenKit",
+                .product(name: "ViewInspector", package: "ViewInspector")
+            ],
             path: "Tests/HDHROpenKitTests"
         )
     ]

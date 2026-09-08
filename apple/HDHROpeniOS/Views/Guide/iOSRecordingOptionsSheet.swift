@@ -1,11 +1,11 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
-// Mirrors the web client's HDHomeRunRecordingOptionsDialog.svelte: keyword
-// query or "contains" title matching forces the rule onto the builtin DVR
-// server (enforced again server-side by dvr.py), and per-episode retention
-// is meaningless (and hidden) once the rule targets the official HDHomeRun
-// RECORD engine, which manages its own retention.
+/// Mirrors the web client's HDHomeRunRecordingOptionsDialog.svelte: keyword
+/// query or "contains" title matching forces the rule onto the builtin DVR
+/// server (enforced again server-side by dvr.py), and per-episode retention
+/// is meaningless (and hidden) once the rule targets the official HDHomeRun
+/// RECORD engine, which manages its own retention.
 public struct iOSRecordingOptionsSheet: View {
     let channel: HDHomeRunChannel
     let airing: HDHomeRunGuideEntry
@@ -44,11 +44,10 @@ public struct iOSRecordingOptionsSheet: View {
         self.onConfirm = onConfirm
         self.onCancelRule = onCancelRule
 
-        let initialServer: String
-        if let provider = existingRule?.provider {
-            initialServer = provider == "hdhomerun" ? "hdhomerun" : (provider == "builtin" ? "builtin" : "default")
+        let initialServer: String = if let provider = existingRule?.provider {
+            provider == "hdhomerun" ? "hdhomerun" : (provider == "builtin" ? "builtin" : "default")
         } else {
-            initialServer = "default"
+            "default"
         }
         _server = State(initialValue: initialServer)
         _titleMatchMode = State(initialValue: existingRule?.titleMatchMode ?? "exact")
@@ -160,7 +159,8 @@ public struct iOSRecordingOptionsSheet: View {
                 Section {
                     TextField("Keywords (optional)", text: $keywordQuery)
                     if let epTitle = airing.episodeTitle, !epTitle.isEmpty,
-                       !keywordQuery.lowercased().contains(epTitle.lowercased()) {
+                       !keywordQuery.lowercased().contains(epTitle.lowercased())
+                    {
                         Button("+ Use \"\(epTitle)\" as keyword") {
                             let trimmed = keywordQuery.trimmingCharacters(in: .whitespaces)
                             keywordQuery = trimmed.isEmpty ? epTitle : "\(trimmed), \(epTitle)"
@@ -183,7 +183,7 @@ public struct iOSRecordingOptionsSheet: View {
                     .pickerStyle(.segmented)
                 }
 
-                if channelMode == "custom" && !guideViewModel.channels.isEmpty {
+                if channelMode == "custom", !guideViewModel.channels.isEmpty {
                     Section(header: Text("Channels")) {
                         ForEach(guideViewModel.channels) { ch in
                             Button {

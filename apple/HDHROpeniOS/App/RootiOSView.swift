@@ -1,14 +1,15 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct RootiOSView: View {
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
 
-    @State private var selectedTab: Int = 0
+    @State private var selectedTab = 0
 
     public init() {}
 
@@ -58,13 +59,20 @@ public struct RootiOSView: View {
                     }
                 }
 
-                if playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil {
+                if multiPlayerViewModel.isMultiViewActive {
+                    iOSMultiPlayerView()
+                        .transition(.opacity)
+                        .zIndex(101)
+                } else if playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil {
                     iOSPlayerView()
                         .transition(.opacity)
                         .zIndex(100)
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil)
+        .animation(
+            .easeInOut(duration: 0.25),
+            value: multiPlayerViewModel.isMultiViewActive || playerViewModel.activeChannel != nil || playerViewModel.activeRecording != nil
+        )
     }
 }

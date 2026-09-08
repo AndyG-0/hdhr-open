@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVServerSetupView: View {
     @EnvironmentObject private var authManager: AuthManager

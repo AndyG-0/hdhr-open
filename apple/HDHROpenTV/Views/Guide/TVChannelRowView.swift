@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVChannelRowView: View {
     let channel: HDHomeRunChannel
@@ -109,11 +109,11 @@ public struct TVChannelRowView: View {
         }
     }
 
-    // Scrolls the row so the currently-airing program (or, if none is airing
-    // right now, the nearest upcoming one) sits at the leading edge. Without
-    // this the row's natural sort order leaves up to ~6h of already-ended
-    // airings (an intentional server-side lookback, matched by the web
-    // grid's own scroll-back range) sitting to the left of "now".
+    /// Scrolls the row so the currently-airing program (or, if none is airing
+    /// right now, the nearest upcoming one) sits at the leading edge. Without
+    /// this the row's natural sort order leaves up to ~6h of already-ended
+    /// airings (an intentional server-side lookback, matched by the web
+    /// grid's own scroll-back range) sitting to the left of "now".
     private func scrollToNow(proxy: ScrollViewProxy) {
         guard !airings.isEmpty else { return }
         let now = Date().timeIntervalSince1970

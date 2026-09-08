@@ -7,7 +7,9 @@ public enum RecordingCategoryFilter: String, CaseIterable, Identifiable, Sendabl
     case sports = "Sports"
     case inProgress = "In Progress"
 
-    public var id: String { rawValue }
+    public var id: String {
+        rawValue
+    }
 }
 
 @MainActor
@@ -16,7 +18,7 @@ public final class RecordingsViewModel: ObservableObject {
     @Published public private(set) var recordingRules: [HDHomeRunRecordingRule] = []
     @Published public private(set) var dvrInfo: HDHomeRunDvrInfo?
     @Published public var selectedFilter: RecordingCategoryFilter = .all
-    @Published public private(set) var isLoading: Bool = false
+    @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
 
     private let apiClient: APIClient
@@ -28,20 +30,20 @@ public final class RecordingsViewModel: ObservableObject {
     public var filteredRecordings: [HDHomeRunRecording] {
         switch selectedFilter {
         case .all:
-            return recordings
+            recordings
         case .shows:
-            return recordings.filter { $0.categoryType == "shows" || ($0.categoryType == nil && $0.seasonNumber != nil) }
+            recordings.filter { $0.categoryType == "shows" || ($0.categoryType == nil && $0.seasonNumber != nil) }
         case .movies:
-            return recordings.filter { $0.categoryType == "movies" || $0.category?.lowercased().contains("movie") == true }
+            recordings.filter { $0.categoryType == "movies" || $0.category?.lowercased().contains("movie") == true }
         case .sports:
-            return recordings.filter { $0.categoryType == "sports" || $0.category?.lowercased().contains("sport") == true }
+            recordings.filter { $0.categoryType == "sports" || $0.category?.lowercased().contains("sport") == true }
         case .inProgress:
-            return recordings.filter { $0.isInProgress }
+            recordings.filter(\.isInProgress)
         }
     }
 
     public var inProgressRecordings: [HDHomeRunRecording] {
-        recordings.filter { $0.isInProgress }
+        recordings.filter(\.isInProgress)
     }
 
     public var completedRecordings: [HDHomeRunRecording] {
@@ -62,7 +64,7 @@ public final class RecordingsViewModel: ObservableObject {
 
     public func loadRecordings() async {
         do {
-            self.recordings = try await apiClient.listRecordings()
+            recordings = try await apiClient.listRecordings()
         } catch {
             self.error = error.localizedDescription
             Log.dvr.error("Failed to load recordings: \(error.localizedDescription)")
@@ -71,7 +73,7 @@ public final class RecordingsViewModel: ObservableObject {
 
     public func loadRules() async {
         do {
-            self.recordingRules = try await apiClient.listRecordingRules()
+            recordingRules = try await apiClient.listRecordingRules()
         } catch {
             Log.dvr.warning("Failed to load rules: \(error.localizedDescription)")
         }
@@ -79,7 +81,7 @@ public final class RecordingsViewModel: ObservableObject {
 
     public func loadDvrInfo() async {
         do {
-            self.dvrInfo = try await apiClient.getDvrInfo()
+            dvrInfo = try await apiClient.getDvrInfo()
         } catch {
             Log.dvr.debug("Failed to load DVR info: \(error.localizedDescription)")
         }
@@ -88,19 +90,19 @@ public final class RecordingsViewModel: ObservableObject {
     public func deleteRecording(_ recording: HDHomeRunRecording) async throws {
         guard let id = recording.recordingId else { return }
         try await apiClient.deleteRecording(id: id)
-        self.recordings.removeAll { $0.recordingId == id }
+        recordings.removeAll { $0.recordingId == id }
     }
 
     public func deleteRule(ruleId: String) async throws {
-        self.recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
+        recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
     }
 
     public func addRecordingRule(payload: AddRecordingRulePayload) async throws {
-        self.recordingRules = try await apiClient.addRecordingRule(payload: payload)
+        recordingRules = try await apiClient.addRecordingRule(payload: payload)
     }
 
     public func updateRecordingRule(ruleId: String, payload: AddRecordingRulePayload) async throws {
-        self.recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
+        recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
     }
 
     /// Creates a standalone standing rule from scratch (no backing airing) —

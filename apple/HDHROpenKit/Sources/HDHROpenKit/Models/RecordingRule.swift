@@ -1,7 +1,9 @@
 import Foundation
 
 public struct HDHomeRunRecordingRule: Identifiable, Codable, Sendable, Hashable {
-    public var id: String { recordingRuleId }
+    public var id: String {
+        recordingRuleId
+    }
 
     public let recordingRuleId: String
     public let seriesId: String

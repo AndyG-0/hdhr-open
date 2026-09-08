@@ -1,16 +1,18 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSPlayerView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
+    @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showControls: Bool = true
+    @State private var showControls = true
     @State private var controlsTimer: Task<Void, Never>?
-    @State private var showPlaybackInfo: Bool = false
-    @State private var showRecordingOptionsSheet: Bool = false
+    @State private var showPlaybackInfo = false
+    @State private var showRecordingOptionsSheet = false
     @State private var loadingQuip: String = LoadingQuips.random()
 
     public init() {}
@@ -42,7 +44,7 @@ public struct iOSPlayerView: View {
             }
 
             // Status / Error Overlay
-            if case .failed(let message) = playerViewModel.playerEngine.state {
+            if case let .failed(message) = playerViewModel.playerEngine.state {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 48))
@@ -126,7 +128,7 @@ public struct iOSPlayerView: View {
                                     Image(systemName: "person.2.fill")
                                         .font(.title3)
                                         .foregroundColor(playerViewModel.syncPlayClient.room != nil ? .accentColor : .white)
-                                    if playerViewModel.syncPlayClient.room != nil && !playerViewModel.syncPlayClient.participants.isEmpty {
+                                    if playerViewModel.syncPlayClient.room != nil, !playerViewModel.syncPlayClient.participants.isEmpty {
                                         Text("\(playerViewModel.syncPlayClient.participants.count)")
                                             .font(.system(size: 9, weight: .bold))
                                             .foregroundColor(.white)
@@ -141,7 +143,7 @@ public struct iOSPlayerView: View {
                         }
 
                         // SharePlay Button
-                        if !playerViewModel.syncPlayClient.isConnected && playerViewModel.currentSyncPlayContent() != nil {
+                        if !playerViewModel.syncPlayClient.isConnected, playerViewModel.currentSyncPlayContent() != nil {
                             Button(action: {
                                 if playerViewModel.sharePlayCoordinator.isSessionActive {
                                     playerViewModel.leaveSharePlaySession()
@@ -153,7 +155,7 @@ public struct iOSPlayerView: View {
                                     Image(systemName: "shareplay")
                                         .font(.title3)
                                         .foregroundColor(playerViewModel.sharePlayCoordinator.isSessionActive ? .accentColor : .white)
-                                    if playerViewModel.sharePlayCoordinator.isSessionActive && playerViewModel.sharePlayCoordinator.participantCount > 0 {
+                                    if playerViewModel.sharePlayCoordinator.isSessionActive, playerViewModel.sharePlayCoordinator.participantCount > 0 {
                                         Text("\(playerViewModel.sharePlayCoordinator.participantCount)")
                                             .font(.system(size: 9, weight: .bold))
                                             .foregroundColor(.white)
@@ -163,6 +165,22 @@ public struct iOSPlayerView: View {
                                             .offset(x: 10, y: -8)
                                     }
                                 }
+                            }
+                            .padding(.trailing, 8)
+                        }
+
+                        // Multi-View Button (iPad / Mac regular size class)
+                        if horizontalSizeClass == .regular, let channel = playerViewModel.activeChannel {
+                            Button(action: {
+                                let airing = playerViewModel.activeAiring
+                                playerViewModel.closePlayer()
+                                Task {
+                                    try? await multiPlayerViewModel.addFeed(channel: channel, airing: airing)
+                                }
+                            }) {
+                                Image(systemName: "square.grid.2x2")
+                                    .font(.title3)
+                                    .foregroundColor(.white)
                             }
                             .padding(.trailing, 8)
                         }
@@ -250,8 +268,12 @@ public struct iOSPlayerView: View {
 
                         HStack {
                             if playerViewModel.isWatchSession {
-                                let existingRule = guideViewModel.findRule(for: playerViewModel.activeChannel?.channelNumber, airing: playerViewModel.activeAiring)
-                                let canRecordSeries = !(playerViewModel.activeAiring?.seriesId?.isEmpty ?? true) || !(playerViewModel.activeAiring?.title.isEmpty ?? true)
+                                let existingRule = guideViewModel.findRule(
+                                    for: playerViewModel.activeChannel?.channelNumber,
+                                    airing: playerViewModel.activeAiring
+                                )
+                                let canRecordSeries = !(playerViewModel.activeAiring?.seriesId?.isEmpty ?? true) ||
+                                    !(playerViewModel.activeAiring?.title.isEmpty ?? true)
 
                                 Menu {
                                     if let rule = existingRule {
@@ -441,7 +463,9 @@ public struct iOSPlayerView: View {
         .onTapGesture {
             withAnimation {
                 showControls.toggle()
-                if showControls { resetTimer() }
+                if showControls {
+                    resetTimer()
+                }
             }
         }
     }

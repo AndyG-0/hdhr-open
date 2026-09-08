@@ -1,11 +1,11 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVProfilePickerView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var authManager: AuthManager
 
-    @State private var showServerSetup: Bool = false
+    @State private var showServerSetup = false
 
     public init() {}
 
@@ -35,7 +35,7 @@ public struct TVProfilePickerView: View {
                 .padding(.top, 8)
             }
 
-            if authManager.isLoading && authViewModel.profiles.isEmpty {
+            if authManager.isLoading, authViewModel.profiles.isEmpty {
                 ProgressView()
                     .scaleEffect(2.0)
             } else {

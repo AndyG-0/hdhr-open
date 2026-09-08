@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVPINEntryView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
@@ -62,7 +62,6 @@ public struct TVPINEntryView: View {
         }
     }
 
-    @ViewBuilder
     private func keyButton(for key: String) -> some View {
         Button(action: {
             if key == "delete" {

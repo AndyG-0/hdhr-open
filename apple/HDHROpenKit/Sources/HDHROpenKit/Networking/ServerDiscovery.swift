@@ -2,7 +2,10 @@ import Foundation
 import Network
 
 public struct DiscoveredServer: Identifiable, Hashable, Sendable {
-    public var id: String { url.absoluteString }
+    public var id: String {
+        url.absoluteString
+    }
+
     public let name: String
     public let url: URL
     public let isReachable: Bool
@@ -17,7 +20,7 @@ public struct DiscoveredServer: Identifiable, Hashable, Sendable {
 @MainActor
 public final class ServerDiscovery: ObservableObject {
     @Published public private(set) var discoveredServers: [DiscoveredServer] = []
-    @Published public private(set) var isSearching: Bool = false
+    @Published public private(set) var isSearching = false
     @Published public var serverURLString: String {
         didSet {
             UserDefaults.standard.set(serverURLString, forKey: serverURLStorageKey)
@@ -26,10 +29,12 @@ public final class ServerDiscovery: ObservableObject {
 
     private let serverURLStorageKey = "org.hdhropen.client.serverURL"
     private var browser: NWBrowser?
+    private let session: URLSession
 
-    public init(defaultURL: String = "http://127.0.0.1:8000") {
+    public init(defaultURL: String = "http://127.0.0.1:8000", session: URLSession = .shared) {
         let stored = UserDefaults.standard.string(forKey: "org.hdhropen.client.serverURL")
-        self.serverURLString = stored ?? defaultURL
+        serverURLString = stored ?? defaultURL
+        self.session = session
     }
 
     public var currentServerURL: URL? {
@@ -46,11 +51,11 @@ public final class ServerDiscovery: ObservableObject {
         let browser = NWBrowser(for: descriptor, using: parameters)
 
         browser.stateUpdateHandler = { [weak self] state in
-            guard let self = self else { return }
+            guard let self else { return }
             switch state {
             case .ready:
                 Log.network.info("Bonjour browser ready")
-            case .failed(let error):
+            case let .failed(error):
                 Log.network.error("Bonjour browser failed: \(error.localizedDescription)")
                 Task { @MainActor in self.isSearching = false }
             default:
@@ -59,9 +64,9 @@ public final class ServerDiscovery: ObservableObject {
         }
 
         browser.browseResultsChangedHandler = { [weak self] results, _ in
-            guard let self = self else { return }
+            guard let self else { return }
             for result in results {
-                if case .service(let name, _, _, _) = result.endpoint {
+                if case let .service(name, _, _, _) = result.endpoint {
                     if name.lowercased().contains("hdhr") || name.lowercased().contains("homerun") {
                         Task { @MainActor in
                             if let url = URL(string: "http://\(name).local:8000") {
@@ -91,7 +96,7 @@ public final class ServerDiscovery: ObservableObject {
         var request = URLRequest(url: checkURL)
         request.timeoutInterval = 3.0
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 return true
             }

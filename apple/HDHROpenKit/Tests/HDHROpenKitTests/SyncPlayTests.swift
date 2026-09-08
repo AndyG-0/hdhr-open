@@ -3,7 +3,6 @@ import XCTest
 
 @MainActor
 final class SyncPlayTests: XCTestCase {
-
     func testSyncPlayModelsEncodingDecoding() throws {
         let room = SyncPlayRoom(
             roomCode: "SWIFT1",
@@ -91,10 +90,10 @@ final class SyncPlayTests: XCTestCase {
         XCTAssertEqual(client.room?.playbackState.position ?? 0.0, 45.5, accuracy: 0.001)
     }
 
-    func testPlayerViewModelSyncPlayWiring() {
-        let apiClient = APIClient(baseURL: URL(string: "http://localhost:8000")!)
+    func testPlayerViewModelSyncPlayWiring() throws {
+        let apiClient = try APIClient(baseURL: XCTUnwrap(URL(string: "http://localhost:8000")))
         let vm = PlayerViewModel(apiClient: apiClient, watchSessionManager: WatchSessionManager(apiClient: apiClient))
-        vm.playerEngine.loadMedia(url: URL(string: "http://localhost:8000/test.m3u8")!, isSeekable: true)
+        try vm.playerEngine.loadMedia(url: XCTUnwrap(URL(string: "http://localhost:8000/test.m3u8")), isSeekable: true)
 
         XCTAssertNotNil(vm.syncPlayClient)
         XCTAssertNil(vm.syncPlayClient.room)

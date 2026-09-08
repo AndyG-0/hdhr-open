@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 @MainActor
 public final class GuideViewModel: ObservableObject {
@@ -7,9 +7,9 @@ public final class GuideViewModel: ObservableObject {
     @Published public private(set) var fullGuide: [HDHomeRunFullGuideChannel] = []
     @Published public private(set) var recordingRules: [HDHomeRunRecordingRule] = []
     @Published public private(set) var favoriteChannels: Set<String> = []
-    @Published public var filterOnlyFavorites: Bool = false
-    @Published public private(set) var isLoading: Bool = false
-    @Published public private(set) var guideAvailable: Bool = false
+    @Published public var filterOnlyFavorites = false
+    @Published public private(set) var isLoading = false
+    @Published public private(set) var guideAvailable = false
     @Published public private(set) var error: String?
 
     public let apiClient: APIClient
@@ -21,7 +21,7 @@ public final class GuideViewModel: ObservableObject {
     }
 
     public var displayedChannels: [HDHomeRunChannel] {
-        if filterOnlyFavorites && !favoriteChannels.isEmpty {
+        if filterOnlyFavorites, !favoriteChannels.isEmpty {
             return channels.filter { favoriteChannels.contains($0.channelNumber) }
         }
         return channels
@@ -44,8 +44,8 @@ public final class GuideViewModel: ObservableObject {
     public func loadChannels() async {
         do {
             let resp = try await apiClient.getChannels()
-            self.channels = resp.channels
-            self.guideAvailable = resp.guideAvailable
+            channels = resp.channels
+            guideAvailable = resp.guideAvailable
         } catch {
             self.error = error.localizedDescription
             Log.general.error("Failed to load channels: \(error.localizedDescription)")
@@ -56,7 +56,7 @@ public final class GuideViewModel: ObservableObject {
         do {
             let now = Date().timeIntervalSince1970
             let guide = try await apiClient.getGuide(start: now - 6 * 3600, end: now + 48 * 3600)
-            self.fullGuide = guide
+            fullGuide = guide
         } catch {
             Log.general.warning("Failed to load full guide: \(error.localizedDescription)")
         }
@@ -66,7 +66,7 @@ public final class GuideViewModel: ObservableObject {
         do {
             let integration = try await apiClient.getNetworkIntegration(type: "hdhomerun")
             if let favs = integration.settings["favorite_channels"]?.value as? [String] {
-                self.favoriteChannels = Set(favs)
+                favoriteChannels = Set(favs)
             }
         } catch {
             // Favoriting is optional
@@ -75,7 +75,7 @@ public final class GuideViewModel: ObservableObject {
 
     public func loadRules() async {
         do {
-            self.recordingRules = try await apiClient.listRecordingRules()
+            recordingRules = try await apiClient.listRecordingRules()
         } catch {
             Log.dvr.warning("Failed to load recording rules: \(error.localizedDescription)")
         }
@@ -88,7 +88,7 @@ public final class GuideViewModel: ObservableObject {
         } else {
             updated.insert(channelNumber)
         }
-        self.favoriteChannels = updated
+        favoriteChannels = updated
 
         // Persist to backend network integration settings
         do {
@@ -125,7 +125,7 @@ public final class GuideViewModel: ObservableObject {
             maxEpisodesToKeep: options?.maxEpisodesToKeep,
             server: options?.server
         )
-        self.recordingRules = try await apiClient.addRecordingRule(payload: payload)
+        recordingRules = try await apiClient.addRecordingRule(payload: payload)
         await loadRules()
     }
 
@@ -146,7 +146,7 @@ public final class GuideViewModel: ObservableObject {
             maxEpisodesToKeep: options?.maxEpisodesToKeep,
             server: options?.server
         )
-        self.recordingRules = try await apiClient.addRecordingRule(payload: payload)
+        recordingRules = try await apiClient.addRecordingRule(payload: payload)
         await loadRules()
     }
 
@@ -171,12 +171,12 @@ public final class GuideViewModel: ObservableObject {
             maxEpisodesToKeep: options?.maxEpisodesToKeep,
             server: options?.server
         )
-        self.recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
+        recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
         await loadRules()
     }
 
     public func cancelRule(ruleId: String) async throws {
-        self.recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
+        recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
         await loadRules()
     }
 
@@ -186,8 +186,12 @@ public final class GuideViewModel: ObservableObject {
         }
         if let ch = channels.first(where: { $0.channelNumber == channelNumber }) {
             var items: [HDHomeRunGuideEntry] = []
-            if let now = ch.now { items.append(now) }
-            if let next = ch.next { items.append(next) }
+            if let now = ch.now {
+                items.append(now)
+            }
+            if let next = ch.next {
+                items.append(next)
+            }
             return items
         }
         return []

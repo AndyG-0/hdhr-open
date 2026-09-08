@@ -1,13 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
-// tvOS equivalent of the web's HDHomeRunPlayerRecordMenu.svelte: a scheduled
-// rule for the current channel/airing collapses the menu to just "Cancel
-// Recording"; otherwise it offers this app's own quick "save the buffering
-// watch session" action alongside episode/series rule creation and the full
-// options modal. Rendered as a focus-scoped overlay (mirrors
-// TVPlayerSettingsOverlay) rather than a native SwiftUI `Menu`, matching how
-// every other in-player tvOS popup in this app is built.
+/// tvOS equivalent of the web's HDHomeRunPlayerRecordMenu.svelte: a scheduled
+/// rule for the current channel/airing collapses the menu to just "Cancel
+/// Recording"; otherwise it offers this app's own quick "save the buffering
+/// watch session" action alongside episode/series rule creation and the full
+/// options modal. Rendered as a focus-scoped overlay (mirrors
+/// TVPlayerSettingsOverlay) rather than a native SwiftUI `Menu`, matching how
+/// every other in-player tvOS popup in this app is built.
 public struct TVPlayerRecordMenuOverlay: View {
     let existingRule: HDHomeRunRecordingRule?
     let canRecordSeries: Bool

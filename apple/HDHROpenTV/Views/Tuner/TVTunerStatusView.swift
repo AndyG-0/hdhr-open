@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVTunerStatusView: View {
     @EnvironmentObject private var tunerViewModel: TunerViewModel
@@ -66,7 +66,6 @@ public struct TVTunerStatusView: View {
         }
     }
 
-    @ViewBuilder
     private func tunerCard(for tuner: HDHomeRunTuner) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -145,7 +144,6 @@ public struct TVTunerStatusView: View {
         .cornerRadius(16)
     }
 
-    @ViewBuilder
     private func metricGauge(title: String, value: Int, unit: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -175,8 +173,12 @@ public struct TVTunerStatusView: View {
     }
 
     private func gaugeColor(for percent: Int) -> Color {
-        if percent >= 80 { return .green }
-        if percent >= 50 { return .yellow }
+        if percent >= 80 {
+            return .green
+        }
+        if percent >= 50 {
+            return .yellow
+        }
         return .red
     }
 }

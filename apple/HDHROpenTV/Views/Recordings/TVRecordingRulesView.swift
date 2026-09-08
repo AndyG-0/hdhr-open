@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVRecordingRulesView: View {
     let rules: [HDHomeRunRecordingRule]
@@ -19,8 +19,8 @@ public struct TVRecordingRulesView: View {
         self.onDismiss = onDismiss
     }
 
-    // Mirrors iOSRecordingRulesSheet.swift's badge set (itself mirroring
-    // Android's RecordingRulesDialog.kt).
+    /// Mirrors iOSRecordingRulesSheet.swift's badge set (itself mirroring
+    /// Android's RecordingRulesDialog.kt).
     private func badges(for rule: HDHomeRunRecordingRule) -> [String] {
         var badges: [String] = []
         if let keyword = rule.keywordQuery, !keyword.isEmpty {

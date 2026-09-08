@@ -1,15 +1,15 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
-// tvOS counterpart to iOSRecordingOptionsSheet.swift — same business rules
-// (keyword/contains-match forces the builtin DVR; retention is hidden once
-// the rule targets the official HDHomeRun DVR, which manages its own
-// retention), adapted for D-pad focus navigation: segmented choices become
-// button groups (tvOS's Picker doesn't render a usable segmented style),
-// and there's no navigation bar, so Cancel/Close live in an explicit header
-// like the rest of this app's tvOS modals. Keyword text entry uses a plain
-// TextField and tvOS's on-screen remote keyboard, the same precedent
-// TVServerConnectionFields.swift already relies on for the server URL field.
+/// tvOS counterpart to iOSRecordingOptionsSheet.swift — same business rules
+/// (keyword/contains-match forces the builtin DVR; retention is hidden once
+/// the rule targets the official HDHomeRun DVR, which manages its own
+/// retention), adapted for D-pad focus navigation: segmented choices become
+/// button groups (tvOS's Picker doesn't render a usable segmented style),
+/// and there's no navigation bar, so Cancel/Close live in an explicit header
+/// like the rest of this app's tvOS modals. Keyword text entry uses a plain
+/// TextField and tvOS's on-screen remote keyboard, the same precedent
+/// TVServerConnectionFields.swift already relies on for the server URL field.
 public struct TVRecordingOptionsModal: View {
     let channel: HDHomeRunChannel
     let airing: HDHomeRunGuideEntry
@@ -50,11 +50,10 @@ public struct TVRecordingOptionsModal: View {
         self.onConfirm = onConfirm
         self.onCancelRule = onCancelRule
 
-        let initialServer: String
-        if let provider = existingRule?.provider {
-            initialServer = provider == "hdhomerun" ? "hdhomerun" : (provider == "builtin" ? "builtin" : "default")
+        let initialServer: String = if let provider = existingRule?.provider {
+            provider == "hdhomerun" ? "hdhomerun" : (provider == "builtin" ? "builtin" : "default")
         } else {
-            initialServer = "default"
+            "default"
         }
         _server = State(initialValue: initialServer)
         _titleMatchMode = State(initialValue: existingRule?.titleMatchMode ?? "exact")
@@ -164,7 +163,7 @@ public struct TVRecordingOptionsModal: View {
             .foregroundColor(.secondary)
     }
 
-    // Stepper is unavailable on tvOS, so padding uses a hand-rolled +/- row.
+    /// Stepper is unavailable on tvOS, so padding uses a hand-rolled +/- row.
     private func stepperRow(_ label: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
         HStack {
             Text("\(label): \(value.wrappedValue) min")
@@ -228,7 +227,8 @@ public struct TVRecordingOptionsModal: View {
                                 .background(Theme.appSurfaceVariant)
                                 .cornerRadius(10)
                             if let epTitle = airing.episodeTitle, !epTitle.isEmpty,
-                               !keywordQuery.lowercased().contains(epTitle.lowercased()) {
+                               !keywordQuery.lowercased().contains(epTitle.lowercased())
+                            {
                                 Button("+ Use \"\(epTitle)\" as keyword") {
                                     let trimmed = keywordQuery.trimmingCharacters(in: .whitespaces)
                                     keywordQuery = trimmed.isEmpty ? epTitle : "\(trimmed), \(epTitle)"
@@ -255,7 +255,7 @@ public struct TVRecordingOptionsModal: View {
                             }
                             choiceRow(channelOptions, selection: $channelMode)
 
-                            if channelMode == "custom" && !guideViewModel.channels.isEmpty {
+                            if channelMode == "custom", !guideViewModel.channels.isEmpty {
                                 LazyVStack(alignment: .leading, spacing: 8) {
                                     ForEach(guideViewModel.channels) { ch in
                                         let isSelected = customChannels.contains(ch.channelNumber)

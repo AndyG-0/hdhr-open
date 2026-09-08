@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSRecordingDetailSheet: View {
     let recording: HDHomeRunRecording
@@ -18,7 +18,7 @@ public struct iOSRecordingDetailSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if let img = recording.imageUrl, let url = URL(string: img) {
                         AsyncImage(url: url) { image in
-                            image.resizable().aspectRatio(16/9, contentMode: .fill)
+                            image.resizable().aspectRatio(16 / 9, contentMode: .fill)
                         } placeholder: {
                             Color.gray.opacity(0.2)
                         }

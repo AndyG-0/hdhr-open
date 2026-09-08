@@ -2,7 +2,7 @@ import Foundation
 
 public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
     public var id: String {
-        if let seriesId = seriesId, let start = start {
+        if let seriesId, let start {
             return "\(seriesId)_\(start)_\(channelNumber ?? "")"
         }
         return "\(title)_\(start ?? 0)_\(channelNumber ?? "")"
@@ -79,10 +79,18 @@ public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
     public var formattedAudio: String? {
         guard let raw = audio?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return nil }
         let lower = raw.lowercased()
-        if lower == "stereo" { return "STEREO" }
-        if lower.contains("5.1") { return "5.1" }
-        if lower.contains("dolby") || lower.contains("dd") { return "DOLBY" }
-        if lower == "mono" { return "MONO" }
+        if lower == "stereo" {
+            return "STEREO"
+        }
+        if lower.contains("5.1") {
+            return "5.1"
+        }
+        if lower.contains("dolby") || lower.contains("dd") {
+            return "DOLBY"
+        }
+        if lower == "mono" {
+            return "MONO"
+        }
         return raw.uppercased()
     }
 
@@ -104,30 +112,34 @@ public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
     }
 
     public var startDate: Date? {
-        guard let start = start else { return nil }
+        guard let start else { return nil }
         return Date(timeIntervalSince1970: start)
     }
 
     public var endDate: Date? {
-        guard let end = end else { return nil }
+        guard let end else { return nil }
         return Date(timeIntervalSince1970: end)
     }
 
     public var durationSeconds: TimeInterval? {
-        guard let start = start, let end = end, end > start else { return nil }
+        guard let start, let end, end > start else { return nil }
         return end - start
     }
 
     public func isCurrentlyAiring(at timestamp: TimeInterval = Date().timeIntervalSince1970) -> Bool {
-        guard let start = start, let end = end else { return false }
+        guard let start, let end else { return false }
         return timestamp >= start && timestamp < end
     }
 
     public var progress: Double {
-        guard let start = start, let end = end, end > start else { return 0 }
+        guard let start, let end, end > start else { return 0 }
         let now = Date().timeIntervalSince1970
-        if now <= start { return 0 }
-        if now >= end { return 1.0 }
+        if now <= start {
+            return 0
+        }
+        if now >= end {
+            return 1.0
+        }
         return (now - start) / (end - start)
     }
 }

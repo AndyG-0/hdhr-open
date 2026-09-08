@@ -1,7 +1,10 @@
 import Foundation
 
 public struct HDHomeRunChannel: Identifiable, Codable, Sendable, Hashable {
-    public var id: String { channelNumber }
+    public var id: String {
+        channelNumber
+    }
+
     public let channelNumber: String
     public let name: String
     public let isHD: Bool
@@ -63,7 +66,10 @@ public struct HDHomeRunChannelsResponse: Codable, Sendable {
 }
 
 public struct HDHomeRunFullGuideChannel: Identifiable, Codable, Sendable, Hashable {
-    public var id: String { channelNumber }
+    public var id: String {
+        channelNumber
+    }
+
     public let channelNumber: String
     public let channelName: String
     public let airings: [HDHomeRunGuideEntry]

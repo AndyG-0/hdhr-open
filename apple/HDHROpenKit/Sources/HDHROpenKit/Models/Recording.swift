@@ -15,7 +15,10 @@ public struct HDHomeRunRecordingVideoInfo: Codable, Sendable, Hashable {
 }
 
 public struct HDHomeRunRecordingAudioInfo: Identifiable, Codable, Sendable, Hashable {
-    public var id: Int { index }
+    public var id: Int {
+        index
+    }
+
     public let index: Int
     public let codec: String?
     public let channels: Int?
@@ -254,7 +257,9 @@ public struct HDHomeRunRecording: Identifiable, Codable, Sendable, Hashable {
         return end > Date().timeIntervalSince1970
     }
 
-    public var isHDHomeRunNative: Bool { provider == "hdhomerun" }
+    public var isHDHomeRunNative: Bool {
+        provider == "hdhomerun"
+    }
 
     public var formattedDuration: String {
         guard let dur = durationSeconds, dur > 0 else { return "" }

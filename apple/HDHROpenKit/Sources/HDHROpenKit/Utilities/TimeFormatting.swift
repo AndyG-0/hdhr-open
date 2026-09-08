@@ -26,9 +26,9 @@ public enum TimeFormatting {
     }
 
     public static func formatTimeRange(start: TimeInterval?, end: TimeInterval?) -> String {
-        guard let start = start else { return "" }
+        guard let start else { return "" }
         let startStr = formatTime(start)
-        guard let end = end else { return startStr }
+        guard let end else { return startStr }
         let endStr = formatTime(end)
         return "\(startStr) – \(endStr)"
     }

@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVRecordingDetailView: View {
     let recording: HDHomeRunRecording
@@ -93,7 +93,7 @@ public struct TVRecordingDetailView: View {
                     }
                     .prefersDefaultFocus(true, in: focusNamespace)
 
-                    if !recording.isInProgress && !recording.isHDHomeRunNative {
+                    if !recording.isInProgress, !recording.isHDHomeRunNative {
                         Button(role: .destructive, action: onDelete) {
                             Label("Delete Recording", systemImage: "trash")
                                 .padding(.horizontal, 20)

@@ -1,11 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSPlaybackInfoOverlay: View {
     @ObservedObject var playerViewModel: PlayerViewModel
     let onDismiss: () -> Void
 
-    private var playerEngine: PlayerEngine { playerViewModel.playerEngine }
+    private var playerEngine: PlayerEngine {
+        playerViewModel.playerEngine
+    }
 
     public init(playerViewModel: PlayerViewModel, onDismiss: @escaping () -> Void) {
         self.playerViewModel = playerViewModel
@@ -68,7 +70,6 @@ public struct iOSPlaybackInfoOverlay: View {
         }
     }
 
-    @ViewBuilder
     private func sectionHeading(_ text: String) -> some View {
         Text(text)
             .font(.caption.bold())
@@ -76,7 +77,6 @@ public struct iOSPlaybackInfoOverlay: View {
             .padding(.top, 4)
     }
 
-    @ViewBuilder
     private func infoRow(label: String, value: String) -> some View {
         HStack {
             Text(label)

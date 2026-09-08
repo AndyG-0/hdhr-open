@@ -1,7 +1,5 @@
-import SwiftUI
 import HDHROpenKit
-
-
+import SwiftUI
 
 /// iOS EPG grid: channels as rows with a fixed leading channel column, a horizontally scrollable
 /// per-channel track of time-positioned program cells, a shared hour/day ruler, and a live "now" line.
@@ -30,7 +28,9 @@ public struct iOSGuideGridView: View {
     private let rowHeight: CGFloat = 64
     private let dayRowHeight: CGFloat = 20
     private let hourRowHeight: CGFloat = 22
-    private var rulerHeight: CGFloat { dayRowHeight + hourRowHeight }
+    private var rulerHeight: CGFloat {
+        dayRowHeight + hourRowHeight
+    }
 
     private let nowTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
@@ -104,7 +104,9 @@ public struct iOSGuideGridView: View {
             recomputeWindowBounds()
         }
         .onChange(of: guideViewModel.isLoading) { _, newValue in
-            if newValue { hasAutoScrolledToNow = false }
+            if newValue {
+                hasAutoScrolledToNow = false
+            }
             nowSeconds = Date().timeIntervalSince1970
             recomputeWindowBounds()
         }

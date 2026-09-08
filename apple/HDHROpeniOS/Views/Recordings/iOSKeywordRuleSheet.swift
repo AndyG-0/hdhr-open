@@ -1,10 +1,10 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
-// Mirrors the web client's HDHomeRunKeywordRuleDialog.svelte — creates a
-// standalone standing rule with no backing airing. Always ends up on the
-// builtin DVR (enforced server-side too, see RecordingsViewModel.createKeywordRule),
-// so unlike iOSRecordingOptionsSheet there's no server picker here.
+/// Mirrors the web client's HDHomeRunKeywordRuleDialog.svelte — creates a
+/// standalone standing rule with no backing airing. Always ends up on the
+/// builtin DVR (enforced server-side too, see RecordingsViewModel.createKeywordRule),
+/// so unlike iOSRecordingOptionsSheet there's no server picker here.
 public struct iOSKeywordRuleSheet: View {
     let onCreated: () -> Void
 

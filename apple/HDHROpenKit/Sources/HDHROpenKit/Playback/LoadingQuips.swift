@@ -34,7 +34,9 @@ public struct LoadingQuips: Sendable {
 
     public static func random(excluding: String? = nil, from quips: [String] = defaultQuips) -> String {
         guard !quips.isEmpty else { return "Loading…" }
-        if quips.count == 1 { return quips[0] }
+        if quips.count == 1 {
+            return quips[0]
+        }
         let pool = excluding != nil ? quips.filter { $0 != excluding } : quips
         let candidates = pool.isEmpty ? quips : pool
         return candidates.randomElement() ?? "Loading…"

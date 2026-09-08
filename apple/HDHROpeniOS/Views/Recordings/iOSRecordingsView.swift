@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSRecordingsView: View {
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
@@ -52,7 +52,7 @@ public struct iOSRecordingsView: View {
                                     ZStack(alignment: .bottomLeading) {
                                         if let img = recording.imageUrl, let url = URL(string: img) {
                                             AsyncImage(url: url) { image in
-                                                image.resizable().aspectRatio(16/9, contentMode: .fill)
+                                                image.resizable().aspectRatio(16 / 9, contentMode: .fill)
                                             } placeholder: {
                                                 Color.gray.opacity(0.2)
                                             }
@@ -119,7 +119,7 @@ public struct iOSRecordingsView: View {
                             .buttonStyle(.borderless)
                         }
                         .swipeActions(edge: .trailing) {
-                            if !recording.isInProgress && !recording.isHDHomeRunNative {
+                            if !recording.isInProgress, !recording.isHDHomeRunNative {
                                 Button(role: .destructive) {
                                     Task { try? await recordingsViewModel.deleteRecording(recording) }
                                 } label: {

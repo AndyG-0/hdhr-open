@@ -1,10 +1,10 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
-// tvOS counterpart to iOSKeywordRuleSheet.swift — creates a standalone
-// standing rule with no backing airing. Always ends up on the builtin DVR
-// (enforced server-side too, see RecordingsViewModel.createKeywordRule), so
-// unlike TVRecordingOptionsModal there's no server picker here.
+/// tvOS counterpart to iOSKeywordRuleSheet.swift — creates a standalone
+/// standing rule with no backing airing. Always ends up on the builtin DVR
+/// (enforced server-side too, see RecordingsViewModel.createKeywordRule), so
+/// unlike TVRecordingOptionsModal there's no server picker here.
 public struct TVKeywordRuleModal: View {
     let onCreated: () -> Void
 
@@ -79,7 +79,7 @@ public struct TVKeywordRuleModal: View {
             .foregroundColor(.secondary)
     }
 
-    // Stepper is unavailable on tvOS, so padding uses a hand-rolled +/- row.
+    /// Stepper is unavailable on tvOS, so padding uses a hand-rolled +/- row.
     private func stepperRow(_ label: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
         HStack {
             Text("\(label): \(value.wrappedValue) min")

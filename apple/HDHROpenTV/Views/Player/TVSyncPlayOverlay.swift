@@ -1,13 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct TVSyncPlayOverlay: View {
     @ObservedObject var playerViewModel: PlayerViewModel
     let onDismiss: () -> Void
 
-    @State private var userName: String = "Apple TV"
-    @State private var roomCodeInput: String = ""
-    @State private var isBusy: Bool = false
+    @State private var userName = "Apple TV"
+    @State private var roomCodeInput = ""
+    @State private var isBusy = false
     @State private var errorMessage: String? = nil
     @FocusState private var focusedElement: TVSyncPlayFocus?
 
@@ -124,7 +124,7 @@ public struct TVSyncPlayOverlay: View {
                                                     .foregroundColor(.gray)
                                             }
 
-                                            if playerViewModel.syncPlayClient.isHost && !isMe {
+                                            if playerViewModel.syncPlayClient.isHost, !isMe {
                                                 Button("Make Host") {
                                                     playerViewModel.transferSyncPlayHost(targetSessionId: participant.sessionId)
                                                 }

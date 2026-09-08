@@ -40,7 +40,10 @@ public struct TunerWarningInfo: Codable, Sendable {
 }
 
 public struct HDHomeRunTuner: Identifiable, Codable, Sendable {
-    public var id: Int { index }
+    public var id: Int {
+        index
+    }
+
     public let index: Int
     public let resource: String?
     public let inUse: Bool

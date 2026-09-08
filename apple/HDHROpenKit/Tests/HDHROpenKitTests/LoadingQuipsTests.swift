@@ -2,7 +2,6 @@ import XCTest
 @testable import HDHROpenKit
 
 final class LoadingQuipsTests: XCTestCase {
-
     func testDefaultQuipsNotEmpty() {
         XCTAssertGreaterThanOrEqual(LoadingQuips.defaultQuips.count, 20)
         for quip in LoadingQuips.defaultQuips {

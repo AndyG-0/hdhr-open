@@ -44,44 +44,41 @@ def scan_asset_catalogs(directory: Path):
 
 tv_files = scan_files(BASE_DIR / "HDHROpenTV")
 ios_files = scan_files(BASE_DIR / "HDHROpeniOS")
+ios_test_files = scan_files(BASE_DIR / "HDHROpeniOSTests")
+tv_test_files = scan_files(BASE_DIR / "HDHROpenTVTests")
 tv_catalogs = scan_asset_catalogs(BASE_DIR / "HDHROpenTV")
 ios_catalogs = scan_asset_catalogs(BASE_DIR / "HDHROpeniOS")
 
 # PBX objects
 file_refs = []
 build_files = []
-tv_sources = []
-ios_sources = []
+
+def add_swift_sources(files):
+    """Emit PBXFileReference/PBXBuildFile entries for .swift/.plist/.entitlements
+    files and return the PBXBuildFile ids for the .swift files (for Sources
+    build phase membership)."""
+    ids = []
+    for f in files:
+        f_id = gid(f"file_{f}")
+        b_id = gid(f"build_{f}")
+        name = f.name
+        if f.suffix == '.swift':
+            file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "{name}"; sourceTree = "<group>"; }};')
+            build_files.append(f'\t\t{b_id} /* {name} in Sources */ = {{isa = PBXBuildFile; fileRef = {f_id} /* {name} */; }};')
+            ids.append(b_id)
+        elif f.suffix == '.plist':
+            file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "{name}"; sourceTree = "<group>"; }};')
+        elif f.suffix == '.entitlements':
+            file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "{name}"; sourceTree = "<group>"; }};')
+    return ids
+
+tv_sources = add_swift_sources(tv_files)
+ios_sources = add_swift_sources(ios_files)
+ios_test_sources = add_swift_sources(ios_test_files)
+tv_test_sources = add_swift_sources(tv_test_files)
+
 tv_resources = []
 ios_resources = []
-
-for f in tv_files:
-    f_id = gid(f"file_{f}")
-    b_id = gid(f"build_{f}")
-    name = f.name
-    path = str(f)
-    if f.suffix == '.swift':
-        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "{name}"; sourceTree = "<group>"; }};')
-        build_files.append(f'\t\t{b_id} /* {name} in Sources */ = {{isa = PBXBuildFile; fileRef = {f_id} /* {name} */; }};')
-        tv_sources.append(b_id)
-    elif f.suffix == '.plist':
-        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "{name}"; sourceTree = "<group>"; }};')
-    elif f.suffix == '.entitlements':
-        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "{name}"; sourceTree = "<group>"; }};')
-
-for f in ios_files:
-    f_id = gid(f"file_{f}")
-    b_id = gid(f"build_{f}")
-    name = f.name
-    path = str(f)
-    if f.suffix == '.swift':
-        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "{name}"; sourceTree = "<group>"; }};')
-        build_files.append(f'\t\t{b_id} /* {name} in Sources */ = {{isa = PBXBuildFile; fileRef = {f_id} /* {name} */; }};')
-        ios_sources.append(b_id)
-    elif f.suffix == '.plist':
-        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "{name}"; sourceTree = "<group>"; }};')
-    elif f.suffix == '.entitlements':
-        file_refs.append(f'\t\t{f_id} /* {name} */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "{name}"; sourceTree = "<group>"; }};')
 
 for f in tv_catalogs:
     f_id = gid(f"file_{f}")
@@ -108,10 +105,10 @@ def build_group_tree(files, base_name):
         curr = tree
         for part in parts[1:]: # skip root folder name
             curr = curr.setdefault(part, {})
-    
+
     # render PBXGroup blocks
     groups_out = []
-    
+
     def render_node(node, path_prefix, group_name):
         children = []
         sub_groups = []
@@ -125,7 +122,7 @@ def build_group_tree(files, base_name):
                 f_path = f"{base_name}/{path_prefix}/{k}" if path_prefix else f"{base_name}/{k}"
                 f_id = gid(f"file_{f_path}")
                 children.append(f"{f_id} /* {k} */")
-        
+
         my_id = gid(f"group_{base_name}_{path_prefix}") if path_prefix else gid(f"group_{base_name}")
         children_str = ",\n\t\t\t\t".join(children)
         path_attr = f'path = "{group_name}"; ' if group_name else ""
@@ -138,34 +135,54 @@ def build_group_tree(files, base_name):
 \t\t}};''')
         for sub_v, sub_path, sub_k in sub_groups:
             render_node(sub_v, sub_path, sub_k)
-            
+
     render_node(tree, "", base_name)
     return groups_out
 
 tv_groups = build_group_tree(tv_files + tv_catalogs, "HDHROpenTV")
 ios_groups = build_group_tree(ios_files + ios_catalogs, "HDHROpeniOS")
+ios_test_groups = build_group_tree(ios_test_files, "HDHROpeniOSTests")
+tv_test_groups = build_group_tree(tv_test_files, "HDHROpenTVTests")
 
 # Product file references
 tv_product_id = gid("product_tv")
 ios_product_id = gid("product_ios")
+ios_test_product_id = gid("product_ios_tests")
+tv_test_product_id = gid("product_tv_tests")
 file_refs.append(f'\t\t{tv_product_id} /* HDHROpenTV.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDHROpenTV.app; sourceTree = BUILT_PRODUCTS_DIR; }};')
 file_refs.append(f'\t\t{ios_product_id} /* HDHROpeniOS.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HDHROpeniOS.app; sourceTree = BUILT_PRODUCTS_DIR; }};')
+file_refs.append(f'\t\t{ios_test_product_id} /* HDHROpeniOSTests.xctest */ = {{isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HDHROpeniOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; }};')
+file_refs.append(f'\t\t{tv_test_product_id} /* HDHROpenTVTests.xctest */ = {{isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HDHROpenTVTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; }};')
 
-# Package ref & product dependency
+# Package refs & product dependencies
 pkg_ref_id = gid("local_pkg_ref_kit")
 tv_pkg_dep_id = gid("tv_pkg_dep_kit")
 ios_pkg_dep_id = gid("ios_pkg_dep_kit")
+ios_test_pkg_dep_id = gid("ios_test_pkg_dep_kit")
+tv_test_pkg_dep_id = gid("tv_test_pkg_dep_kit")
+
+viewinspector_pkg_ref_id = gid("remote_pkg_ref_viewinspector")
+ios_viewinspector_dep_id = gid("ios_pkg_dep_viewinspector")
+tv_viewinspector_dep_id = gid("tv_pkg_dep_viewinspector")
 
 # Build phases
 tv_sources_phase_id = gid("tv_sources_phase")
 ios_sources_phase_id = gid("ios_sources_phase")
+ios_test_sources_phase_id = gid("ios_test_sources_phase")
+tv_test_sources_phase_id = gid("tv_test_sources_phase")
+
 tv_frameworks_phase_id = gid("tv_frameworks_phase")
 ios_frameworks_phase_id = gid("ios_frameworks_phase")
+ios_test_frameworks_phase_id = gid("ios_test_frameworks_phase")
+tv_test_frameworks_phase_id = gid("tv_test_frameworks_phase")
+
 tv_resources_phase_id = gid("tv_resources_phase")
 ios_resources_phase_id = gid("ios_resources_phase")
 
 tv_sources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Sources */" for b_id in tv_sources])
 ios_sources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Sources */" for b_id in ios_sources])
+ios_test_sources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Sources */" for b_id in ios_test_sources])
+tv_test_sources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Sources */" for b_id in tv_test_sources])
 tv_resources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Resources */" for b_id in tv_resources])
 ios_resources_entries = ",\n\t\t\t\t".join([f"{b_id} /* in Resources */" for b_id in ios_resources])
 tv_resources_phase_block = f"""\t\t{tv_resources_phase_id} /* Resources */ = {{
@@ -190,9 +207,17 @@ ios_target_resources_phase_ref = f"\n\t\t\t\t{ios_resources_phase_id} /* Resourc
 # Targets
 tv_target_id = gid("target_tv")
 ios_target_id = gid("target_ios")
+ios_test_target_id = gid("target_ios_tests")
+tv_test_target_id = gid("target_tv_tests")
 proj_id = gid("main_project")
 main_group_id = gid("main_group")
 products_group_id = gid("products_group")
+
+# Test target <-> host app dependency wiring
+ios_test_proxy_id = gid("ios_test_container_proxy")
+ios_test_dep_id = gid("ios_test_target_dependency")
+tv_test_proxy_id = gid("tv_test_container_proxy")
+tv_test_dep_id = gid("tv_test_target_dependency")
 
 # Configurations
 tv_debug_config_id = gid("tv_debug_config")
@@ -202,6 +227,14 @@ tv_config_list_id = gid("tv_config_list")
 ios_debug_config_id = gid("ios_debug_config")
 ios_release_config_id = gid("ios_release_config")
 ios_config_list_id = gid("ios_config_list")
+
+ios_test_debug_config_id = gid("ios_test_debug_config")
+ios_test_release_config_id = gid("ios_test_release_config")
+ios_test_config_list_id = gid("ios_test_config_list")
+
+tv_test_debug_config_id = gid("tv_test_debug_config")
+tv_test_release_config_id = gid("tv_test_release_config")
+tv_test_config_list_id = gid("tv_test_config_list")
 
 proj_debug_config_id = gid("proj_debug_config")
 proj_release_config_id = gid("proj_release_config")
@@ -218,6 +251,23 @@ pbxproj_content = f"""// !$*UTF8*$!
 /* Begin PBXBuildFile section */
 {chr(10).join(build_files)}
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		{ios_test_proxy_id} /* PBXContainerItemProxy */ = {{
+			isa = PBXContainerItemProxy;
+			containerPortal = {proj_id} /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = {ios_target_id};
+			remoteInfo = HDHROpeniOS;
+		}};
+		{tv_test_proxy_id} /* PBXContainerItemProxy */ = {{
+			isa = PBXContainerItemProxy;
+			containerPortal = {proj_id} /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = {tv_target_id};
+			remoteInfo = HDHROpenTV;
+		}};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 {chr(10).join(file_refs)}
@@ -238,6 +288,20 @@ pbxproj_content = f"""// !$*UTF8*$!
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		}};
+		{ios_test_frameworks_phase_id} /* Frameworks */ = {{
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
+		{tv_test_frameworks_phase_id} /* Frameworks */ = {{
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -250,6 +314,8 @@ pbxproj_content = f"""// !$*UTF8*$!
 			children = (
 				{gid("group_HDHROpenTV")} /* HDHROpenTV */,
 				{gid("group_HDHROpeniOS")} /* HDHROpeniOS */,
+				{gid("group_HDHROpeniOSTests")} /* HDHROpeniOSTests */,
+				{gid("group_HDHROpenTVTests")} /* HDHROpenTVTests */,
 				{products_group_id} /* Products */,
 			);
 			sourceTree = "<group>";
@@ -259,12 +325,16 @@ pbxproj_content = f"""// !$*UTF8*$!
 			children = (
 				{tv_product_id} /* HDHROpenTV.app */,
 				{ios_product_id} /* HDHROpeniOS.app */,
+				{ios_test_product_id} /* HDHROpeniOSTests.xctest */,
+				{tv_test_product_id} /* HDHROpenTVTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		}};
 {chr(10).join(tv_groups)}
 {chr(10).join(ios_groups)}
+{chr(10).join(ios_test_groups)}
+{chr(10).join(tv_test_groups)}
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -306,6 +376,48 @@ pbxproj_content = f"""// !$*UTF8*$!
 			productReference = {ios_product_id} /* HDHROpeniOS.app */;
 			productType = "com.apple.product-type.application";
 		}};
+		{ios_test_target_id} /* HDHROpeniOSTests */ = {{
+			isa = PBXNativeTarget;
+			buildConfigurationList = {ios_test_config_list_id} /* Build configuration list for PBXNativeTarget "HDHROpeniOSTests" */;
+			buildPhases = (
+				{ios_test_sources_phase_id} /* Sources */,
+				{ios_test_frameworks_phase_id} /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				{ios_test_dep_id} /* PBXTargetDependency */,
+			);
+			name = HDHROpeniOSTests;
+			packageProductDependencies = (
+				{ios_test_pkg_dep_id} /* HDHROpenKit */,
+				{ios_viewinspector_dep_id} /* ViewInspector */,
+			);
+			productName = HDHROpeniOSTests;
+			productReference = {ios_test_product_id} /* HDHROpeniOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		}};
+		{tv_test_target_id} /* HDHROpenTVTests */ = {{
+			isa = PBXNativeTarget;
+			buildConfigurationList = {tv_test_config_list_id} /* Build configuration list for PBXNativeTarget "HDHROpenTVTests" */;
+			buildPhases = (
+				{tv_test_sources_phase_id} /* Sources */,
+				{tv_test_frameworks_phase_id} /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				{tv_test_dep_id} /* PBXTargetDependency */,
+			);
+			name = HDHROpenTVTests;
+			packageProductDependencies = (
+				{tv_test_pkg_dep_id} /* HDHROpenKit */,
+				{tv_viewinspector_dep_id} /* ViewInspector */,
+			);
+			productName = HDHROpenTVTests;
+			productReference = {tv_test_product_id} /* HDHROpenTVTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		}};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -322,6 +434,14 @@ pbxproj_content = f"""// !$*UTF8*$!
 					{ios_target_id} = {{
 						CreatedOnToolsVersion = 15.0;
 					}};
+					{ios_test_target_id} = {{
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = {ios_target_id};
+					}};
+					{tv_test_target_id} = {{
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = {tv_target_id};
+					}};
 				}};
 			}};
 			buildConfigurationList = {proj_config_list_id} /* Build configuration list for PBXProject "HDHROpen" */;
@@ -335,13 +455,16 @@ pbxproj_content = f"""// !$*UTF8*$!
 			mainGroup = {main_group_id};
 			packageReferences = (
 				{pkg_ref_id} /* XCLocalSwiftPackageReference "HDHROpenKit" */,
+				{viewinspector_pkg_ref_id} /* XCRemoteSwiftPackageReference "ViewInspector" */,
 			);
 			productRefGroup = {products_group_id} /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				{tv_target_id} /* HDHROpenTV */,
+				{tv_test_target_id} /* HDHROpenTVTests */,
 				{ios_target_id} /* HDHROpeniOS */,
+				{ios_test_target_id} /* HDHROpeniOSTests */,
 			);
 		}};
 /* End PBXProject section */
@@ -363,7 +486,36 @@ pbxproj_content = f"""// !$*UTF8*$!
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		}};
+		{ios_test_sources_phase_id} /* Sources */ = {{
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				{ios_test_sources_entries},
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
+		{tv_test_sources_phase_id} /* Sources */ = {{
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				{tv_test_sources_entries},
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		}};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		{ios_test_dep_id} /* PBXTargetDependency */ = {{
+			isa = PBXTargetDependency;
+			target = {ios_target_id} /* HDHROpeniOS */;
+			targetProxy = {ios_test_proxy_id} /* PBXContainerItemProxy */;
+		}};
+		{tv_test_dep_id} /* PBXTargetDependency */ = {{
+			isa = PBXTargetDependency;
+			target = {tv_target_id} /* HDHROpenTV */;
+			targetProxy = {tv_test_proxy_id} /* PBXContainerItemProxy */;
+		}};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		{proj_debug_config_id} /* Debug */ = {{
@@ -523,10 +675,105 @@ pbxproj_content = f"""// !$*UTF8*$!
 			}};
 			name = Release;
 		}};
+		{ios_test_debug_config_id} /* Debug */ = {{
+			isa = XCBuildConfiguration;
+			buildSettings = {{
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.hdhropen.client.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HDHROpeniOS.app/HDHROpeniOS";
+			}};
+			name = Debug;
+		}};
+		{ios_test_release_config_id} /* Release */ = {{
+			isa = XCBuildConfiguration;
+			buildSettings = {{
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.hdhropen.client.ios.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HDHROpeniOS.app/HDHROpeniOS";
+			}};
+			name = Release;
+		}};
+		{tv_test_debug_config_id} /* Debug */ = {{
+			isa = XCBuildConfiguration;
+			buildSettings = {{
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.hdhropen.client.tv.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HDHROpenTV.app/HDHROpenTV";
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			}};
+			name = Debug;
+		}};
+		{tv_test_release_config_id} /* Release */ = {{
+			isa = XCBuildConfiguration;
+			buildSettings = {{
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.hdhropen.client.tv.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = appletvos;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/HDHROpenTV.app/HDHROpenTV";
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			}};
+			name = Release;
+		}};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		{proj_config_list_id} /* Build configuration list for PBXProject "HDHROpen" */;
 		{proj_config_list_id} /* Build configuration list for PBXProject "HDHROpen" */ = {{
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -554,6 +801,24 @@ pbxproj_content = f"""// !$*UTF8*$!
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		}};
+		{ios_test_config_list_id} /* Build configuration list for PBXNativeTarget "HDHROpeniOSTests" */ = {{
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				{ios_test_debug_config_id} /* Debug */,
+				{ios_test_release_config_id} /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		}};
+		{tv_test_config_list_id} /* Build configuration list for PBXNativeTarget "HDHROpenTVTests" */ = {{
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				{tv_test_debug_config_id} /* Debug */,
+				{tv_test_release_config_id} /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		}};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -562,6 +827,17 @@ pbxproj_content = f"""// !$*UTF8*$!
 			relativePath = HDHROpenKit;
 		}};
 /* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		{viewinspector_pkg_ref_id} /* XCRemoteSwiftPackageReference "ViewInspector" */ = {{
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/nalexn/ViewInspector";
+			requirement = {{
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
+			}};
+		}};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		{tv_pkg_dep_id} /* HDHROpenKit */ = {{
@@ -574,6 +850,26 @@ pbxproj_content = f"""// !$*UTF8*$!
 			package = {pkg_ref_id} /* HDHROpenKit */;
 			productName = HDHROpenKit;
 		}};
+		{ios_test_pkg_dep_id} /* HDHROpenKit */ = {{
+			isa = XCSwiftPackageProductDependency;
+			package = {pkg_ref_id} /* HDHROpenKit */;
+			productName = HDHROpenKit;
+		}};
+		{tv_test_pkg_dep_id} /* HDHROpenKit */ = {{
+			isa = XCSwiftPackageProductDependency;
+			package = {pkg_ref_id} /* HDHROpenKit */;
+			productName = HDHROpenKit;
+		}};
+		{ios_viewinspector_dep_id} /* ViewInspector */ = {{
+			isa = XCSwiftPackageProductDependency;
+			package = {viewinspector_pkg_ref_id} /* XCRemoteSwiftPackageReference "ViewInspector" */;
+			productName = ViewInspector;
+		}};
+		{tv_viewinspector_dep_id} /* ViewInspector */ = {{
+			isa = XCSwiftPackageProductDependency;
+			package = {viewinspector_pkg_ref_id} /* XCRemoteSwiftPackageReference "ViewInspector" */;
+			productName = ViewInspector;
+		}};
 /* End XCSwiftPackageProductDependency section */
 
 	}};
@@ -585,7 +881,7 @@ PROJECT_FILE.write_text(pbxproj_content)
 print(f"Generated {PROJECT_FILE}")
 
 # Generate Shared Schemes
-def create_scheme(target_id, target_name, is_tvos=False):
+def create_scheme(target_id, target_name, test_target_id, test_target_name, is_tvos=False):
     scheme_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "1500"
@@ -616,6 +912,16 @@ def create_scheme(target_id, target_name, is_tvos=False):
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "{test_target_id}"
+               BuildableName = "{test_target_name}.xctest"
+               BlueprintName = "{test_target_name}"
+               ReferencedContainer = "container:HDHROpen.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
@@ -669,5 +975,5 @@ def create_scheme(target_id, target_name, is_tvos=False):
     scheme_file.write_text(scheme_content)
     print(f"Generated {scheme_file}")
 
-create_scheme(tv_target_id, "HDHROpenTV", is_tvos=True)
-create_scheme(ios_target_id, "HDHROpeniOS", is_tvos=False)
+create_scheme(tv_target_id, "HDHROpenTV", tv_test_target_id, "HDHROpenTVTests", is_tvos=True)
+create_scheme(ios_target_id, "HDHROpeniOS", ios_test_target_id, "HDHROpeniOSTests", is_tvos=False)

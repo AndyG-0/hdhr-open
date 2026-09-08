@@ -175,7 +175,10 @@ public enum AIActionResolution: String, Sendable {
 }
 
 public struct AIToolStatusEntry: Identifiable, Sendable {
-    public var id: String { "\(tool)_\(status)" }
+    public var id: String {
+        "\(tool)_\(status)"
+    }
+
     public let tool: String
     public var status: String // "running", "done", "error"
     public var message: String?
@@ -188,7 +191,10 @@ public struct AIToolStatusEntry: Identifiable, Sendable {
 }
 
 public struct AIActionPreviewEntry: Identifiable, Sendable {
-    public var id: String { actionId }
+    public var id: String {
+        actionId
+    }
+
     public let actionId: String
     public let tool: String
     public let preview: [String: AnyCodable]

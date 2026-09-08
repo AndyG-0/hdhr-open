@@ -3,9 +3,9 @@ import Foundation
 @MainActor
 public final class AuthViewModel: ObservableObject {
     @Published public var selectedProfile: UserProfile?
-    @Published public var pinInput: String = ""
+    @Published public var pinInput = ""
     @Published public var errorMessage: String?
-    @Published public var isPINPromptVisible: Bool = false
+    @Published public var isPINPromptVisible = false
 
     private let authManager: AuthManager
 
@@ -26,12 +26,12 @@ public final class AuthViewModel: ObservableObject {
     }
 
     public func selectProfile(_ profile: UserProfile) {
-        self.selectedProfile = profile
-        self.pinInput = ""
-        self.errorMessage = nil
+        selectedProfile = profile
+        pinInput = ""
+        errorMessage = nil
 
         if profile.hasPin {
-            self.isPINPromptVisible = true
+            isPINPromptVisible = true
         } else {
             Task {
                 await loginWithoutPIN(profile: profile)

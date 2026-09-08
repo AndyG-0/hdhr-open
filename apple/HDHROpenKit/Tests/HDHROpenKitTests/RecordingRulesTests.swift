@@ -13,8 +13,8 @@ final class RecordingRulesTests: XCTestCase {
         let airing = HDHomeRunGuideEntry(
             seriesId: "series_100",
             title: "Nature Documentary",
-            start: 1700000000,
-            end: 1700003600,
+            start: 1_700_000_000,
+            end: 1_700_003_600,
             channelNumber: "5.1"
         )
 
@@ -29,14 +29,14 @@ final class RecordingRulesTests: XCTestCase {
             seriesId: "auto",
             title: "Special Live Event",
             channelOnly: "7.1",
-            dateTimeOnly: 1700000000
+            dateTimeOnly: 1_700_000_000
         )
 
         let airing = HDHomeRunGuideEntry(
             seriesId: "series_200",
             title: "Special Live Event",
-            start: 1700000000,
-            end: 1700003600,
+            start: 1_700_000_000,
+            end: 1_700_003_600,
             channelNumber: "7.1"
         )
 
@@ -60,8 +60,8 @@ final class RecordingRulesTests: XCTestCase {
         let airing = HDHomeRunGuideEntry(
             seriesId: nil,
             title: "Evening News",
-            start: 1700000000,
-            end: 1700003600,
+            start: 1_700_000_000,
+            end: 1_700_003_600,
             channelNumber: "4.1"
         )
 

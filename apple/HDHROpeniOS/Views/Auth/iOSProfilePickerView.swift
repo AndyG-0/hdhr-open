@@ -1,13 +1,13 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSProfilePickerView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var authManager: AuthManager
 
     @State private var pinDialogProfile: UserProfile?
-    @State private var pinText: String = ""
-    @State private var showServerSetup: Bool = false
+    @State private var pinText = ""
+    @State private var showServerSetup = false
 
     public init() {}
 
@@ -23,7 +23,7 @@ public struct iOSProfilePickerView: View {
                 Text("Who's Watching?")
                     .font(.largeTitle.bold())
 
-                if authManager.isLoading && authViewModel.profiles.isEmpty {
+                if authManager.isLoading, authViewModel.profiles.isEmpty {
                     ProgressView()
                 } else {
                     LazyVGrid(columns: columns, spacing: 24) {
@@ -107,7 +107,11 @@ public struct iOSProfilePickerView: View {
             }
             .alert("Enter PIN", isPresented: Binding(
                 get: { pinDialogProfile != nil },
-                set: { if !$0 { pinDialogProfile = nil } }
+                set: {
+                    if !$0 {
+                        pinDialogProfile = nil
+                    }
+                }
             )) {
                 SecureField("PIN", text: $pinText)
                 Button("Login") {

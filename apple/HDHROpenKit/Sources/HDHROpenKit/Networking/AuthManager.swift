@@ -5,7 +5,7 @@ import Security
 public final class AuthManager: ObservableObject {
     @Published public private(set) var currentUser: CurrentUser?
     @Published public private(set) var profiles: [UserProfile] = []
-    @Published public private(set) var isLoading: Bool = false
+    @Published public private(set) var isLoading = false
     @Published public private(set) var authError: String?
 
     private let apiClient: APIClient
@@ -34,7 +34,7 @@ public final class AuthManager: ObservableObject {
         await apiClient.setBearerToken(token)
         do {
             let user = try await apiClient.getCurrentUser()
-            self.currentUser = user
+            currentUser = user
             Log.auth.info("Restored session for user: \(user.name) (\(user.id))")
         } catch {
             Log.auth.warning("Session restore failed, clearing token: \(error.localizedDescription)")
@@ -65,7 +65,7 @@ public final class AuthManager: ObservableObject {
         authError = nil
         do {
             let list = try await apiClient.listProfiles()
-            self.profiles = list
+            profiles = list
         } catch {
             authError = error.localizedDescription
             Log.auth.error("Failed to load profiles: \(error.localizedDescription)")
@@ -90,9 +90,9 @@ public final class AuthManager: ObservableObject {
                 saveKeychainString(key: tokenKey, value: token)
                 await apiClient.setBearerToken(token)
             }
-            self.currentUser = loggedInUser
+            currentUser = loggedInUser
             Log.auth.info("Successfully logged in as \(loggedInUser.name)")
-        } catch APIError.unauthorized(let detail) where detail.lowercased().contains("device") {
+        } catch let APIError.unauthorized(detail) where detail.lowercased().contains("device") {
             Log.auth.warning("Login failed due to unregistered device, auto-registering and retrying...")
             let registered = await registerDeviceIfNeeded()
             if registered {
@@ -101,7 +101,7 @@ public final class AuthManager: ObservableObject {
                     saveKeychainString(key: tokenKey, value: token)
                     await apiClient.setBearerToken(token)
                 }
-                self.currentUser = loggedInUser
+                currentUser = loggedInUser
                 Log.auth.info("Successfully logged in as \(loggedInUser.name) after auto-registration")
                 return
             }
@@ -121,7 +121,7 @@ public final class AuthManager: ObservableObject {
         }
         clearKeychain(key: tokenKey)
         await apiClient.setBearerToken(nil)
-        self.currentUser = nil
+        currentUser = nil
     }
 
     // MARK: - Keychain Helpers

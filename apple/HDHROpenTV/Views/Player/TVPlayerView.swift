@@ -1,24 +1,24 @@
-import SwiftUI
 import AVKit
 import HDHROpenKit
+import SwiftUI
 
 public struct TVPlayerView: View {
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
 
-    @State private var showControls: Bool = true
+    @State private var showControls = true
     @State private var controlsTimer: Task<Void, Never>?
-    @State private var showRecordingOptionsSheet: Bool = false
+    @State private var showRecordingOptionsSheet = false
     @State private var loadingQuip: String = LoadingQuips.random()
-    // SwiftUI doesn't automatically retarget focus onto the ZStack just
-    // because `.focusable(!showControls)` makes it newly eligible the
-    // instant `TVPlaybackControlsView` (and its own focused button) leaves
-    // the tree - focus was landing on nothing, so arrow presses had no
-    // responder to deliver to and `.onMoveCommand`/`.onExitCommand` never
-    // fired. Explicitly pushing focus here every time controls hide is what
-    // actually claims it, mirroring the same pattern `TVPlaybackControlsView`
-    // already uses to claim focus for a button when controls appear.
+    /// SwiftUI doesn't automatically retarget focus onto the ZStack just
+    /// because `.focusable(!showControls)` makes it newly eligible the
+    /// instant `TVPlaybackControlsView` (and its own focused button) leaves
+    /// the tree - focus was landing on nothing, so arrow presses had no
+    /// responder to deliver to and `.onMoveCommand`/`.onExitCommand` never
+    /// fired. Explicitly pushing focus here every time controls hide is what
+    /// actually claims it, mirroring the same pattern `TVPlaybackControlsView`
+    /// already uses to claim focus for a button when controls appear.
     @FocusState private var isFallbackFocused: Bool
 
     public init() {}
@@ -50,7 +50,7 @@ public struct TVPlayerView: View {
             }
 
             // Status / Error Banner
-            if case .failed(let message) = playerViewModel.playerEngine.state {
+            if case let .failed(message) = playerViewModel.playerEngine.state {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 64))
@@ -155,7 +155,8 @@ public struct TVPlayerView: View {
                     .ignoresSafeArea()
                 )
                 .transition(.opacity)
-                .disabled(playerViewModel.showChannelSwitcher || playerViewModel.showAudioMenu || playerViewModel.showRecordMenu || playerViewModel.showSyncPlaySheet)
+                .disabled(playerViewModel.showChannelSwitcher || playerViewModel.showAudioMenu || playerViewModel.showRecordMenu || playerViewModel
+                    .showSyncPlaySheet)
             }
 
             // Channel Switcher Bottom Drawer

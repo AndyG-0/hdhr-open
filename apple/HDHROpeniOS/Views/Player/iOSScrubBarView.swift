@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSScrubBarView: View {
     let currentTime: Double
@@ -10,7 +10,7 @@ public struct iOSScrubBarView: View {
     let spriteURL: URL?
     let onSeek: (Double) -> Void
 
-    @State private var isDragging: Bool = false
+    @State private var isDragging = false
     @State private var dragProgress: Double = 0
 
     public init(
@@ -32,13 +32,17 @@ public struct iOSScrubBarView: View {
     }
 
     private var currentProgress: Double {
-        if isDragging { return dragProgress }
+        if isDragging {
+            return dragProgress
+        }
         guard duration > 0 else { return 0 }
         return min(1.0, max(0.0, currentTime / duration))
     }
 
     private var activeTime: Double {
-        if isDragging { return dragProgress * duration }
+        if isDragging {
+            return dragProgress * duration
+        }
         return currentTime
     }
 

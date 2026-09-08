@@ -1,5 +1,5 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSProgramDetailSheet: View {
     let channel: HDHomeRunChannel
@@ -27,7 +27,7 @@ public struct iOSProgramDetailSheet: View {
                         AsyncImage(url: url) { image in
                             image
                                 .resizable()
-                                .aspectRatio(16/9, contentMode: .fill)
+                                .aspectRatio(16 / 9, contentMode: .fill)
                         } placeholder: {
                             Color.gray.opacity(0.2)
                         }

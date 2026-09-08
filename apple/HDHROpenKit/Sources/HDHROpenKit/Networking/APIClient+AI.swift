@@ -36,7 +36,9 @@ extension APIClient {
         for try await line in asyncBytes.lines {
             if line.hasPrefix("data: ") {
                 let jsonString = String(line.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if jsonString.isEmpty { continue }
+                if jsonString.isEmpty {
+                    continue
+                }
                 if let data = jsonString.data(using: .utf8) {
                     do {
                         let event = try jsonDecoder.decode(AIStreamEvent.self, from: data)

@@ -55,4 +55,12 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - run: swift test --package-path apple/HDHROpenKit
+      - run: brew install swiftlint swiftformat
+      - run: ./apple/check.sh
+      - name: Upload Test and Coverage Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-reports
+          path: |
+            apple/.build/results/

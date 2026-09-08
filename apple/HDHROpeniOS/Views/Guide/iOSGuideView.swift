@@ -1,23 +1,25 @@
-import SwiftUI
 import HDHROpenKit
+import SwiftUI
 
 public struct iOSGuideView: View {
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
 
-    @State private var searchText: String = ""
+    @State private var searchText = ""
     @State private var selectedAiringForSheet: (channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry)?
-    @State private var showAIAssistantSheet: Bool = false
+    @State private var showAIAssistantSheet = false
 
     public init() {}
 
     private var filteredChannels: [HDHomeRunChannel] {
         let base = guideViewModel.displayedChannels
-        if searchText.isEmpty { return base }
+        if searchText.isEmpty {
+            return base
+        }
         return base.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.channelNumber.contains(searchText) ||
-            ($0.now?.title.localizedCaseInsensitiveContains(searchText) == true)
+                $0.channelNumber.contains(searchText) ||
+                ($0.now?.title.localizedCaseInsensitiveContains(searchText) == true)
         }
     }
 
@@ -78,7 +80,10 @@ public struct iOSGuideView: View {
 }
 
 private struct AiringWrapper: Identifiable {
-    var id: String { "\(channel.channelNumber)_\(airing.id)" }
+    var id: String {
+        "\(channel.channelNumber)_\(airing.id)"
+    }
+
     let channel: HDHomeRunChannel
     let airing: HDHomeRunGuideEntry
 }

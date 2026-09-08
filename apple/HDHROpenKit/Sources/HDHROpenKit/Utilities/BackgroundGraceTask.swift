@@ -1,6 +1,6 @@
 import Foundation
 #if os(iOS) || os(tvOS)
-import UIKit
+    import UIKit
 #endif
 
 /// Fires `operation` in a detached, best-effort task, requesting a brief
@@ -10,20 +10,20 @@ import UIKit
 @MainActor
 func runWithBackgroundGrace(name: String, operation: @escaping @Sendable () async -> Void) {
     #if os(iOS) || os(tvOS)
-    var taskId: UIBackgroundTaskIdentifier = .invalid
-    taskId = UIApplication.shared.beginBackgroundTask(withName: name) {
-        UIApplication.shared.endBackgroundTask(taskId)
-        taskId = .invalid
-    }
-    Task {
-        await operation()
-        if taskId != .invalid {
+        var taskId: UIBackgroundTaskIdentifier = .invalid
+        taskId = UIApplication.shared.beginBackgroundTask(withName: name) {
             UIApplication.shared.endBackgroundTask(taskId)
+            taskId = .invalid
         }
-    }
+        Task {
+            await operation()
+            if taskId != .invalid {
+                UIApplication.shared.endBackgroundTask(taskId)
+            }
+        }
     #else
-    Task {
-        await operation()
-    }
+        Task {
+            await operation()
+        }
     #endif
 }
