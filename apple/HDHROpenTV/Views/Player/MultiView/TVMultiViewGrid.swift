@@ -2,6 +2,11 @@ import HDHROpenKit
 import SwiftUI
 
 public struct TVMultiViewGrid: View {
+    /// Sentinel `slotFocus`/`focusedSlotIndex` value for the persistent Options button, so it
+    /// shares the same focus-index plumbing as the numbered quadrants instead of needing a
+    /// separate FocusState type.
+    static let optionsFocusIndex = -1
+
     let slots: [MultiViewSlot]
     let layout: MultiViewLayout
     let activeSlotIndex: Int
@@ -9,7 +14,7 @@ public struct TVMultiViewGrid: View {
 
     let onSlotSelect: (Int) -> Void
     let onAddSlot: () -> Void
-    let onExpandToFullScreen: (Int) -> Void
+    let onOpenOptions: () -> Void
     let onSwapWithHero: (Int) -> Void
     let onCloseSlot: (Int) -> Void
 
@@ -22,7 +27,7 @@ public struct TVMultiViewGrid: View {
         focusedSlotIndex: Binding<Int?>,
         onSlotSelect: @escaping (Int) -> Void,
         onAddSlot: @escaping () -> Void,
-        onExpandToFullScreen: @escaping (Int) -> Void,
+        onOpenOptions: @escaping () -> Void,
         onSwapWithHero: @escaping (Int) -> Void,
         onCloseSlot: @escaping (Int) -> Void
     ) {
@@ -32,21 +37,38 @@ public struct TVMultiViewGrid: View {
         _focusedSlotIndex = focusedSlotIndex
         self.onSlotSelect = onSlotSelect
         self.onAddSlot = onAddSlot
-        self.onExpandToFullScreen = onExpandToFullScreen
+        self.onOpenOptions = onOpenOptions
         self.onSwapWithHero = onSwapWithHero
         self.onCloseSlot = onCloseSlot
     }
 
     public var body: some View {
-        Group {
-            switch layout {
-            case .sideBySide:
-                sideBySideLayout
-            case .threeBox:
-                threeBoxLayout
-            case .quad:
-                quadLayout
+        // The options button used to be a ZStack overlay pinned to the grid's top-trailing
+        // corner. On-device that made it unreachable with the Siri Remote: its frame sat
+        // entirely inside the quadrant Buttons' geometry underneath it, so the tvOS focus
+        // engine's directional search never picked it as a candidate - every arrow press just
+        // moved between the video tiles. A real sibling row above the grid, with each row in
+        // its own `.focusSection()`, gives the focus engine unambiguous geometry: "up" from the
+        // top tiles enters the button's section, "down" from the button returns to whichever
+        // tile was last focused (the section's default focus-restore behavior).
+        VStack(spacing: 20) {
+            HStack {
+                Spacer()
+                optionsButton
             }
+            .focusSection()
+
+            Group {
+                switch layout {
+                case .sideBySide:
+                    sideBySideLayout
+                case .threeBox:
+                    threeBoxLayout
+                case .quad:
+                    quadLayout
+                }
+            }
+            .focusSection()
         }
         .padding(32)
         .animation(.easeInOut(duration: 0.3), value: layout)
@@ -64,6 +86,21 @@ public struct TVMultiViewGrid: View {
                 slotFocus = activeSlotIndex
             }
         }
+    }
+
+    // MARK: - Options Button
+
+    private var optionsButton: some View {
+        Button(action: onOpenOptions) {
+            Image(systemName: "ellipsis.circle.fill")
+                .font(.system(size: 32))
+                .foregroundColor(.white)
+                .padding(14)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .focused($slotFocus, equals: Self.optionsFocusIndex)
     }
 
     // MARK: - Layouts
@@ -159,12 +196,6 @@ public struct TVMultiViewGrid: View {
             .buttonStyle(.plain)
             .focused($slotFocus, equals: index)
             .contextMenu {
-                Button {
-                    onExpandToFullScreen(index)
-                } label: {
-                    Label("Expand to Full Screen", systemImage: "arrow.up.left.and.arrow.down.right")
-                }
-
                 if index != 0 {
                     Button {
                         onSwapWithHero(index)

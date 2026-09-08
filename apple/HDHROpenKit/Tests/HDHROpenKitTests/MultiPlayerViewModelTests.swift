@@ -334,4 +334,89 @@ final class MultiPlayerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.activeSlotIndex, 0)
         XCTAssertFalse(vm.isMultiViewActive)
     }
+
+    // MARK: - Instant Slot Reservation (tvOS multi-view Fix 1)
+
+    /// `beginAddFeed` must append a `.loading` slot synchronously, with no network mock
+    /// registered - if this were still doing negotiation inline (the old `addFeed` behavior),
+    /// there'd be nothing to await and no slot would exist yet.
+    func testBeginAddFeedReservesLoadingSlotSynchronously() throws {
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+
+        let channel = HDHomeRunChannel(channelNumber: "4.1", name: "NBC")
+        let slotId = try vm.beginAddFeed(channel: channel)
+
+        XCTAssertEqual(vm.slots.count, 1)
+        XCTAssertEqual(vm.slots[0].id, slotId)
+        XCTAssertEqual(vm.slots[0].playerEngine.state, .loading)
+        XCTAssertTrue(vm.isMultiViewActive)
+        XCTAssertEqual(vm.activeSlotIndex, 0)
+    }
+
+    func testFinishAddFeedPopulatesReservedSlotInPlace() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+
+        let channel = HDHomeRunChannel(channelNumber: "4.1", name: "NBC")
+        let slotId = try vm.beginAddFeed(channel: channel)
+        XCTAssertNil(vm.slots[0].hlsSessionId)
+
+        try await vm.finishAddFeed(slotId: slotId)
+
+        XCTAssertEqual(vm.slots.count, 1)
+        XCTAssertEqual(vm.slots[0].id, slotId)
+        XCTAssertEqual(vm.slots[0].hlsSessionId, "hls_sess1")
+    }
+
+    func testFinishAddFeedIsNoOpIfSlotWasRemovedWhileInFlight() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+
+        let channel = HDHomeRunChannel(channelNumber: "4.1", name: "NBC")
+        let slotId = try vm.beginAddFeed(channel: channel)
+        vm.removeFeed(at: 0)
+        XCTAssertTrue(vm.slots.isEmpty)
+
+        try await vm.finishAddFeed(slotId: slotId)
+
+        XCTAssertTrue(vm.slots.isEmpty)
+    }
+
+    // MARK: - Expand/Collapse Background Pause-Resume (tvOS multi-view Fix 2)
+
+    /// `PlayerEngine.pause()`/`play()` only flip `state` from `.playing`/`.buffering` or
+    /// `.paused` respectively - real `.playing` requires AVPlayer to actually resolve an asset,
+    /// which these offline unit tests can't produce (there's no test double for AVPlayer/
+    /// AVURLAsset), so slots here stay `.loading` the whole time. That still exercises the real
+    /// guard logic in `pauseBackgroundSlots`/`resumeBackgroundSlots`: it locks in that neither
+    /// method force-overwrites `state` outside of those documented transitions. The actual
+    /// pause-while-playing / resync-near-live-edge behavior needs on-device verification (see
+    /// the plan's Verification section).
+    func testPauseAndResumeBackgroundSlotsLeaveNonPlayingSlotsUntouched() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        setupMockFeed(channelNumber: "5.1", sessId: "sess2")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
+
+        vm.pauseBackgroundSlots(except: 0)
+        XCTAssertEqual(vm.slots[0].playerEngine.state, .loading)
+        XCTAssertEqual(vm.slots[1].playerEngine.state, .loading)
+
+        vm.resumeBackgroundSlots()
+        XCTAssertEqual(vm.slots[0].playerEngine.state, .loading)
+        XCTAssertEqual(vm.slots[1].playerEngine.state, .loading)
+    }
 }

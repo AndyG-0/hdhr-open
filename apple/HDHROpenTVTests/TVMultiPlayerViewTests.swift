@@ -75,7 +75,7 @@ final class TVMultiPlayerViewTests: XCTestCase {
             focusedSlotIndex: Binding(get: { focusedIndex }, set: { focusedIndex = $0 }),
             onSlotSelect: { _ in },
             onAddSlot: {},
-            onExpandToFullScreen: { _ in },
+            onOpenOptions: {},
             onSwapWithHero: { _ in },
             onCloseSlot: { _ in }
         )

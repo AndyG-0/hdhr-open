@@ -3,14 +3,20 @@ import SwiftUI
 
 public struct TVMultiPlayerView: View {
     @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
-    @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
 
     @State private var focusedSlotIndex: Int? = 0
-    @State private var showControls = false
+    @State private var expandedSlotIndex: Int?
+    @State private var showEditBar = false
     @State private var showChannelPicker = false
     @State private var targetSlotIndexForChannelChange: Int?
-    @State private var controlsTimer: Task<Void, Never>?
+    @State private var editBarTimer: Task<Void, Never>?
+
+    @FocusState private var editFocus: EditBarFocus?
+
+    private enum EditBarFocus {
+        case done, layout2up, layout3up, layoutQuad, addFeed, closeAll
+    }
 
     public init() {}
 
@@ -25,16 +31,15 @@ public struct TVMultiPlayerView: View {
                 activeSlotIndex: multiPlayerViewModel.activeSlotIndex,
                 focusedSlotIndex: $focusedSlotIndex,
                 onSlotSelect: { index in
-                    targetSlotIndexForChannelChange = index
-                    showControls.toggle()
-                    scheduleControlsAutoHide()
+                    expandSlot(at: index)
                 },
                 onAddSlot: {
                     targetSlotIndexForChannelChange = nil
                     showChannelPicker = true
                 },
-                onExpandToFullScreen: { index in
-                    expandToFullScreen(at: index)
+                onOpenOptions: {
+                    showEditBar = true
+                    scheduleEditBarAutoHide()
                 },
                 onSwapWithHero: { index in
                     multiPlayerViewModel.swapSlots(from: index, to: 0)
@@ -43,18 +48,37 @@ public struct TVMultiPlayerView: View {
                     multiPlayerViewModel.removeFeed(at: index)
                 }
             )
-
+            // Grid shouldn't take focus/input while something is layered over it - a fullscreen
+            // tile, the edit bar, or the channel picker. Merely drawing those on top isn't
+            // enough: the grid's Buttons stay in the tvOS focus tree underneath them, and since
+            // the edit bar sits close above the top row of tiles, moving focus sideways within
+            // the bar can jump down into a tile instead of the next bar button. Disabling the
+            // grid removes its buttons from focus consideration entirely while covered.
+            .disabled(expandedSlotIndex != nil || showEditBar || showChannelPicker)
             // Dynamic Audio Routing on Focus Change
             .onChange(of: focusedSlotIndex) { _, newIndex in
-                if let index = newIndex, index < multiPlayerViewModel.slots.count {
+                if let index = newIndex, multiPlayerViewModel.slots.indices.contains(index) {
                     multiPlayerViewModel.setAudioSlot(index: index)
                 }
             }
 
-            // Top Overlay Bar (Controls)
-            if showControls {
+            // Fullscreen Expanded Tile
+            if let expandedIndex = expandedSlotIndex, multiPlayerViewModel.slots.indices.contains(expandedIndex) {
+                let slot = multiPlayerViewModel.slots[expandedIndex]
+                ZStack {
+                    Color.black
+                    if let player = slot.playerEngine.avPlayer {
+                        PlayerLayerView(player: player)
+                    }
+                }
+                .ignoresSafeArea()
+                .transition(.opacity)
+            }
+
+            // Edit Bar (layout / add feed / close)
+            if showEditBar {
                 VStack {
-                    topControlsBar
+                    editBar
                     Spacer()
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -66,22 +90,25 @@ public struct TVMultiPlayerView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: showControls)
+        .animation(.easeInOut(duration: 0.25), value: expandedSlotIndex)
+        .animation(.easeInOut(duration: 0.25), value: showEditBar)
         .animation(.easeInOut(duration: 0.25), value: showChannelPicker)
         .onExitCommand {
-            if showChannelPicker {
+            if expandedSlotIndex != nil {
+                collapseExpandedSlot()
+            } else if showChannelPicker {
                 showChannelPicker = false
-            } else if showControls {
-                showControls = false
+            } else if showEditBar {
+                closeEditBar()
             } else {
                 multiPlayerViewModel.closeAll()
             }
         }
     }
 
-    // MARK: - Top Controls Bar
+    // MARK: - Edit Bar
 
-    private var topControlsBar: some View {
+    private var editBar: some View {
         HStack(spacing: 24) {
             // Feeds count & title
             VStack(alignment: .leading, spacing: 4) {
@@ -99,33 +126,36 @@ public struct TVMultiPlayerView: View {
             HStack(spacing: 12) {
                 Button(action: {
                     multiPlayerViewModel.layout = .sideBySide
-                    scheduleControlsAutoHide()
+                    scheduleEditBarAutoHide()
                 }) {
                     Label("2-Up", systemImage: "rectangle.split.2x1")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(multiPlayerViewModel.layout == .sideBySide ? .blue : .gray.opacity(0.3))
+                .focused($editFocus, equals: .layout2up)
 
                 if multiPlayerViewModel.slots.count >= 3 || multiPlayerViewModel.canAddFeed {
                     Button(action: {
                         multiPlayerViewModel.layout = .threeBox
-                        scheduleControlsAutoHide()
+                        scheduleEditBarAutoHide()
                     }) {
                         Label("3-Up", systemImage: "rectangle.split.3x1")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(multiPlayerViewModel.layout == .threeBox ? .blue : .gray.opacity(0.3))
+                    .focused($editFocus, equals: .layout3up)
                 }
 
                 if multiPlayerViewModel.slots.count >= 4 || multiPlayerViewModel.canAddFeed {
                     Button(action: {
                         multiPlayerViewModel.layout = .quad
-                        scheduleControlsAutoHide()
+                        scheduleEditBarAutoHide()
                     }) {
                         Label("Quad", systemImage: "rectangle.split.2x2")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(multiPlayerViewModel.layout == .quad ? .blue : .gray.opacity(0.3))
+                    .focused($editFocus, equals: .layoutQuad)
                 }
             }
 
@@ -138,7 +168,17 @@ public struct TVMultiPlayerView: View {
                     Label("Add Feed", systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
+                .focused($editFocus, equals: .addFeed)
             }
+
+            // Done Button
+            Button(action: {
+                closeEditBar()
+            }) {
+                Label("Done", systemImage: "checkmark")
+            }
+            .buttonStyle(.bordered)
+            .focused($editFocus, equals: .done)
 
             // Close All Button
             Button(role: .destructive, action: {
@@ -147,12 +187,20 @@ public struct TVMultiPlayerView: View {
                 Label("Close Multi-View", systemImage: "xmark")
             }
             .buttonStyle(.bordered)
+            .focused($editFocus, equals: .closeAll)
         }
         .padding(28)
         .background(Color.black.opacity(0.85))
         .cornerRadius(20)
         .padding(.horizontal, 48)
         .padding(.top, 24)
+        .focusSection()
+        // tvOS doesn't retarget focus onto a newly-appeared sibling on its own
+        // (see TVPlayerView's isFallbackFocused for the same caveat) - claim it
+        // explicitly so arrow keys have somewhere to start from immediately.
+        .onAppear {
+            editFocus = .done
+        }
     }
 
     // MARK: - Channel Picker Drawer
@@ -245,22 +293,41 @@ public struct TVMultiPlayerView: View {
         }
     }
 
-    private func expandToFullScreen(at index: Int) {
+    /// Expands a tile in place to fill the screen, keeping the whole multi-view session
+    /// (all slots' player engines and server sessions) alive underneath.
+    private func expandSlot(at index: Int) {
         guard multiPlayerViewModel.slots.indices.contains(index) else { return }
-        let channel = multiPlayerViewModel.slots[index].channel
-        let airing = multiPlayerViewModel.slots[index].airing
-        multiPlayerViewModel.closeAll()
-        Task {
-            await playerViewModel.playChannel(channel: channel, airing: airing)
+        expandedSlotIndex = index
+        multiPlayerViewModel.setAudioSlot(index: index)
+        multiPlayerViewModel.pauseBackgroundSlots(except: index)
+    }
+
+    /// Collapses the fullscreen tile back to the grid and resumes the paused background slots.
+    private func collapseExpandedSlot() {
+        expandedSlotIndex = nil
+        multiPlayerViewModel.resumeBackgroundSlots()
+    }
+
+    private func closeEditBar() {
+        editBarTimer?.cancel()
+        showEditBar = false
+        editFocus = nil
+        // Round-trip focusedSlotIndex through nil so the grid's onChange fires even when the
+        // target index is unchanged from before the bar opened - simply reassigning the same
+        // value doesn't reliably re-push tvOS focus onto the matching slot button.
+        let target = focusedSlotIndex
+        focusedSlotIndex = nil
+        Task { @MainActor in
+            focusedSlotIndex = target
         }
     }
 
-    private func scheduleControlsAutoHide() {
-        controlsTimer?.cancel()
-        controlsTimer = Task {
+    private func scheduleEditBarAutoHide() {
+        editBarTimer?.cancel()
+        editBarTimer = Task {
             try? await Task.sleep(nanoseconds: 6_000_000_000)
             if !Task.isCancelled {
-                showControls = false
+                closeEditBar()
             }
         }
     }

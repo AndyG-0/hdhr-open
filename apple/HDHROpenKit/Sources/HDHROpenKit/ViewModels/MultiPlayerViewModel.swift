@@ -36,21 +36,19 @@ public final class MultiPlayerViewModel: ObservableObject {
     /// Adds a channel feed to the multi-view grid.
     /// Checks available physical tuners, allocates stream sessions, configures audio focus, and adapts layout.
     public func addFeed(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry? = nil) async throws {
+        let slotId = try beginAddFeed(channel: channel, airing: airing)
+        try await finishAddFeed(slotId: slotId)
+    }
+
+    /// Synchronously reserves a slot for `channel`, showing a `.loading` tile immediately,
+    /// before any network negotiation happens. Pair with `finishAddFeed` to complete the feed.
+    ///
+    /// This split exists so `slots` becomes non-empty (and `TVMultiPlayerView` mounts) on the
+    /// same run loop turn as the call, instead of only after the stream negotiation resolves.
+    @discardableResult
+    public func beginAddFeed(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry? = nil) throws -> UUID {
         guard slots.count < Self.maxFeeds else {
             throw MultiViewError.maxSlotsReached
-        }
-
-        isAllocatingSlot = true
-        defer { isAllocatingSlot = false }
-
-        // 1. Check physical tuner status from backend
-        var tunerWarning: String?
-        if let tuners = try? await apiClient.getTunerStatus(), !tuners.isEmpty {
-            let availableTuners = tuners.filter { !$0.inUse }
-            if availableTuners.isEmpty {
-                tunerWarning = "Physical tuners exhausted. Playback may fail or conflict with active recordings."
-                Log.player.warning("Multi-view: physical tuners exhausted when allocating feed for channel \(channel.channelNumber)")
-            }
         }
 
         let slotId = UUID()
@@ -67,6 +65,53 @@ public final class MultiPlayerViewModel: ObservableObject {
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
+
+        let slot = MultiViewSlot(
+            id: slotId,
+            channel: channel,
+            airing: airing ?? channel.now,
+            playerEngine: playerEngine,
+            isMuted: isMuted
+        )
+
+        slots.append(slot)
+
+        if isFirstSlot {
+            activeSlotIndex = 0
+        }
+
+        // Auto-adapt layout if current layout cannot accommodate the slot count
+        if slots.count > layout.maxSlots {
+            layout = MultiViewLayout.recommended(for: slots.count)
+        }
+
+        updateAudioRouting()
+
+        return slotId
+    }
+
+    /// Negotiates the stream session for a slot reserved via `beginAddFeed` and updates it in place.
+    /// If the slot was removed (e.g. the user closed it) while this was in flight, this is a no-op.
+    public func finishAddFeed(slotId: UUID) async throws {
+        guard let index = slots.firstIndex(where: { $0.id == slotId }) else { return }
+
+        isAllocatingSlot = true
+        defer { isAllocatingSlot = false }
+
+        let channel = slots[index].channel
+        let airing = slots[index].airing
+        let playerEngine = slots[index].playerEngine
+        let isMuted = slots[index].isMuted
+
+        // 1. Check physical tuner status from backend
+        var tunerWarning: String?
+        if let tuners = try? await apiClient.getTunerStatus(), !tuners.isEmpty {
+            let availableTuners = tuners.filter { !$0.inUse }
+            if availableTuners.isEmpty {
+                tunerWarning = "Physical tuners exhausted. Playback may fail or conflict with active recordings."
+                Log.player.warning("Multi-view: physical tuners exhausted when allocating feed for channel \(channel.channelNumber)")
+            }
+        }
 
         let baseURL = await apiClient.baseURL
         let authHeaders = await hlsAuthHeaders()
@@ -116,10 +161,12 @@ public final class MultiPlayerViewModel: ObservableObject {
             }
         }
 
-        let slot = MultiViewSlot(
+        guard let finalIndex = slots.firstIndex(where: { $0.id == slotId }) else { return }
+
+        slots[finalIndex] = MultiViewSlot(
             id: slotId,
             channel: channel,
-            airing: airing ?? channel.now,
+            airing: airing,
             playerEngine: playerEngine,
             watchRecording: watchRec,
             hlsSessionId: hlsSessionId,
@@ -127,19 +174,6 @@ public final class MultiPlayerViewModel: ObservableObject {
             warningMessage: tunerWarning,
             playbackMode: playbackMode
         )
-
-        slots.append(slot)
-
-        if isFirstSlot {
-            activeSlotIndex = 0
-        }
-
-        // Auto-adapt layout if current layout cannot accommodate the slot count
-        if slots.count > layout.maxSlots {
-            layout = MultiViewLayout.recommended(for: slots.count)
-        }
-
-        updateAudioRouting()
     }
 
     /// Removes a feed at the given index, tearing down its player engine and server sessions.
@@ -268,6 +302,27 @@ public final class MultiPlayerViewModel: ObservableObject {
         }
 
         updateAudioRouting()
+    }
+
+    /// Pauses every slot except `index` (used when expanding a tile to fullscreen), so background
+    /// feeds stop decoding while the user is focused on one stream.
+    public func pauseBackgroundSlots(except index: Int) {
+        for (i, slot) in slots.enumerated() where i != index {
+            slot.playerEngine.pause()
+        }
+    }
+
+    /// Resumes every currently-paused slot (used when collapsing back to the grid). Seekable
+    /// (watch-session-backed) slots are snapped to the live edge first so they don't resume from
+    /// the stale position they were paused at; non-seekable direct-channel slots simply resume.
+    public func resumeBackgroundSlots() {
+        for slot in slots {
+            guard slot.playerEngine.state == .paused else { continue }
+            if slot.playerEngine.isSeekable {
+                slot.playerEngine.seek(to: slot.playerEngine.duration)
+            }
+            slot.playerEngine.play()
+        }
     }
 
     /// Closes and cleans up all active feeds and their streaming sessions.

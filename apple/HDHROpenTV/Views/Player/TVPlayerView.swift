@@ -145,9 +145,14 @@ public struct TVPlayerView: View {
                             onAddToMultiView: {
                                 if let ch = playerViewModel.activeChannel {
                                     let airing = playerViewModel.activeAiring
-                                    playerViewModel.closePlayer()
-                                    Task {
-                                        try? await multiPlayerViewModel.addFeed(channel: ch, airing: airing)
+                                    // Reserve the slot synchronously before closing the single-player
+                                    // screen, so RootTVView switches straight to multi-view instead of
+                                    // flashing back to the Guide while the stream negotiates.
+                                    if let slotId = try? multiPlayerViewModel.beginAddFeed(channel: ch, airing: airing) {
+                                        playerViewModel.closePlayer()
+                                        Task {
+                                            try? await multiPlayerViewModel.finishAddFeed(slotId: slotId)
+                                        }
                                     }
                                 }
                             }
