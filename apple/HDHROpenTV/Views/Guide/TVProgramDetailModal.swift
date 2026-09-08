@@ -51,7 +51,7 @@ public struct TVProgramDetailModal: View {
         ZStack {
             Color.black.opacity(0.85).ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 // Header
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -81,7 +81,7 @@ public struct TVProgramDetailModal: View {
                         }
 
                         Text(airing.title)
-                            .font(.system(size: 38, weight: .bold))
+                            .font(.system(size: 34, weight: .bold))
                             .foregroundColor(Theme.textPrimary)
 
                         if let epDesig = airing.formattedEpisodeDesignation {
@@ -178,70 +178,78 @@ public struct TVProgramDetailModal: View {
 
                 Spacer()
 
-                // Actions Bar
-                HStack(spacing: 20) {
-                    if airing.isCurrentlyAiring() {
-                        Button(action: onWatch) {
-                            Label("Watch Live", systemImage: "play.fill")
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 12)
-                        }
-                        .prefersDefaultFocus(true, in: focusNamespace)
+                // Actions Bar (2 Rows)
+                VStack(spacing: 16) {
+                    // Row 1: Primary actions (playback and rule creation/cancellation)
+                    HStack(spacing: 20) {
+                        if airing.isCurrentlyAiring() {
+                            Button(action: onWatch) {
+                                Label("Watch Live", systemImage: "play.fill")
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
+                            }
+                            .prefersDefaultFocus(true, in: focusNamespace)
 
-                        if let onAddToMultiView {
-                            Button(action: onAddToMultiView) {
-                                Label("Add to Multi-View", systemImage: "square.grid.2x2")
+                            if let onAddToMultiView {
+                                Button(action: onAddToMultiView) {
+                                    Label("Add to Multi-View", systemImage: "square.grid.2x2")
+                                        .padding(.horizontal, 20)
+                                        .padding(.vertical, 12)
+                                }
+                            }
+                        }
+
+                        if let rule = existingRule {
+                            Button(role: .destructive, action: { onCancelRule(rule.recordingRuleId) }) {
+                                Label("Cancel Recording", systemImage: "record.circle")
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
+                            }
+                            .prefersDefaultFocus(!airing.isCurrentlyAiring(), in: focusNamespace)
+                        } else {
+                            Button(action: onRecordEpisode) {
+                                Label("Record Episode", systemImage: "record.circle")
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 12)
+                            }
+                            .prefersDefaultFocus(!airing.isCurrentlyAiring(), in: focusNamespace)
+
+                            Button(action: onRecordSeries) {
+                                Label("Record Series", systemImage: "recordingtape")
                                     .padding(.horizontal, 20)
                                     .padding(.vertical, 12)
                             }
                         }
+
+                        Spacer()
                     }
 
-                    if let rule = existingRule {
-                        Button(role: .destructive, action: { onCancelRule(rule.recordingRuleId) }) {
-                            Label("Cancel Recording", systemImage: "record.circle")
+                    // Row 2: Secondary options & dismiss
+                    HStack(spacing: 20) {
+                        Button(action: { showOptionsModal = true }) {
+                            Label("Options…", systemImage: "slider.horizontal.3")
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 12)
                         }
-                        .prefersDefaultFocus(!airing.isCurrentlyAiring(), in: focusNamespace)
-                    } else {
-                        Button(action: onRecordEpisode) {
-                            Label("Record Episode", systemImage: "record.circle")
+
+                        Button(action: onToggleFavorite) {
+                            Label(isFavorite ? "Unfavorite Channel" : "Favorite Channel", systemImage: isFavorite ? "star.slash" : "star")
                                 .padding(.horizontal, 20)
                                 .padding(.vertical, 12)
                         }
-                        .prefersDefaultFocus(!airing.isCurrentlyAiring(), in: focusNamespace)
 
-                        Button(action: onRecordSeries) {
-                            Label("Record Series", systemImage: "recordingtape")
-                                .padding(.horizontal, 20)
+                        Spacer()
+
+                        Button(action: onDismiss) {
+                            Text("Close")
+                                .padding(.horizontal, 24)
                                 .padding(.vertical, 12)
                         }
-                    }
-
-                    Button(action: { showOptionsModal = true }) {
-                        Label("Options…", systemImage: "slider.horizontal.3")
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                    }
-
-                    Button(action: onToggleFavorite) {
-                        Label(isFavorite ? "Unfavorite Channel" : "Favorite Channel", systemImage: isFavorite ? "star.slash" : "star")
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                    }
-
-                    Spacer()
-
-                    Button(action: onDismiss) {
-                        Text("Close")
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 12)
                     }
                 }
             }
-            .padding(48)
-            .frame(maxWidth: 1200, maxHeight: 600)
+            .padding(40)
+            .frame(maxWidth: 1320, maxHeight: 760)
             .background(Theme.appSurface)
             .cornerRadius(24)
             .overlay(

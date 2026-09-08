@@ -46,6 +46,7 @@ final class TVProgramDetailModalTests: XCTestCase {
         var cancelledRuleId: String?
         var toggledFavorite = false
         var dismissed = false
+        var addedToMultiView = false
     }
 
     private func makeView(
@@ -55,6 +56,7 @@ final class TVProgramDetailModalTests: XCTestCase {
         isFavorite: Bool,
         guideViewModel _: GuideViewModel,
         recordingsViewModel _: RecordingsViewModel,
+        includeMultiView: Bool = false,
         flags: @escaping (Flags) -> Void
     ) -> TVProgramDetailModal {
         var state = Flags()
@@ -68,7 +70,8 @@ final class TVProgramDetailModalTests: XCTestCase {
             onRecordSeries: { state.recordSeries = true; flags(state) },
             onCancelRule: { id in state.cancelledRuleId = id; flags(state) },
             onToggleFavorite: { state.toggledFavorite = true; flags(state) },
-            onDismiss: { state.dismissed = true; flags(state) }
+            onDismiss: { state.dismissed = true; flags(state) },
+            onAddToMultiView: includeMultiView ? { state.addedToMultiView = true; flags(state) } : nil
         )
     }
 
@@ -235,5 +238,72 @@ final class TVProgramDetailModalTests: XCTestCase {
         try view.inspect().find(button: "Record Episode").tap()
 
         XCTAssertTrue(recorded)
+    }
+
+    func testShowsAddToMultiViewButtonWhenLiveAndHandlerProvided() throws {
+        let (guideViewModel, recordingsViewModel) = makeEnvironmentObjects()
+        var added = false
+        let view = makeView(
+            channel: makeChannel(),
+            airing: makeAiring(offsetMinutes: -10, durationMinutes: 30),
+            existingRule: nil,
+            isFavorite: false,
+            guideViewModel: guideViewModel,
+            recordingsViewModel: recordingsViewModel,
+            includeMultiView: true,
+            flags: { state in added = state.addedToMultiView }
+        )
+        .environmentObject(guideViewModel)
+        .environmentObject(recordingsViewModel)
+
+        let button = try view.inspect().find(button: "Add to Multi-View")
+        XCTAssertNoThrow(button)
+        try button.tap()
+        XCTAssertTrue(added)
+    }
+
+    func testHidesAddToMultiViewButtonWhenNotLive() throws {
+        let (guideViewModel, recordingsViewModel) = makeEnvironmentObjects()
+        let view = makeView(
+            channel: makeChannel(),
+            airing: makeAiring(offsetMinutes: 60, durationMinutes: 30),
+            existingRule: nil,
+            isFavorite: false,
+            guideViewModel: guideViewModel,
+            recordingsViewModel: recordingsViewModel,
+            includeMultiView: true,
+            flags: { _ in }
+        )
+        .environmentObject(guideViewModel)
+        .environmentObject(recordingsViewModel)
+
+        XCTAssertThrowsError(try view.inspect().find(button: "Add to Multi-View"))
+    }
+
+    func testTwoRowActionButtonsRenderAllActionsSimultaneously() throws {
+        let (guideViewModel, recordingsViewModel) = makeEnvironmentObjects()
+        let view = makeView(
+            channel: makeChannel(),
+            airing: makeAiring(offsetMinutes: -10, durationMinutes: 30),
+            existingRule: nil,
+            isFavorite: false,
+            guideViewModel: guideViewModel,
+            recordingsViewModel: recordingsViewModel,
+            includeMultiView: true,
+            flags: { _ in }
+        )
+        .environmentObject(guideViewModel)
+        .environmentObject(recordingsViewModel)
+
+        // Row 1 buttons (Playback & recording creation)
+        XCTAssertNoThrow(try view.inspect().find(button: "Watch Live"))
+        XCTAssertNoThrow(try view.inspect().find(button: "Add to Multi-View"))
+        XCTAssertNoThrow(try view.inspect().find(button: "Record Episode"))
+        XCTAssertNoThrow(try view.inspect().find(button: "Record Series"))
+
+        // Row 2 buttons (Options, favorite toggle, and close)
+        XCTAssertNoThrow(try view.inspect().find(button: "Options…"))
+        XCTAssertNoThrow(try view.inspect().find(button: "Favorite Channel"))
+        XCTAssertNoThrow(try view.inspect().find(button: "Close"))
     }
 }
