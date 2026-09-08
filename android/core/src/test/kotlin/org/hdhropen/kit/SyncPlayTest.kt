@@ -199,4 +199,162 @@ class SyncPlayTest {
         vm.syncPlayClient.onRemoteSeek?.invoke(30.0)
         assertEquals(30.0, vm.playerEngine.currentTime.value, 0.001)
     }
+
+    @Test
+    fun `test SyncPlayClient handles all message types and transitions`() {
+        val client = SyncPlayClient(
+            httpClient = OkHttpClient(),
+            json = json,
+            coroutineScope = kotlinx.coroutines.CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        val handleMessageMethod = SyncPlayClient::class.java.getDeclaredMethod("handleMessage", SyncPlayMessage::class.java)
+        handleMessageMethod.isAccessible = true
+
+        var pausedPos: Double? = null
+        var seekPos: Double? = null
+        var changedContent: SyncPlayContent? = null
+
+        client.onRemotePause = { pos -> pausedPos = pos }
+        client.onRemoteSeek = { pos -> seekPos = pos }
+        client.onRemoteContentChange = { c -> changedContent = c }
+
+        // 1. Initial Room State
+        val roomMsg = SyncPlayMessage(
+            type = "room_state",
+            yourSessionId = "my-sess",
+            room = SyncPlayRoom(
+                roomCode = "ROOM01",
+                hostSessionId = "host-sess",
+                createdAt = 10.0,
+                content = SyncPlayContent(type = "channel", id = "4.1"),
+                playbackState = SyncPlayPlaybackState(isPlaying = false, position = 0.0),
+                participants = listOf(
+                    SyncPlayParticipant(sessionId = "host-sess", userName = "Host", isHost = true),
+                    SyncPlayParticipant(sessionId = "my-sess", userName = "Me", isHost = false)
+                )
+            )
+        )
+        handleMessageMethod.invoke(client, roomMsg)
+        assertEquals("ROOM01", client.room.value?.roomCode)
+        assertFalse(client.isHost.value)
+
+        // 2. Participant Joined
+        val joinMsg = SyncPlayMessage(
+            type = "participant_joined",
+            participant = SyncPlayParticipant(sessionId = "user-3", userName = "Third", isHost = false)
+        )
+        handleMessageMethod.invoke(client, joinMsg)
+        assertEquals(3, client.participants.value.size)
+
+        // Duplicate join is a no-op
+        handleMessageMethod.invoke(client, joinMsg)
+        assertEquals(3, client.participants.value.size)
+
+        // 3. Participant Updated
+        val updateMsg = SyncPlayMessage(
+            type = "participant_updated",
+            participant = SyncPlayParticipant(sessionId = "user-3", userName = "Third Renamed", isHost = false, pingMs = 45.0)
+        )
+        handleMessageMethod.invoke(client, updateMsg)
+        assertEquals("Third Renamed", client.participants.value.first { it.sessionId == "user-3" }.userName)
+        assertEquals(45.0, client.participants.value.first { it.sessionId == "user-3" }.pingMs, 0.001)
+
+        // 4. Remote Pause and Seek
+        val pauseMsg = SyncPlayMessage(
+            type = "playback_update",
+            action = "pause",
+            position = 22.5,
+            isPlaying = false,
+            triggeredBy = "host-sess"
+        )
+        handleMessageMethod.invoke(client, pauseMsg)
+        assertEquals(22.5, pausedPos)
+        assertFalse(client.room.value?.playbackState?.isPlaying ?: true)
+
+        val seekMsg = SyncPlayMessage(
+            type = "playback_update",
+            action = "seek",
+            position = 99.0,
+            isPlaying = false,
+            triggeredBy = "host-sess"
+        )
+        handleMessageMethod.invoke(client, seekMsg)
+        assertEquals(99.0, seekPos)
+
+        // Action triggered by local session does not trigger remote callbacks
+        pausedPos = null
+        val localMsg = SyncPlayMessage(
+            type = "playback_update",
+            action = "pause",
+            position = 30.0,
+            triggeredBy = "my-sess"
+        )
+        handleMessageMethod.invoke(client, localMsg)
+        assertNull(pausedPos)
+
+        // 5. Content Changed
+        val newContent = SyncPlayContent(type = "recording", id = "rec-55", title = "Evening News")
+        val contentMsg = SyncPlayMessage(
+            type = "content_changed",
+            content = newContent,
+            room = client.room.value?.copy(content = newContent, participants = client.participants.value)
+        )
+        handleMessageMethod.invoke(client, contentMsg)
+        assertEquals("rec-55", changedContent?.id)
+        assertEquals("Evening News", client.room.value?.content?.title)
+
+        // 6. Host Changed
+        val hostMsg = SyncPlayMessage(
+            type = "host_changed",
+            newHostSessionId = "my-sess"
+        )
+        handleMessageMethod.invoke(client, hostMsg)
+        assertTrue(client.isHost.value)
+        assertTrue(client.participants.value.first { it.sessionId == "my-sess" }.isHost)
+
+        // 7. Participant Left with new host transfer
+        val leftMsg = SyncPlayMessage(
+            type = "participant_left",
+            sessionId = "host-sess",
+            newHostSessionId = "my-sess"
+        )
+        handleMessageMethod.invoke(client, leftMsg)
+        assertEquals(2, client.participants.value.size)
+        assertTrue(client.isHost.value)
+
+        // 8. Pong message calculates RTT
+        val pongMsg = SyncPlayMessage(
+            type = "pong",
+            clientTime = System.currentTimeMillis() - 50.0
+        )
+        handleMessageMethod.invoke(client, pongMsg)
+        assertTrue(client.pingMs.value >= 1.0)
+
+        // 9. Disconnect clears state
+        client.disconnect()
+        assertFalse(client.isConnected.value)
+        assertNull(client.room.value)
+        assertTrue(client.participants.value.isEmpty())
+        assertNull(client.sessionId.value)
+        assertFalse(client.isHost.value)
+    }
+
+    @Test
+    fun `test SyncPlayClient outgoing message helpers do not crash when disconnected`() {
+        val client = SyncPlayClient(
+            httpClient = OkHttpClient(),
+            json = json,
+            coroutineScope = kotlinx.coroutines.CoroutineScope(Dispatchers.Unconfined)
+        )
+
+        // Should be safe no-ops without active websocket
+        client.sendPlay(10.0, 1.0)
+        client.sendPause(10.0)
+        client.sendSeek(20.0)
+        client.changeContent(SyncPlayContent(type = "channel", id = "5.1"))
+        client.transferHost("target-sess")
+        client.disconnect()
+    }
 }
+

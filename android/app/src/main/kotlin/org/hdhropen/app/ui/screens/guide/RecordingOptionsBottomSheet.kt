@@ -1,5 +1,6 @@
 package org.hdhropen.app.ui.screens.guide
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -222,7 +223,12 @@ fun RecordingOptionsBottomSheet(
 
             Spacer(Modifier.height(8.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { recentOnly = !recentOnly }
+            ) {
                 Checkbox(checked = recentOnly, onCheckedChange = { recentOnly = it })
                 Text("New episodes only", style = MaterialTheme.typography.bodyMedium)
             }
@@ -304,7 +310,12 @@ private fun RadioGroupField(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(label, style = MaterialTheme.typography.labelLarge.copy(color = MaterialTheme.colorScheme.onSurface))
         options.forEach { (value, text) ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(value) }
+            ) {
                 RadioButton(selected = selected == value, onClick = { onSelect(value) })
                 Text(text, style = MaterialTheme.typography.bodyMedium)
             }

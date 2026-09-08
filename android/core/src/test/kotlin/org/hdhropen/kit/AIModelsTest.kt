@@ -85,6 +85,40 @@ class AIModelsTest {
         val doneJson = """{"type": "done"}"""
         val doneEvent = json.decodeFromString<AIStreamEvent>(doneJson)
         assertEquals("done", doneEvent.type)
+
+        val statusJson = """{"type": "tool_status", "status": "running", "message": "Searching guide...", "content": {"key": "val"}}"""
+        val statusEvent = json.decodeFromString<AIStreamEvent>(statusJson)
+        assertEquals("tool_status", statusEvent.type)
+        assertEquals("running", statusEvent.status)
+        assertEquals("Searching guide...", statusEvent.message)
+        assertNotNull(statusEvent.content)
+    }
+
+    @Test
+    fun testAIResponsesAndUIModels() {
+        val listResp = json.decodeFromString<AIListModelsResponse>("""{"ok": true, "models": ["gpt-4o", "gemini-pro"]}""")
+        assertTrue(listResp.ok)
+        assertEquals(2, listResp.models.size)
+        assertNull(listResp.error)
+
+        val confirmResp = json.decodeFromString<AIConfirmActionResponse>("""{"result": {"rule_id": "r1"}}""")
+        assertNotNull(confirmResp.result)
+
+        val cancelResp = json.decodeFromString<AICancelActionResponse>("""{"ok": true}""")
+        assertTrue(cancelResp.ok)
+
+        val toolEntry = AIToolStatusEntry("search_guide", "done", "Finished searching")
+        assertEquals("search_guide", toolEntry.tool)
+        assertEquals("done", toolEntry.status)
+        assertEquals("Finished searching", toolEntry.message)
+        toolEntry.status = "error"
+        assertEquals("error", toolEntry.status)
+
+        val actionEntry = AIActionPreviewEntry("act1", "record", mapOf("title" to JsonPrimitive("Show")))
+        assertEquals(AIActionResolution.PENDING, actionEntry.resolution)
+        actionEntry.resolution = AIActionResolution.CONFIRMED
+        assertEquals(AIActionResolution.CONFIRMED, actionEntry.resolution)
+        assertEquals(5, AIActionResolution.values().size)
     }
 
     @Test

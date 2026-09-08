@@ -48,18 +48,20 @@ android/
 │       └── test/kotlin/org/hdhropen/kit/     # Unit test suite
 ├── app/                                      # Android Mobile App (Jetpack Compose & Material 3)
 │   └── src/
-│       └── main/
-│           ├── AndroidManifest.xml
-│           ├── kotlin/org/hdhropen/app/
-│           │   ├── MainActivity.kt
-│           │   └── ui/
-│           │       ├── theme/                # Theme.kt, Color.kt, Type.kt
-│           │       ├── navigation/           # RootMobileScreen.kt, AppNavigation.kt
-│           │       └── screens/              # Auth, Guide, Player, Recordings, Tuners, Settings
-│           └── res/                          # Strings, Colors, Themes
+│       ├── main/
+│       │   ├── AndroidManifest.xml
+│       │   ├── kotlin/org/hdhropen/app/
+│       │   │   ├── MainActivity.kt
+│       │   │   └── ui/
+│       │   │       ├── theme/                # Theme.kt, Color.kt, Type.kt
+│       │   │       ├── navigation/           # RootMobileScreen.kt, AppNavigation.kt
+│       │   │       └── screens/              # Auth, Guide, Player, Recordings, Tuners, Settings
+│       │   └── res/                          # Strings, Colors, Themes
+│       └── test/kotlin/org/hdhropen/app/     # Compose UI & App unit tests (Robolectric)
 ├── gradle/
 │   └── libs.versions.toml                    # Version Catalog
 ├── build.gradle.kts                          # Root build script
+├── check.sh                                  # Quality check runner script
 ├── settings.gradle.kts                       # Multi-module settings
 └── README.md
 ```
@@ -72,9 +74,58 @@ android/
 3. Allow Gradle to sync dependencies.
 4. Select the `app` run configuration and target an Android Phone/Tablet emulator (API 26+) or physical device.
 
-### Running Unit Tests via Gradle
+### Quality Checks & Verification
+
+Run the full quality check suite in a single command before submitting changes:
+
 ```bash
-./gradlew :core:test
+./check.sh
+# or equivalently:
+./gradlew qualityCheck
+```
+
+This runs:
+- Android Lint across all modules (`:core:lintDebug`, `:app:lintDebug`)
+- All unit and Robolectric Compose UI tests (`:core:testDebugUnitTest`, `:app:testDebugUnitTest`)
+- Debug APK build verification (`:app:assembleDebug`)
+
+### Running Tests
+
+Run all unit and Compose UI tests without full assemble:
+
+```bash
+# Run all tests across :core and :app
+./gradlew testDebugUnitTest
+
+# Run only :app tests (Robolectric Compose UI + unit tests)
+./gradlew :app:testDebugUnitTest
+
+# Run only :core tests (networking, models, viewmodels, parsers)
+./gradlew :core:testDebugUnitTest
+```
+
+### Running Android Lint
+
+```bash
+# Run lint analysis across all modules
+./gradlew lintDebug
+
+# Reports are generated at:
+# - app/build/reports/lint-results-debug.html
+# - core/build/reports/lint-results-debug.html
+```
+
+### Generating Code Coverage Reports
+
+Generate JaCoCo HTML code coverage reports:
+
+```bash
+# Generate coverage reports for both :core and :app
+./gradlew createDebugUnitTestCoverageReport
+
+# Reports are generated at:
+# - app/build/reports/coverage/test/debug/index.html
+# - core/build/reports/coverage/test/debug/index.html
 ```
 
 ## Installing a Release Build

@@ -50,13 +50,9 @@ import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 fun enterPictureInPictureMode(activity: Activity, params: PictureInPictureParams): Boolean {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        try {
-            activity.enterPictureInPictureMode(params)
-        } catch (e: Exception) {
-            false
-        }
-    } else {
+    return try {
+        activity.enterPictureInPictureMode(params)
+    } catch (e: Exception) {
         false
     }
 }
@@ -122,7 +118,7 @@ fun PlayerScreen(
                 onEnterPip()
             } else {
                 val activity = context.findActivity()
-                if (activity != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (activity != null) {
                     val isPlaying = state == PlaybackState.Playing
                     val exoVideoSize = playerEngine.exoPlayer?.videoSize
                     val width = videoSpecs?.width ?: exoVideoSize?.width

@@ -24,7 +24,8 @@ import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
+@UnstableApi
 @Composable
 fun GuideScreen(
     guideViewModel: GuideViewModel,

@@ -224,17 +224,14 @@ fun AIAssistantBottomSheet(
                                 val turnIdx = turns.indexOfFirst { it.actionPreview?.actionId == actionId }
                                 if (turnIdx != -1) {
                                     val t = turns[turnIdx]
-                                    t.actionPreview?.resolution = AIActionResolution.CONFIRMING
-                                    turns[turnIdx] = t.copy()
+                                    turns[turnIdx] = t.copy(actionPreview = t.actionPreview?.copy(resolution = AIActionResolution.CONFIRMING))
 
                                     coroutineScope.launch {
                                         try {
                                             apiClient.confirmAIAction(actionId)
-                                            t.actionPreview?.resolution = AIActionResolution.CONFIRMED
-                                            turns[turnIdx] = t.copy()
+                                            turns[turnIdx] = turns[turnIdx].copy(actionPreview = turns[turnIdx].actionPreview?.copy(resolution = AIActionResolution.CONFIRMED))
                                         } catch (_: Exception) {
-                                            t.actionPreview?.resolution = AIActionResolution.FAILED
-                                            turns[turnIdx] = t.copy()
+                                            turns[turnIdx] = turns[turnIdx].copy(actionPreview = turns[turnIdx].actionPreview?.copy(resolution = AIActionResolution.FAILED))
                                         }
                                     }
                                 }
@@ -243,8 +240,7 @@ fun AIAssistantBottomSheet(
                                 val turnIdx = turns.indexOfFirst { it.actionPreview?.actionId == actionId }
                                 if (turnIdx != -1) {
                                     val t = turns[turnIdx]
-                                    t.actionPreview?.resolution = AIActionResolution.CANCELLED
-                                    turns[turnIdx] = t.copy()
+                                    turns[turnIdx] = t.copy(actionPreview = t.actionPreview?.copy(resolution = AIActionResolution.CANCELLED))
 
                                     coroutineScope.launch {
                                         try {

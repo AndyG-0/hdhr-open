@@ -133,7 +133,7 @@ fun GuideGridView(
     val density = LocalDensity.current
     var hasAutoScrolledToNow by remember { mutableStateOf(false) }
 
-    var nowSeconds by remember { mutableStateOf(System.currentTimeMillis() / 1000.0) }
+    var nowSeconds by remember { mutableDoubleStateOf(System.currentTimeMillis() / 1000.0) }
 
     LaunchedEffect(Unit) {
         while (isActive) {

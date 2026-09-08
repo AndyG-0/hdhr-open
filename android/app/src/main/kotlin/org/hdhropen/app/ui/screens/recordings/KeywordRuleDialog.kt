@@ -1,13 +1,18 @@
 package org.hdhropen.app.ui.screens.recordings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -79,9 +84,18 @@ fun KeywordRuleDialog(
                 Column {
                     Text("Title Match", style = MaterialTheme.typography.labelLarge)
                     listOf("exact" to "Exact title", "contains" to "Title contains").forEach { (value, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { titleMatchMode = value }
+                        ) {
                             RadioButton(selected = titleMatchMode == value, onClick = { titleMatchMode = value })
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.clickable { titleMatchMode = value }
+                            )
                         }
                     }
                 }
@@ -101,23 +115,43 @@ fun KeywordRuleDialog(
                     Column {
                         Text("Channel", style = MaterialTheme.typography.labelLarge)
                         listOf("any" to "Any channel", "custom" to "Select channels…").forEach { (value, label) ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { channelMode = value }
+                            ) {
                                 RadioButton(selected = channelMode == value, onClick = { channelMode = value })
-                                Text(label, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.clickable { channelMode = value }
+                                )
                             }
                         }
                     }
                     if (channelMode == "custom") {
-                        Column(modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             channels.forEach { ch ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                val isSelected = customChannels.contains(ch.channelNumber)
+                                val toggleChannel = {
+                                    customChannels = if (isSelected) customChannels - ch.channelNumber else customChannels + ch.channelNumber
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(onClick = toggleChannel)
+                                ) {
                                     Checkbox(
-                                        checked = customChannels.contains(ch.channelNumber),
-                                        onCheckedChange = { checked ->
-                                            customChannels = if (checked) customChannels + ch.channelNumber else customChannels - ch.channelNumber
-                                        }
+                                        checked = isSelected,
+                                        onCheckedChange = { toggleChannel() }
                                     )
-                                    Text("${ch.channelNumber} ${ch.name}", style = MaterialTheme.typography.bodySmall)
+                                    Text(
+                                        text = "${ch.channelNumber} ${ch.name}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.clickable(onClick = toggleChannel)
+                                    )
                                 }
                             }
                         }
@@ -145,9 +179,18 @@ fun KeywordRuleDialog(
 
                 Spacer(Modifier.height(8.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { recentOnly = !recentOnly }
+                ) {
                     Checkbox(checked = recentOnly, onCheckedChange = { recentOnly = it })
-                    Text("New episodes only", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "New episodes only",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.clickable { recentOnly = !recentOnly }
+                    )
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -155,9 +198,18 @@ fun KeywordRuleDialog(
                 Column {
                     Text("Keep episodes", style = MaterialTheme.typography.labelLarge)
                     listOf("unlimited" to "Unlimited", "limited" to "Keep last N").forEach { (value, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { retentionMode = value }
+                        ) {
                             RadioButton(selected = retentionMode == value, onClick = { retentionMode = value })
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.clickable { retentionMode = value }
+                            )
                         }
                     }
                 }

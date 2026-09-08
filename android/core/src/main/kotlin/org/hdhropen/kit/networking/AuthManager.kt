@@ -36,6 +36,10 @@ class AuthManager(
     val isAuthenticated: Boolean
         get() = _currentUser.value != null
 
+    fun setCurrentUser(user: CurrentUser?) {
+        _currentUser.value = user
+    }
+
     suspend fun restoreSession() {
         prefs?.getString(deviceIdKey, null)?.let { storedDeviceId ->
             apiClient.deviceId = storedDeviceId

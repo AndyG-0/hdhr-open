@@ -53,7 +53,7 @@ val MaterialTheme.extendedColors: ExtendedColors
     get() = LocalExtendedColors.current
 
 @Composable
-fun HDHROpenTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
+fun HDHROpenTheme(themeMode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
     val useDarkTheme = when (themeMode) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true

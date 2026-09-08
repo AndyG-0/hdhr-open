@@ -201,4 +201,60 @@ class PlayerErrorHandlingTest {
         vm.retry()
         assertEquals("rec-sess-ok", vm.activeHLSSessionId.value)
     }
+
+    @Test
+    fun `parseExoPlayerError covers all HTTP error codes`() {
+        fun makeError(code: Int, detail: String? = null): ParsedPlaybackError {
+            val bytes = detail?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+            val httpEx = HttpDataSource.InvalidResponseCodeException(
+                code, "Error $code", null, emptyMap(), DataSpec(android.net.Uri.EMPTY), bytes
+            )
+            return parseExoPlayerError(PlaybackException("Error", httpEx, PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS))
+        }
+
+        assertEquals(504, makeError(504).statusCode)
+        assertTrue(makeError(504).message.contains("504"))
+
+        assertEquals(404, makeError(404).statusCode)
+        assertTrue(makeError(404).message.contains("404"))
+
+        assertEquals(401, makeError(401).statusCode)
+        assertTrue(makeError(401).message.contains("Authentication"))
+
+        assertEquals(403, makeError(403).statusCode)
+
+        assertEquals(500, makeError(500).statusCode)
+        assertTrue(makeError(500).message.contains("500"))
+    }
+
+    @Test
+    fun `parseExoPlayerError covers network exceptions`() {
+        fun makeNetError(cause: IOException): ParsedPlaybackError {
+            val netEx = HttpDataSource.HttpDataSourceException(cause, DataSpec(android.net.Uri.EMPTY), 2000, 1)
+            return parseExoPlayerError(PlaybackException("Net error", netEx, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED))
+        }
+
+        val connectErr = makeNetError(java.net.ConnectException("Connection refused"))
+        assertTrue(connectErr.detail!!.contains("Could not connect"))
+
+        val timeoutErr = makeNetError(java.net.SocketTimeoutException("Read timed out"))
+        assertTrue(timeoutErr.detail!!.contains("timed out"))
+
+        val hostErr = makeNetError(java.net.UnknownHostException("badhost.local"))
+        assertTrue(hostErr.detail!!.contains("resolve"))
+
+        val otherErr = makeNetError(IOException("SSL error"))
+        assertTrue(otherErr.detail!!.contains("SSL error"))
+    }
+
+    @Test
+    fun `parseExoPlayerError covers decoder and generic errors`() {
+        val decoderEx = PlaybackException("Decoder fail", null, PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
+        val parsedDecoder = parseExoPlayerError(decoderEx)
+        assertEquals("Video decoder error", parsedDecoder.message)
+
+        val genericEx = PlaybackException("General error occurred", null, PlaybackException.ERROR_CODE_UNSPECIFIED)
+        val parsedGeneric = parseExoPlayerError(genericEx)
+        assertEquals("Playback error", parsedGeneric.message)
+    }
 }

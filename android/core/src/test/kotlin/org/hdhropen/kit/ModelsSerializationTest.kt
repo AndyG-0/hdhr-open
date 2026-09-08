@@ -164,4 +164,49 @@ class ModelsSerializationTest {
         assertEquals("Andy", profile.name)
         assertTrue(profile.hasPin)
     }
+
+    @Test
+    fun testDecodeHouseholdUserAndCurrentUser() {
+        val householdJson = """
+        {
+            "id": "h_user_1",
+            "name": "Sarah",
+            "avatar": "avatar_2.png",
+            "has_pin": false,
+            "role": "admin",
+            "created_at": "2026-09-01T00:00:00Z"
+        }
+        """.trimIndent()
+
+        val hUser = json.decodeFromString<HouseholdUser>(householdJson)
+        assertEquals("h_user_1", hUser.id)
+        assertEquals("Sarah", hUser.name)
+        assertEquals(UserRole.ADMIN, hUser.role)
+        assertEquals("2026-09-01T00:00:00Z", hUser.createdAt)
+
+        val currentJson = """
+        {
+            "id": "curr_1",
+            "name": "Admin User",
+            "role": "admin",
+            "token": "secret_jwt"
+        }
+        """.trimIndent()
+
+        val curr = json.decodeFromString<CurrentUser>(currentJson)
+        assertEquals("curr_1", curr.id)
+        assertTrue(curr.isAdmin)
+        assertEquals("secret_jwt", curr.token)
+
+        val memberJson = """{"id": "m1", "name": "Member", "role": "member"}"""
+        val member = json.decodeFromString<CurrentUser>(memberJson)
+        assertFalse(member.isAdmin)
+
+        val setup = json.decodeFromString<SetupStatus>("""{"needs_setup": true}""")
+        assertTrue(setup.needsSetup)
+
+        val prefs = json.decodeFromString<UserPreferences>("""{"theme": "dark", "locale": "en-US"}""")
+        assertEquals("dark", prefs.theme)
+        assertEquals("en-US", prefs.locale)
+    }
 }

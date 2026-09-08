@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Project-wide opt-in for AndroidX Media3 UnstableApi -->
+    <issue id="UnsafeOptInUsageError">
+        <option name="opt-in" value="androidx.media3.common.util.UnstableApi" />
+    </issue>
+    <!-- Ignore library update advisory warnings in CI/lint checks -->
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <!-- Vector path warning is advisory for icons -->
+    <issue id="VectorPath" severity="ignore" />
+</lint>

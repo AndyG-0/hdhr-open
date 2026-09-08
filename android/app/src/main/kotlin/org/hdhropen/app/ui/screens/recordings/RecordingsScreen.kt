@@ -28,7 +28,8 @@ import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.hdhropen.kit.viewmodels.RecordingCategoryFilter
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
-@OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
+@UnstableApi
 @Composable
 fun RecordingsScreen(
     recordingsViewModel: RecordingsViewModel,
