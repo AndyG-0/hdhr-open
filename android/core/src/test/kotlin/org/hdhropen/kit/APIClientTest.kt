@@ -280,10 +280,23 @@ class APIClientTest {
         assertNotNull(started)
         assertEquals("sess-123", started?.sessionId)
 
-        // startWatch failure returns null
+        // startWatch 404 / 501 returns null (unsupported capability)
+        server.enqueue(MockResponse().setResponseCode(404).setBody("Not Found"))
+        val unsupported404 = client.startWatch("5.1")
+        assertNull(unsupported404)
+
+        server.enqueue(MockResponse().setResponseCode(501).setBody("Not Implemented"))
+        val unsupported501 = client.startWatch("5.1")
+        assertNull(unsupported501)
+
+        // startWatch 500 throws ServerError
         server.enqueue(MockResponse().setResponseCode(500).setBody("Server Error"))
-        val failed = client.startWatch("5.1")
-        assertNull(failed)
+        try {
+            client.startWatch("5.1")
+            fail("Expected ServerError on 500")
+        } catch (e: APIError.ServerError) {
+            assertEquals(500, e.statusCode)
+        }
 
         // heartbeatWatch
         server.enqueue(MockResponse().setResponseCode(200).setBody(""))

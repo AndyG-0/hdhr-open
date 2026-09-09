@@ -52,120 +52,6 @@ data class ParsedPlaybackError(
     val isNetworkError: Boolean = false
 )
 
-internal fun extractDetailFromBody(bytes: ByteArray): String? {
-    if (bytes.isEmpty()) return null
-    return try {
-        val text = String(bytes, Charsets.UTF_8).trim()
-        if (text.startsWith("{")) {
-            val root = Json { ignoreUnknownKeys = true }.parseToJsonElement(text)
-            root.jsonObject["detail"]?.jsonPrimitive?.contentOrNull
-        } else if (!text.startsWith("<") && text.length < 300) {
-            text
-        } else {
-            null
-        }
-    } catch (e: Exception) {
-        null
-    }
-}
-
-internal fun parseExoPlayerError(error: PlaybackException): ParsedPlaybackError {
-    var cur: Throwable? = error
-    var httpException: HttpDataSource.InvalidResponseCodeException? = null
-    var networkException: HttpDataSource.HttpDataSourceException? = null
-
-    while (cur != null) {
-        if (cur is HttpDataSource.InvalidResponseCodeException) {
-            httpException = cur
-            break
-        }
-        if (cur is HttpDataSource.HttpDataSourceException && networkException == null) {
-            networkException = cur
-        }
-        cur = cur.cause
-    }
-
-    if (httpException != null) {
-        val code = httpException.responseCode
-        val serverDetail = extractDetailFromBody(httpException.responseBody)
-
-        return when (code) {
-            502 -> ParsedPlaybackError(
-                message = "Tuner or streaming server temporarily unavailable (HTTP 502)",
-                detail = serverDetail ?: "The streaming server or HDHomeRun tuner reported a temporary failure. Try again in a few moments.",
-                statusCode = 502,
-                isNetworkError = true
-            )
-            503 -> ParsedPlaybackError(
-                message = "Streaming service unavailable (HTTP 503)",
-                detail = serverDetail ?: "The server is temporarily busy or unavailable. Please try again shortly.",
-                statusCode = 503,
-                isNetworkError = true
-            )
-            504 -> ParsedPlaybackError(
-                message = "Stream gateway timeout (HTTP 504)",
-                detail = serverDetail ?: "The server timed out waiting for the tuner or transcoder.",
-                statusCode = 504,
-                isNetworkError = true
-            )
-            404 -> ParsedPlaybackError(
-                message = "Stream session not found (HTTP 404)",
-                detail = serverDetail ?: "The live watch session or recording stream has ended or expired.",
-                statusCode = 404,
-                isNetworkError = true
-            )
-            401, 403 -> ParsedPlaybackError(
-                message = "Authentication error (HTTP $code)",
-                detail = serverDetail ?: "Your session is invalid or expired. Please sign in again.",
-                statusCode = code,
-                isNetworkError = true
-            )
-            else -> ParsedPlaybackError(
-                message = "Server error (HTTP $code)",
-                detail = serverDetail ?: "The server returned HTTP status code $code.",
-                statusCode = code,
-                isNetworkError = true
-            )
-        }
-    }
-
-    if (networkException != null) {
-        val rootCause = networkException.cause
-        val detail = when (rootCause) {
-            is java.net.ConnectException -> "Could not connect to the streaming server. Verify the server is running."
-            is java.net.SocketTimeoutException -> "The connection to the streaming server timed out."
-            is java.net.UnknownHostException -> "Could not resolve the server hostname."
-            else -> networkException.message ?: "Failed to read data from the server."
-        }
-        return ParsedPlaybackError(
-            message = "Network connection error",
-            detail = detail,
-            statusCode = null,
-            isNetworkError = true
-        )
-    }
-
-    if (error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED) {
-        return ParsedPlaybackError(
-            message = "Video decoder error",
-            detail = "Unable to initialize video decoder for this broadcast format.",
-            statusCode = null,
-            isNetworkError = false
-        )
-    }
-
-    val cleanMsg = error.localizedMessage
-        ?.takeIf { !it.contains("androidx.media3") && !it.contains("Exception") }
-        ?: "An unexpected playback error occurred."
-
-    return ParsedPlaybackError(
-        message = "Playback error",
-        detail = cleanMsg,
-        statusCode = null,
-        isNetworkError = false
-    )
-}
-
 @UnstableApi
 class PlayerEngine(
     private val context: Context? = null,
@@ -511,11 +397,11 @@ class PlayerEngine(
         _state.value = PlaybackState.Buffering
     }
 
-    fun skipForward(seconds: Double = 10.0) {
+    internal fun skipForward(seconds: Double = 10.0) {
         seek(_currentTime.value + seconds)
     }
 
-    fun skipBackward(seconds: Double = 10.0) {
+    internal fun skipBackward(seconds: Double = 10.0) {
         seek((_currentTime.value - seconds).coerceAtLeast(0.0))
     }
 

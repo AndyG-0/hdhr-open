@@ -10,7 +10,8 @@ import org.hdhropen.kit.utilities.Log
 
 class WatchSessionManager(
     private val apiClient: APIClient,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob()),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     private val _activeSessionId = MutableStateFlow<String?>(null)
     val activeSessionId: StateFlow<String?> = _activeSessionId.asStateFlow()
@@ -42,7 +43,7 @@ class WatchSessionManager(
 
     private fun startHeartbeat(sessionId: String) {
         heartbeatJob?.cancel()
-        heartbeatJob = coroutineScope.launch(Dispatchers.IO) {
+        heartbeatJob = coroutineScope.launch(ioDispatcher) {
             while (isActive && !_isPromoted.value) {
                 delay(20_000) // 20s
                 if (!isActive || _isPromoted.value) break
@@ -75,7 +76,7 @@ class WatchSessionManager(
         val wasPromoted = _isPromoted.value
 
         if (sessionId != null && !wasPromoted) {
-            coroutineScope.launch(Dispatchers.IO) {
+            coroutineScope.launch(ioDispatcher) {
                 try {
                     apiClient.stopWatch(sessionId)
                     Log.player.info("Stopped watch session $sessionId")

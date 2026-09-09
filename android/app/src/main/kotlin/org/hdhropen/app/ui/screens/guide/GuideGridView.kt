@@ -27,98 +27,12 @@ import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunFullGuideChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
+import org.hdhropen.kit.utilities.GuideGridMath
 import org.hdhropen.kit.utilities.TimeFormatting
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import kotlin.math.max
 import kotlin.math.min
 
-object GuideGridMath {
-    const val DP_PER_SECOND = 4.0f / 60.0f // 4dp per minute
-    val MIN_CELL_WIDTH = 90.dp
-    const val HOUR_SECONDS = 3600.0
-    const val DAY_SECONDS = 86400.0
-
-    fun windowBounds(
-        nowSeconds: Double,
-        fullGuide: List<HDHomeRunFullGuideChannel>
-    ): Pair<Double, Double> {
-        var minStart = nowSeconds - 2 * HOUR_SECONDS
-        var maxEnd = nowSeconds + 4 * HOUR_SECONDS
-        val earliestAllowed = nowSeconds - 6 * HOUR_SECONDS
-
-        for (entry in fullGuide) {
-            for (airing in entry.airings) {
-                airing.start?.let { minStart = min(minStart, it) }
-                airing.end?.let { maxEnd = max(maxEnd, it) }
-            }
-        }
-
-        minStart = max(minStart, earliestAllowed)
-        val start = kotlin.math.floor(minStart / 1800.0) * 1800.0
-        return Pair(start, maxEnd)
-    }
-
-    data class CellLayout(
-        val airing: HDHomeRunGuideEntry,
-        val leftDp: Dp,
-        val widthDp: Dp
-    )
-
-    fun cellLayouts(
-        airings: List<HDHomeRunGuideEntry>,
-        windowStart: Double,
-        windowEnd: Double
-    ): List<CellLayout> {
-        val layouts = mutableListOf<CellLayout>()
-        for (airing in airings) {
-            val airingStart = airing.start ?: continue
-            val airingEnd = airing.end ?: continue
-            val start = max(airingStart, windowStart)
-            val end = min(airingEnd, windowEnd)
-            if (end <= start) continue
-
-            val left = ((start - windowStart) * DP_PER_SECOND).toFloat().dp
-            val calculatedWidth = ((end - start) * DP_PER_SECOND).toFloat().dp
-            val width = maxOf(calculatedWidth, MIN_CELL_WIDTH)
-
-            layouts.add(CellLayout(airing, left, width))
-        }
-        return layouts
-    }
-
-    data class HourMark(val seconds: Double, val leftDp: Dp, val label: String)
-    data class DayMark(val start: Double, val leftDp: Dp, val widthDp: Dp, val label: String)
-
-    fun hourMarks(windowStart: Double, windowEnd: Double): List<HourMark> {
-        val marks = mutableListOf<HourMark>()
-        var cursor = (kotlin.math.floor(windowStart / 3600.0) * 3600.0)
-        while (cursor < windowEnd) {
-            if (cursor >= windowStart) {
-                val left = ((cursor - windowStart) * DP_PER_SECOND).toFloat().dp
-                marks.add(HourMark(cursor, left, TimeFormatting.formatHour(cursor)))
-            }
-            cursor += 3600.0
-        }
-        return marks
-    }
-
-    fun dayMarks(windowStart: Double, windowEnd: Double): List<DayMark> {
-        val marks = mutableListOf<DayMark>()
-        var cursor = (kotlin.math.floor(windowStart / 86400.0) * 86400.0)
-        while (cursor < windowEnd) {
-            val dayEnd = cursor + 86400.0
-            val segStart = max(cursor, windowStart)
-            val segEnd = min(dayEnd, windowEnd)
-            if (segEnd > segStart) {
-                val left = ((segStart - windowStart) * DP_PER_SECOND).toFloat().dp
-                val width = ((segEnd - segStart) * DP_PER_SECOND).toFloat().dp
-                marks.add(DayMark(cursor, left, width, TimeFormatting.formatDayLabel(segStart)))
-            }
-            cursor = dayEnd
-        }
-        return marks
-    }
-}
 
 @Composable
 fun GuideGridView(
@@ -210,7 +124,7 @@ fun GuideGridView(
                                 fontWeight = FontWeight.Bold
                             ),
                             modifier = Modifier
-                                .offset(x = day.leftDp + 6.dp, y = 4.dp)
+                                .offset(x = day.leftDp.dp + 6.dp, y = 4.dp)
                         )
                     }
 
@@ -220,14 +134,14 @@ fun GuideGridView(
                             text = hour.label,
                             style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant),
                             modifier = Modifier
-                                .offset(x = hour.leftDp + 6.dp, y = 22.dp)
+                                .offset(x = hour.leftDp.dp + 6.dp, y = 22.dp)
                         )
                     }
                 }
             }
         }
 
-        Divider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = 1.dp)
 
         // Channels & Airings Grid
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -323,17 +237,19 @@ fun GuideGridView(
                                 // renders as a blank cell -- its title is anchored at the show's start, which
                                 // may be hours to the left of the current viewport. Badges are NOT offset, to
                                 // match the web client, where they scroll with the cell body.
-                                val maxStickyOffset = (layout.widthDp - 96.dp).coerceAtLeast(0.dp)
-                                val stickyOffset = (currentScrollDp - layout.leftDp).coerceIn(0.dp, maxStickyOffset)
+                                val maxStickyOffset = (layout.widthDp - 96f).coerceAtLeast(0f)
+                                val currentScrollVal = currentScrollDp.value
+                                val stickyOffset = (currentScrollVal - layout.leftDp).coerceIn(0f, maxStickyOffset).dp
 
                                 Box(
                                     modifier = Modifier
-                                        .offset(x = layout.leftDp)
-                                        .width(layout.widthDp)
+                                        .offset(x = layout.leftDp.dp)
+                                        .width(layout.widthDp.dp)
                                         .fillMaxHeight()
                                         .padding(1.dp)
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(if (isLive) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+
                                         .border(0.5.dp, if (isLive) BluePrimary.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
                                         .clickable { onSelectAiring(channel, airing) }
                                 ) {
@@ -365,7 +281,7 @@ fun GuideGridView(
                                         modifier = Modifier
                                             .padding(6.dp)
                                             .offset(x = stickyOffset)
-                                            .widthIn(max = (layout.widthDp - 12.dp - stickyOffset).coerceAtLeast(40.dp))
+                                            .widthIn(max = maxOf(layout.widthDp.dp - 12.dp - stickyOffset, 40.dp))
                                     ) {
                                         Text(
                                             text = airing.title,

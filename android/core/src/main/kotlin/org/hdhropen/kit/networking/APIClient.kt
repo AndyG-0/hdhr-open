@@ -1,5 +1,6 @@
 package org.hdhropen.kit.networking
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -84,7 +85,8 @@ class APIClient(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .build()
+        .build(),
+    val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     var bearerToken: String? = null
     var deviceId: String? = null
@@ -106,7 +108,7 @@ class APIClient(
         method: String = "GET",
         jsonBody: String? = null,
         headers: Map<String, String> = emptyMap()
-    ): ByteArray = withContext(Dispatchers.IO) {
+    ): ByteArray = withContext(ioDispatcher) {
         val fullUrl = if (path.startsWith("http://") || path.startsWith("https://")) {
             path
         } else {
@@ -253,8 +255,10 @@ class APIClient(
         return try {
             val resp: HDHomeRunRecording = request(APIEndpoints.startWatch(channelNumber), method = "POST")
             if (resp.recordingId == null && resp.sessionId == null) null else resp
-        } catch (e: Exception) {
+        } catch (e: APIError.NotFound) {
             null
+        } catch (e: APIError.ServerError) {
+            if (e.statusCode == 501 || e.statusCode == 404) null else throw e
         }
     }
 

@@ -1,48 +1,44 @@
 package org.hdhropen.app.ui.screens.player
- 
+
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Rect
 import android.os.Build
-import android.view.ViewGroup
-import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.mediarouter.app.MediaRouteButton
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.PlayerView
-import com.google.android.gms.cast.framework.CastButtonFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.hdhropen.app.PipHelper
 import org.hdhropen.app.ui.screens.guide.RecordingOptionsBottomSheet
-import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.playback.LoadingQuips
 import org.hdhropen.kit.playback.PlaybackState
 import org.hdhropen.kit.viewmodels.GuideViewModel
@@ -102,6 +98,8 @@ fun PlayerScreen(
     val isPromoted by playerViewModel.isPromoted.collectAsState()
     val isPromoting by playerViewModel.isPromoting.collectAsState()
     val isSwitchingAudioTrack by playerViewModel.isSwitchingAudioTrack.collectAsState()
+    val transientError by playerViewModel.transientError.collectAsState()
+    val fallbackNotice by playerViewModel.fallbackNotice.collectAsState()
 
     val activeChannel by playerViewModel.activeChannel.collectAsState()
     val activeAiring by playerViewModel.activeAiring.collectAsState()
@@ -110,6 +108,24 @@ fun PlayerScreen(
     val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
     val existingRule = remember(recordingRules, activeChannel, activeAiring) {
         guideViewModel.findRule(activeChannel?.channelNumber, activeAiring)
+    }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(transientError) {
+        val err = transientError
+        if (err != null) {
+            playerViewModel.clearTransientError()
+            snackbarHostState.showSnackbar(err)
+        }
+    }
+
+    LaunchedEffect(fallbackNotice) {
+        val notice = fallbackNotice
+        if (notice != null) {
+            playerViewModel.clearFallbackNotice()
+            snackbarHostState.showSnackbar(notice)
+        }
     }
 
     val handleEnterPip: () -> Unit = {
@@ -148,10 +164,8 @@ fun PlayerScreen(
     val syncPlayParticipants by playerViewModel.syncPlayParticipants.collectAsState()
 
     var showControls by remember { mutableStateOf(true) }
-    var showAudioMenu by remember { mutableStateOf(false) }
     var showPlaybackInfo by remember { mutableStateOf(false) }
     var showSyncPlaySheet by remember { mutableStateOf(false) }
-    var showRecordMenu by remember { mutableStateOf(false) }
     var showRecordingOptionsSheet by remember { mutableStateOf(false) }
     var loadingQuip by remember { mutableStateOf(LoadingQuips.getRandomQuip()) }
 
@@ -197,155 +211,40 @@ fun PlayerScreen(
             )
     ) {
         // Video View (Media3 ExoPlayer)
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-                    player = playerEngine.exoPlayer
-                }
-            },
-            update = { view ->
-                view.player = playerEngine.exoPlayer
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .onGloballyPositioned { coordinates ->
-                    val bounds = coordinates.boundsInWindow()
-                    onUpdateVideoBounds?.invoke(
-                        Rect(
-                            bounds.left.toInt(),
-                            bounds.top.toInt(),
-                            bounds.right.toInt(),
-                            bounds.bottom.toInt()
-                        )
-                    )
-                }
+        PlayerSurface(
+            player = playerEngine.exoPlayer,
+            onUpdateVideoBounds = onUpdateVideoBounds
         )
 
         // Captions Overlay
-        if (!isInPipMode && isCaptionsEnabled && !activeCaptionText.isNullOrEmpty()) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = if (showControls) 120.dp else 40.dp)
-                    .padding(horizontal = 24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.Black.copy(alpha = 0.75f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = activeCaptionText ?: "",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = YellowAccent,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
-                    )
-                )
-            }
+        if (!isInPipMode) {
+            CaptionsOverlay(
+                activeCaptionText = activeCaptionText,
+                isCaptionsEnabled = isCaptionsEnabled,
+                showControls = showControls,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
 
         // Loading / Buffering Indicator with Rotating Funny Quips
         if (state == PlaybackState.Loading || state == PlaybackState.Buffering) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                CircularProgressIndicator(
-                    color = BluePrimary,
-                    modifier = Modifier.size(56.dp),
-                    strokeWidth = 4.dp
-                )
-                Spacer(modifier = Modifier.height(20.dp))
-                AnimatedContent(
-                    targetState = loadingQuip,
-                    transitionSpec = {
-                        fadeIn() togetherWith fadeOut()
-                    },
-                    label = "loadingQuipAnimation"
-                ) { quip ->
-                    Text(
-                        text = quip,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            color = Color.White,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center
-                        ),
-                        modifier = Modifier.padding(horizontal = 24.dp)
-                    )
-                }
-            }
+            PlayerLoadingOverlay(
+                loadingQuip = loadingQuip,
+                modifier = Modifier.align(Alignment.Center)
+            )
         }
 
         // Error Card
         if (state is PlaybackState.Failed) {
-            val failedState = state as PlaybackState.Failed
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(32.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        if (failedState.statusCode in 500..599 || failedState.isNetworkError) Icons.Default.CloudOff else Icons.Default.Warning,
-                        contentDescription = "Error",
-                        tint = YellowAccent,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = if (failedState.statusCode in 500..599 || failedState.isNetworkError) "Server / Tuner Unavailable" else "Playback Error",
-                        style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = failedState.message,
-                        style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
-                    )
-                    val detail = failedState.detail
-                    if (!detail.isNullOrBlank() && detail != failedState.message) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = detail,
-                            style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                playerViewModel.closePlayer()
-                                onDismiss()
-                            }
-                        ) {
-                            Text("Close")
-                        }
-                        Button(
-                            onClick = {
-                                playerViewModel.retry()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Retry", color = Color.White)
-                        }
-                    }
-                }
-            }
+            PlayerErrorCard(
+                failedState = state as PlaybackState.Failed,
+                onRetry = { playerViewModel.retry() },
+                onClose = {
+                    playerViewModel.closePlayer()
+                    onDismiss()
+                },
+                modifier = Modifier.align(Alignment.Center)
+            )
         }
 
         // Overlay Controls
@@ -368,333 +267,85 @@ fun PlayerScreen(
                     )
             ) {
                 // Top Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = {
+                PlayerTopBar(
+                    title = playerViewModel.mediaTitle,
+                    subtitle = playerViewModel.mediaSubtitle,
+                    isCasting = isCasting,
+                    syncPlayRoom = syncPlayRoom,
+                    syncPlayParticipants = syncPlayParticipants,
+                    isCaptionsEnabled = isCaptionsEnabled,
+                    onToggleCaptions = { captionController.toggleEnabled() },
+                    onOpenSyncPlay = { showSyncPlaySheet = true },
+                    onOpenPlaybackInfo = { showPlaybackInfo = true },
+                    onEnterPip = handleEnterPip,
+                    onClose = {
                         playerViewModel.closePlayer()
                         onDismiss()
-                    }) {
-                        Icon(
-                            Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Close",
-                            tint = Color.White,
-                            modifier = Modifier.size(36.dp)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = playerViewModel.mediaTitle,
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            ),
-                            maxLines = 1
-                        )
-                        if (isCasting) {
-                            Text(
-                                text = "Casting to TV",
-                                style = MaterialTheme.typography.bodySmall.copy(color = YellowAccent),
-                                maxLines = 1
-                            )
-                        } else {
-                            playerViewModel.mediaSubtitle?.let { sub ->
-                                Text(
-                                    text = sub,
-                                    style = MaterialTheme.typography.bodySmall.copy(color = Color.White.copy(alpha = 0.8f)),
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-
-                    // Cast Button - self-manages its route icon/state once wired
-                    // to the shared CastContext, so `update` has nothing to sync.
-                    AndroidView(
-                        factory = { ctx ->
-                            try {
-                                val themedContext = android.view.ContextThemeWrapper(
-                                    ctx,
-                                    androidx.appcompat.R.style.Theme_AppCompat_NoActionBar
-                                )
-                                MediaRouteButton(themedContext).apply {
-                                    runCatching { CastButtonFactory.setUpMediaRouteButton(themedContext, this) }
-                                }
-                            } catch (e: Throwable) {
-                                android.view.View(ctx)
-                            }
-                        },
-                        modifier = Modifier.size(48.dp)
-                    )
-
-                    // SyncPlay Watch Party Toggle
-                    IconButton(onClick = { showSyncPlaySheet = true }) {
-                        BadgedBox(
-                            badge = {
-                                if (syncPlayRoom != null && syncPlayParticipants.isNotEmpty()) {
-                                    Badge(containerColor = BluePrimary) {
-                                        Text(syncPlayParticipants.size.toString())
-                                    }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                Icons.Default.Group,
-                                contentDescription = "SyncPlay Watch Party",
-                                tint = if (syncPlayRoom != null) BluePrimary else Color.White
-                            )
-                        }
-                    }
-
-                    // Playback Info Toggle
-                    IconButton(onClick = { showPlaybackInfo = true }) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = "Playback Info",
-                            tint = Color.White
-                        )
-                    }
-
-                    // Captions Toggle
-                    IconButton(onClick = { captionController.toggleEnabled() }) {
-                        Icon(
-                            Icons.Default.ClosedCaption,
-                            contentDescription = "Captions",
-                            tint = if (isCaptionsEnabled) YellowAccent else Color.White
-                        )
-                    }
-
-                    // Picture-in-Picture Toggle (suppressed when casting to remote TV)
-                    if (!isCasting) {
-                        IconButton(onClick = handleEnterPip) {
-                            Icon(
-                                Icons.Default.PictureInPictureAlt,
-                                contentDescription = "Picture-in-Picture",
-                                tint = Color.White
-                            )
-                        }
-                    }
-                }
+                    },
+                    modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
+                )
 
                 // Center Play / Skip Controls
-                Row(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalArrangement = Arrangement.spacedBy(40.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (isSeekable) {
-                        IconButton(
-                            onClick = { playerViewModel.skipBackward(10.0) },
-                            modifier = Modifier.size(52.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Replay10,
-                                contentDescription = "Skip Back 10s",
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = { playerViewModel.togglePlayPause() },
-                        modifier = Modifier.size(72.dp)
-                    ) {
-                        Icon(
-                            if (state == PlaybackState.Playing) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                            contentDescription = "Play/Pause",
-                            tint = Color.White,
-                            modifier = Modifier.size(68.dp)
-                        )
-                    }
-
-                    if (isSeekable) {
-                        IconButton(
-                            onClick = { playerViewModel.skipForward(10.0) },
-                            modifier = Modifier.size(52.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Forward10,
-                                contentDescription = "Skip Forward 10s",
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
-                        }
-                    }
-                }
+                PlayerCenterControls(
+                    isPlaying = state == PlaybackState.Playing,
+                    isSeekable = isSeekable,
+                    onPlayPause = { playerViewModel.togglePlayPause() },
+                    onSkipBackward = { playerViewModel.skipBackward(10.0) },
+                    onSkipForward = { playerViewModel.skipForward(10.0) },
+                    modifier = Modifier.align(Alignment.Center)
+                )
 
                 // Bottom Timeline & Actions
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 20.dp)
-                ) {
-                    ScrubBar(
-                        currentTime = currentTime,
-                        duration = duration,
-                        isLive = isLive,
-                        isSeekable = isSeekable,
-                        thumbnailCues = thumbnailCues,
-                        onSeek = { target -> playerViewModel.seek(target) },
-                        onScrubbingStateChange = { isUserScrubbing = it }
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Record Live Button + Menu (mirrors HDHomeRunPlayerRecordMenu.svelte:
-                        // a scheduled rule for the current airing/channel shows only "Cancel
-                        // Recording"; otherwise the menu offers episode/series rules, options,
-                        // and this app's own quick "save the buffering watch session" action).
-                        if (isWatchSession) {
-                            Box {
-                                Button(
-                                    onClick = { showRecordMenu = !showRecordMenu },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f)),
-                                    shape = RoundedCornerShape(8.dp),
-                                    enabled = !isPromoting
-                                ) {
-                                    Icon(
-                                        if (existingRule != null || isPromoted) Icons.Default.CheckCircle else Icons.Default.FiberManualRecord,
-                                        contentDescription = "Record",
-                                        tint = if (existingRule != null || isPromoted) GreenActive else RedLive,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = when {
-                                            existingRule != null -> "Recording Scheduled"
-                                            isPromoted -> "Recording Saved"
-                                            else -> "Record"
-                                        },
-                                        style = MaterialTheme.typography.labelMedium.copy(color = Color.White, fontWeight = FontWeight.Bold)
-                                    )
-                                }
-
-                                DropdownMenu(
-                                    expanded = showRecordMenu,
-                                    onDismissRequest = { showRecordMenu = false },
-                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                                ) {
-                                    if (existingRule != null) {
-                                        DropdownMenuItem(
-                                            text = { Text("Cancel Recording", color = RedLive) },
-                                            onClick = {
-                                                showRecordMenu = false
-                                                coroutineScope.launch { guideViewModel.cancelRule(existingRule.recordingRuleId) }
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Recording Options…") },
-                                            onClick = {
-                                                showRecordMenu = false
-                                                showRecordingOptionsSheet = true
-                                            }
-                                        )
-                                    } else {
-                                        DropdownMenuItem(
-                                            text = { Text(if (isPromoted) "Recording Saved" else "Save Current Recording") },
-                                            enabled = !isPromoted && !isPromoting,
-                                            onClick = {
-                                                showRecordMenu = false
-                                                playerViewModel.promoteToRecording()
-                                            }
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Record Episode") },
-                                            onClick = {
-                                                showRecordMenu = false
-                                                coroutineScope.launch {
-                                                    guideViewModel.recordEpisode(
-                                                        seriesId = activeAiring?.seriesId,
-                                                        channelNumber = activeChannel?.channelNumber,
-                                                        start = activeAiring?.start
-                                                    )
-                                                }
-                                            }
-                                        )
-                                        if (!activeAiring?.seriesId.isNullOrEmpty() || !activeAiring?.title.isNullOrEmpty()) {
-                                            DropdownMenuItem(
-                                                text = { Text("Record Series") },
-                                                onClick = {
-                                                    showRecordMenu = false
-                                                    coroutineScope.launch {
-                                                        guideViewModel.recordSeries(
-                                                            seriesId = activeAiring?.seriesId ?: "",
-                                                            channelNumber = activeChannel?.channelNumber
-                                                        )
-                                                    }
-                                                }
-                                            )
-                                        }
-                                        DropdownMenuItem(
-                                            text = { Text("Recording Options…") },
-                                            onClick = {
-                                                showRecordMenu = false
-                                                showRecordingOptionsSheet = true
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.width(1.dp))
+                PlayerBottomBar(
+                    currentTime = currentTime,
+                    duration = duration,
+                    isLive = isLive,
+                    isSeekable = isSeekable,
+                    thumbnailCues = thumbnailCues,
+                    isWatchSession = isWatchSession,
+                    isPromoted = isPromoted,
+                    isPromoting = isPromoting,
+                    existingRule = existingRule,
+                    activeAiring = activeAiring,
+                    availableAudioTracks = availableAudioTracks,
+                    currentAudioTrack = currentAudioTrack,
+                    isSwitchingAudioTrack = isSwitchingAudioTrack,
+                    onSeek = { target -> playerViewModel.seek(target) },
+                    onScrubbingStateChange = { isUserScrubbing = it },
+                    onPromoteToRecording = { playerViewModel.promoteToRecording() },
+                    onRecordEpisode = {
+                        coroutineScope.launch {
+                            guideViewModel.recordEpisode(
+                                seriesId = activeAiring?.seriesId,
+                                channelNumber = activeChannel?.channelNumber,
+                                start = activeAiring?.start
+                            )
                         }
-
-                        // Audio Track Selector
-                        if (availableAudioTracks.isNotEmpty()) {
-                            Box {
-                                IconButton(onClick = { showAudioMenu = !showAudioMenu }) {
-                                    Icon(
-                                        Icons.Default.GraphicEq,
-                                        contentDescription = "Audio Tracks",
-                                        tint = Color.White
-                                    )
-                                }
-
-                                DropdownMenu(
-                                    expanded = showAudioMenu,
-                                    onDismissRequest = { showAudioMenu = false },
-                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                                ) {
-                                    availableAudioTracks.forEach { track ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Text(
-                                                    text = track.displayLabel,
-                                                    color = if (track.index == currentAudioTrack?.index) BluePrimary else MaterialTheme.colorScheme.onSurface
-                                                )
-                                            },
-                                            enabled = !isSwitchingAudioTrack,
-                                            onClick = {
-                                                playerViewModel.selectAudioTrack(track)
-                                                showAudioMenu = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
+                    },
+                    onRecordSeries = {
+                        coroutineScope.launch {
+                            guideViewModel.recordSeries(
+                                seriesId = activeAiring?.seriesId ?: "",
+                                channelNumber = activeChannel?.channelNumber
+                            )
                         }
-                    }
-                }
+                    },
+                    onCancelRule = { ruleId ->
+                        coroutineScope.launch { guideViewModel.cancelRule(ruleId) }
+                    },
+                    onOpenRecordingOptions = { showRecordingOptionsSheet = true },
+                    onSelectAudioTrack = { track -> playerViewModel.selectAudioTrack(track) },
+                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
+                )
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = if (showControls && !isInPipMode) 90.dp else 16.dp)
+        )
 
         if (!isInPipMode && showPlaybackInfo) {
             PlaybackInfoDialog(

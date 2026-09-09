@@ -14,6 +14,13 @@ import org.hdhropen.kit.models.HDHomeRunTunerInfo
 import org.hdhropen.kit.networking.APIClient
 import org.hdhropen.kit.utilities.Log
 
+/**
+ * ViewModel managing HDHomeRun tuner status and diagnostic info.
+ *
+ * Note: TunerViewModel instances are retained as application-scoped singletons in [AppEnvironment]
+ * rather than scoped to individual Android Activity/Fragment lifecycles via ViewModelProvider.
+ * Active polling should be started and stopped explicitly by UI screens via [startPolling] and [stopPolling].
+ */
 class TunerViewModel(
     private val apiClient: APIClient
 ) : ViewModel() {
@@ -65,9 +72,5 @@ class TunerViewModel(
         pollingJob?.cancel()
         pollingJob = null
     }
-
-    override fun onCleared() {
-        super.onCleared()
-        stopPolling()
-    }
 }
+

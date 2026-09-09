@@ -354,4 +354,106 @@ class CoreViewModelsComprehensiveTest {
         vm.closePlayer()
         assertNull(vm.activeChannel.value)
     }
+
+    @Test
+    fun testPlayerViewModel_promoteToRecording_failure() = runTest {
+        val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
+        val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
+        val captionController = org.hdhropen.kit.playback.CaptionController()
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+
+        val channel = HDHomeRunChannel(channelNumber = "7.1", name = "KGO")
+        val watchRec = HDHomeRunRecording(recordingId = "rec_live_71", title = "KGO Live", playUrl = "/api/dvr/live_71.mpg")
+
+        coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
+        coEvery { watchSessionManager.startWatch("7.1") } returns watchRec
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns
+            org.hdhropen.kit.networking.HLSSessionResponse(
+                sessionId = "sess_watch_71",
+                playlistUrl = "/api/hls/sess_watch_71/playlist.m3u8"
+            )
+        coEvery { watchSessionManager.promoteWatch() } throws Exception("Tuner storage full")
+
+        vm.playChannel(channel)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.promoteToRecording()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(vm.isPromoted.value)
+        assertFalse(vm.isPromoting.value)
+        assertNotNull(vm.transientError.value)
+        assertTrue(vm.transientError.value?.contains("Tuner storage full") == true)
+
+        vm.clearTransientError()
+        assertNull(vm.transientError.value)
+    }
+
+    @Test
+    fun testPlayerViewModel_selectAudioTrack_failure() = runTest {
+        val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
+        val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
+        val captionController = org.hdhropen.kit.playback.CaptionController()
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+
+        val track1 = HDHomeRunRecordingAudioInfo(index = 0, title = "Main", channels = 2)
+        val track2 = HDHomeRunRecordingAudioInfo(index = 1, title = "Spanish", channels = 2)
+        playerEngine.setAudioTracks(listOf(track1, track2), selectedTrack = track1)
+
+        val rec = HDHomeRunRecording(
+            recordingId = "rec_fail_audio",
+            title = "Movie Night",
+            playUrl = "/api/dvr/rec_fail_audio.mpg",
+            provider = "internal"
+        )
+
+        coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns
+            org.hdhropen.kit.networking.HLSSessionResponse(
+                sessionId = "rec_sess_hls",
+                playlistUrl = "/api/hls/rec_sess_hls/playlist.m3u8"
+            )
+
+        vm.playRecording(rec)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Make subsequent audio track switch fail
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } throws
+            org.hdhropen.kit.networking.APIError.ServerError(500, "Transcoder died")
+
+        vm.selectAudioTrack(track2)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(vm.isSwitchingAudioTrack.value)
+        assertNotNull(vm.transientError.value)
+        assertTrue(vm.transientError.value?.contains("Transcoder died") == true)
+
+        vm.clearTransientError()
+        assertNull(vm.transientError.value)
+    }
+
+    @Test
+    fun testPlayerViewModel_playChannel_watchSessionFallbackNotice() = runTest {
+        val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
+        val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
+        val captionController = org.hdhropen.kit.playback.CaptionController()
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+
+        val channel = HDHomeRunChannel(channelNumber = "2.1", name = "KTVU")
+        val directRec = HDHomeRunRecording(title = "KTVU Live", sessionId = "channel_direct_hls", playlistUrl = "/api/hls/ch_21/playlist.m3u8")
+
+        coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
+        // Watch session start returns null (unsupported/unavailable)
+        coEvery { watchSessionManager.startWatch("2.1") } returns null
+        coEvery { apiClient.createChannelHLSSession("2.1", forCast = any()) } returns directRec
+
+        vm.playChannel(channel)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(vm.isWatchSession.value)
+        assertEquals("Live pause unavailable for this stream", vm.fallbackNotice.value)
+
+        vm.clearFallbackNotice()
+        assertNull(vm.fallbackNotice.value)
+    }
 }

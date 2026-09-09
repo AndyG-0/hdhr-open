@@ -4,13 +4,13 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import io.mockk.mockk
 import io.mockk.spyk
-import org.hdhropen.app.ui.screens.guide.GuideGridMath
 import org.hdhropen.app.ui.screens.guide.GuideGridView
 import org.hdhropen.app.ui.theme.HDHROpenTheme
 import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunFullGuideChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
 import org.hdhropen.kit.networking.APIClient
+import org.hdhropen.kit.utilities.GuideGridMath
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.junit.Assert.*
 import org.junit.Rule

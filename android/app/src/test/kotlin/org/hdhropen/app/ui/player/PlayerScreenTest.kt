@@ -335,4 +335,58 @@ class PlayerScreenTest {
         composeTestRule.onNodeWithText("Record Episode").performClick()
         coVerify { holder.guideVm.recordEpisode(seriesId = "series-4", channelNumber = "4.1", start = any()) }
     }
+
+    @Test
+    fun testPlayerScreenShowsTransientErrorSnackbar() {
+        composeTestRule.mainClock.autoAdvance = false
+
+        val holder = MockPlayerHolder()
+        activeVm = holder.playerVm
+        holder.stateFlow.value = PlaybackState.Playing
+
+        val transientErrorFlow = MutableStateFlow<String?>("Failed to switch audio track: Audio index 2 not available")
+        every { holder.playerVm.transientError } returns transientErrorFlow
+
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                PlayerScreen(
+                    playerViewModel = holder.playerVm,
+                    guideViewModel = holder.guideVm,
+                    recordingsViewModel = holder.recordingsVm,
+                    onDismiss = {}
+                )
+            }
+        }
+        composeTestRule.mainClock.advanceTimeBy(500)
+
+        composeTestRule.onNodeWithText("Failed to switch audio track: Audio index 2 not available").assertExists()
+        verify { holder.playerVm.clearTransientError() }
+    }
+
+    @Test
+    fun testPlayerScreenShowsFallbackNoticeSnackbar() {
+        composeTestRule.mainClock.autoAdvance = false
+
+        val holder = MockPlayerHolder()
+        activeVm = holder.playerVm
+        holder.stateFlow.value = PlaybackState.Playing
+
+        val fallbackNoticeFlow = MutableStateFlow<String?>("Watch session buffering is unavailable on this device. Playing direct stream instead.")
+        every { holder.playerVm.fallbackNotice } returns fallbackNoticeFlow
+
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                PlayerScreen(
+                    playerViewModel = holder.playerVm,
+                    guideViewModel = holder.guideVm,
+                    recordingsViewModel = holder.recordingsVm,
+                    onDismiss = {}
+                )
+            }
+        }
+        composeTestRule.mainClock.advanceTimeBy(500)
+
+        composeTestRule.onNodeWithText("Watch session buffering is unavailable on this device. Playing direct stream instead.").assertExists()
+        verify { holder.playerVm.clearFallbackNotice() }
+    }
 }

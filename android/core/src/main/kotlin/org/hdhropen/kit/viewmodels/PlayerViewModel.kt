@@ -36,53 +36,14 @@ class PlayerViewModel(
     val watchSessionManager: WatchSessionManager,
     val playerEngine: PlayerEngine = PlayerEngine(),
     val captionController: CaptionController = CaptionController(),
-    private val playbackPreferences: PlaybackPreferences = PlaybackPreferences()
+    private val playbackPreferences: PlaybackPreferences = PlaybackPreferences(),
+    val liveCaptionAligner: LiveCaptionAligner = LiveCaptionAligner()
 ) : ViewModel() {
     private companion object {
-        // Live captions are extracted incrementally by the backend; re-fetching
-        // more often than this just re-downloads/re-parses an ever-larger VTT
-        // for little freshness gain, since Android does a full-replace rather
-        // than an incremental append. The dominant source of caption lag is
-        // server-side CEA-608/708 roll-up decode latency (10-15s, see CC-3 in
-        // TODO.md) - this only trims the client's own added delay, so it's
-        // kept short rather than tuned much further down.
         const val CAPTION_POLL_INTERVAL_MS = 1_500L
-
-        // Live extraction (segment decode + poll interval) routinely delivers a
-        // cue 10-15s after the dialogue it transcribes - well past that cue's
-        // own few-second [start, end] window relative to live playback. A cue
-        // that arrives already-expired would never satisfy CaptionController's
-        // "currentTime is inside this cue" check, so it would just silently
-        // never show. Stretching such a cue's window to start from whenever it
-        // actually arrived keeps it on screen for a bit instead.
-        const val LIVE_CUE_STRETCH_SECONDS = 4.0
-
-        // Caps how far behind "now" a stretched cue's slot can be pushed by a
-        // burst of backlog (see alignLiveCues's cursor-reset comment for why
-        // this exists - mirrors web's caption-controller.ts LIVE_CUE_MAX_
-        // CATCHUP_SECONDS from the CC-13 freeze fix). Past this cap, further
-        // backlog cues are left unstretched (naturally expired, dropped from
-        // display) instead of extending the queue arbitrarily far forward.
-        const val LIVE_CUE_MAX_CATCHUP_SECONDS = 20.0
     }
 
     private var captionPollJob: Job? = null
-
-    // Keyed by CaptionCue.id (stable across polls - derived from the raw,
-    // pre-alignment start/end/text the backend won't change once emitted).
-    // Android's setCues() is a full-replace each poll rather than web's
-    // incremental append, so a stretch decision made for a cue on one poll
-    // has to be remembered and reapplied on every later poll that re-sees the
-    // same cue, or it would flicker between its natural (expired) window and
-    // a freshly-recomputed stretch window each time.
-    private val stretchedCueDisplay = mutableMapOf<String, Pair<Double, Double>>()
-    private var nextStretchSlotAbsolute = 0.0
-
-    // The raw (pre-alignment) cues from the most recent fetchCaptionsOnce -
-    // kept so a seek/skip can re-run alignLiveCues immediately against the
-    // player's new position without waiting for the next poll or issuing a
-    // network fetch.
-    private var lastRawCues: List<CaptionCue> = emptyList()
 
     private val _activeChannel = MutableStateFlow<HDHomeRunChannel?>(null)
     val activeChannel: StateFlow<HDHomeRunChannel?> = _activeChannel.asStateFlow()
@@ -141,8 +102,19 @@ class PlayerViewModel(
     private val _isSwitchingAudioTrack = MutableStateFlow(false)
     val isSwitchingAudioTrack: StateFlow<Boolean> = _isSwitchingAudioTrack.asStateFlow()
 
-    val showAudioMenu = MutableStateFlow(false)
-    val showSettingsOverlay = MutableStateFlow(false)
+    private val _transientError = MutableStateFlow<String?>(null)
+    val transientError: StateFlow<String?> = _transientError.asStateFlow()
+
+    fun clearTransientError() {
+        _transientError.value = null
+    }
+
+    private val _fallbackNotice = MutableStateFlow<String?>(null)
+    val fallbackNotice: StateFlow<String?> = _fallbackNotice.asStateFlow()
+
+    fun clearFallbackNotice() {
+        _fallbackNotice.value = null
+    }
 
     val syncPlayClient: SyncPlayClient = runCatching {
         SyncPlayClient(
@@ -278,6 +250,7 @@ class PlayerViewModel(
             val forCast = playerEngine.isCasting.value
 
             // 1. Try starting a watch session for live pause/rewind, packaged as HLS
+            var watchStartFailed = false
             try {
                 val watchRec = watchSessionManager.startWatch(channel.channelNumber)
                 val playUrl = watchRec?.playUrl
@@ -308,9 +281,16 @@ class PlayerViewModel(
                     )
                     loadRecordingMetadata(watchRec)
                     return@launch
+                } else {
+                    watchStartFailed = true
                 }
             } catch (e: Exception) {
                 Log.player.warning("Watch session auto-start failed, falling back to direct HLS: ${e.localizedMessage}")
+                watchStartFailed = true
+            }
+
+            if (watchStartFailed) {
+                _fallbackNotice.value = "Live pause unavailable for this stream"
             }
 
             // 2. Direct HLS streaming fallback
@@ -399,61 +379,13 @@ class PlayerViewModel(
     }
 
     private fun setPlaybackError(e: Throwable) {
-        when (e) {
-            is APIError.ServerError -> {
-                val msg = if (e.statusCode == 502) {
-                    "Tuner or streaming server unavailable (HTTP 502)"
-                } else {
-                    "Server error (HTTP ${e.statusCode})"
-                }
-                playerEngine.setFailed(
-                    message = msg,
-                    detail = e.message,
-                    statusCode = e.statusCode,
-                    isNetworkError = true
-                )
-            }
-            is APIError.NetworkError -> {
-                playerEngine.setFailed(
-                    message = "Network connection error",
-                    detail = "Unable to connect to the HDHomeRun Open server. Please check your network connection.",
-                    statusCode = null,
-                    isNetworkError = true
-                )
-            }
-            is APIError.Unauthorized -> {
-                playerEngine.setFailed(
-                    message = "Authentication required (HTTP 401)",
-                    detail = e.message,
-                    statusCode = 401,
-                    isNetworkError = true
-                )
-            }
-            is APIError.NotFound -> {
-                playerEngine.setFailed(
-                    message = "Stream or channel not found (HTTP 404)",
-                    detail = e.message,
-                    statusCode = 404,
-                    isNetworkError = true
-                )
-            }
-            is APIError.LockedOut -> {
-                playerEngine.setFailed(
-                    message = "Account locked out (HTTP 429)",
-                    detail = e.message,
-                    statusCode = 429,
-                    isNetworkError = false
-                )
-            }
-            else -> {
-                playerEngine.setFailed(
-                    message = "Failed to start stream",
-                    detail = e.localizedMessage ?: "An unexpected error occurred while starting stream",
-                    statusCode = null,
-                    isNetworkError = false
-                )
-            }
-        }
+        val parsed = PlaybackErrorMapper.mapApiError(e)
+        playerEngine.setFailed(
+            message = parsed.message,
+            detail = parsed.detail,
+            statusCode = parsed.statusCode,
+            isNetworkError = parsed.isNetworkError
+        )
     }
 
     fun retry() {
@@ -477,6 +409,7 @@ class PlayerViewModel(
                 Log.player.info("Promoted live watch to DVR recording: ${promoted.title}")
             } catch (e: Exception) {
                 Log.player.error("Failed to promote watch session: ${e.localizedMessage}")
+                _transientError.value = "Failed to save recording: ${e.localizedMessage ?: "Unknown error"}"
             } finally {
                 _isPromoting.value = false
             }
@@ -557,6 +490,7 @@ class PlayerViewModel(
                 }
             } catch (e: Exception) {
                 Log.player.error("Audio track switch failed: ${e.localizedMessage}")
+                _transientError.value = "Failed to switch audio track: ${e.localizedMessage ?: "Unknown error"}"
             } finally {
                 _isSwitchingAudioTrack.value = false
             }
@@ -632,8 +566,9 @@ class PlayerViewModel(
             )
             val capString = apiClient.fetchRawString(capURL)
             val cues = VTTParser.parseCaptions(capString)
-            lastRawCues = cues
-            captionController.setCues(alignLiveCues(recording, cues))
+            liveCaptionAligner.lastRawCues = cues
+            val aligned = liveCaptionAligner.alignLiveCues(recording, cues, playerEngine.currentTime.value)
+            captionController.setCues(aligned)
         } catch (e: Exception) {
             // Captions are optional / not extracted yet - poller (if running) retries next tick
         }
@@ -840,90 +775,14 @@ class PlayerViewModel(
         }
     }
 
-    /** Deliberately does NOT call resetCueStretch(): stretchedCueDisplay's
-     * windows are already absolute-time and cue-id-keyed, so alignLiveCues
-     * converts them to display coordinates fresh on every call via the
-     * current baseOffsetSeconds - no reason to touch it here. Clearing it
-     * would make nearly every already-stretched cue in lastRawCues (Android
-     * fetches the full history each time, not an incremental append) look
-     * "newly arrived" simultaneously, replaying the whole caption history in
-     * back-to-back stretch slots right after a seek. */
     private fun resyncCaptionsAfterSeek() {
         val recording = _activeRecording.value ?: return
-        if (!recording.isInProgress) return
-        captionController.setCues(alignLiveCues(recording, lastRawCues))
-    }
-
-    /** While a recording is in progress, the backend serves cue timestamps
-     * anchored to the capture's absolute start (`recording.start`), but the
-     * HLS session actually being played is a fresh rolling live window whose
-     * own position clock has no fixed relationship to that origin - so raw
-     * cue times drift against `playerEngine.currentTime` and cues appear to
-     * repeat/misalign. Shift cues by the gap between elapsed capture time
-     * (computable locally, since `recording.start` is an absolute epoch) and
-     * the player's own position; recomputed on every poll so it tracks a
-     * live-growing HLS window instead of freezing at its first estimate.
-     *
-     * That shift alone isn't enough while live, though: extraction lag means
-     * a cue's natural (shifted) window has often already passed the current
-     * player position by the time it arrives. Such cues get "stretched" to a
-     * short display window starting from whenever they actually showed up
-     * instead, mirroring the web client's live-cue handling
-     * (`frontend/src/lib/caption-controller.ts`). Cues that are due to arrive
-     * (or already displaying) reach their real window as normal. */
-    private fun alignLiveCues(recording: HDHomeRunRecording, cues: List<CaptionCue>): List<CaptionCue> {
-        val start = recording.start
-        if (!recording.isInProgress || start == null) return cues
-        val elapsedCaptureSeconds = (System.currentTimeMillis() / 1000.0) - start
-        val playerTime = playerEngine.currentTime.value
-        val baseOffsetSeconds = elapsedCaptureSeconds - playerTime
-        // Re-anchor to "now" on every call instead of trusting wherever a
-        // previous, separate call left the cursor. Without this, the cursor
-        // advances by LIVE_CUE_STRETCH_SECONDS per newly-stretched cue - slower
-        // than real cue cadence (~2.85s avg observed) - so it drifts further
-        // ahead of real time on every poll and never catches back up, pinning
-        // near the cap below and queuing every cue after that behind an
-        // unreachable backlog: a permanent freeze, not a bounded lag. Same bug
-        // and fix as web's caption-controller.ts (CC-13).
-        nextStretchSlotAbsolute = elapsedCaptureSeconds
-
-        return cues.mapNotNull { cue ->
-            val (absStart, absEnd) = stretchedCueDisplay[cue.id] ?: run {
-                val naturalEnd = cue.end - baseOffsetSeconds
-                if (naturalEnd > playerTime) {
-                    cue.start to cue.end
-                } else {
-                    val slotStart = maxOf(cue.start, nextStretchSlotAbsolute, elapsedCaptureSeconds)
-                    if (slotStart - elapsedCaptureSeconds > LIVE_CUE_MAX_CATCHUP_SECONDS) {
-                        return@run cue.start to cue.end
-                    }
-                    val slotEnd = slotStart + LIVE_CUE_STRETCH_SECONDS
-                    stretchedCueDisplay[cue.id] = slotStart to slotEnd
-                    nextStretchSlotAbsolute = slotEnd
-                    slotStart to slotEnd
-                }
-            }
-            val displayEnd = absEnd - baseOffsetSeconds
-            if (displayEnd <= 0) return@mapNotNull null
-            cue.copy(start = (absStart - baseOffsetSeconds).coerceAtLeast(0.0), end = displayEnd)
+        val resynced = liveCaptionAligner.resyncCaptionsAfterSeek(recording, playerEngine.currentTime.value)
+        if (resynced != null) {
+            captionController.setCues(resynced)
         }
     }
 
-    /** Clears live-cue stretch bookkeeping so a new playback session doesn't
-     * reuse stale slot/display decisions from a previous one. */
-    private fun resetCueStretch() {
-        stretchedCueDisplay.clear()
-        nextStretchSlotAbsolute = 0.0
-        lastRawCues = emptyList()
-    }
-
-    /** Periodically re-fetches captions while a recording is in progress,
-     * since the backend extracts live captions incrementally and expects
-     * clients to poll rather than fetch once. Stops after the first fetch
-     * made once the recording is no longer in progress (its final, complete
-     * VTT). Covers both live watch sessions (`playChannel`) and DVR items
-     * still recording when opened from the recordings list (`playRecording`)
-     * - both call this via `loadRecordingMetadata`. */
     private fun startCaptionPolling(recording: HDHomeRunRecording) {
         if (!recording.isInProgress) return
         captionPollJob?.cancel()
@@ -961,7 +820,7 @@ class PlayerViewModel(
         watchSessionManager.stopWatch()
         stopCaptionPolling()
         captionController.reset()
-        resetCueStretch()
+        liveCaptionAligner.reset()
 
         _activeHLSSessionId.value?.let { sessionId ->
             viewModelScope.launch {
@@ -982,5 +841,7 @@ class PlayerViewModel(
         _isPromoted.value = false
         _thumbnailCues.value = emptyList()
         _thumbnailSpriteURL.value = null
+        _fallbackNotice.value = null
+        _transientError.value = null
     }
 }

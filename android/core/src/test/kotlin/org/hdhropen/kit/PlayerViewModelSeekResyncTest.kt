@@ -60,18 +60,12 @@ class PlayerViewModelSeekResyncTest {
         stateFlow.value = recording
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun setLastRawCues(vm: PlayerViewModel, cues: List<CaptionCue>) {
-        val field = PlayerViewModel::class.java.getDeclaredField("lastRawCues")
-        field.isAccessible = true
-        field.set(vm, cues)
+        vm.liveCaptionAligner.lastRawCues = cues
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun stretchedCueDisplay(vm: PlayerViewModel): MutableMap<String, Pair<Double, Double>> {
-        val field = PlayerViewModel::class.java.getDeclaredField("stretchedCueDisplay")
-        field.isAccessible = true
-        return field.get(vm) as MutableMap<String, Pair<Double, Double>>
+        return vm.liveCaptionAligner.stretchedCueDisplay
     }
 
     private fun inProgressRecording(startedSecondsAgo: Double): HDHomeRunRecording {

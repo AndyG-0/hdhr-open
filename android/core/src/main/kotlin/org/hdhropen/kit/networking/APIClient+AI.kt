@@ -1,5 +1,6 @@
 package org.hdhropen.kit.networking
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
@@ -15,8 +16,9 @@ private val aiJsonMediaType = "application/json; charset=utf-8".toMediaType()
 
 suspend fun APIClient.sendAIChat(
     request: AIChatRequest,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     onEvent: (AIStreamEvent) -> Unit
-) = withContext(Dispatchers.IO) {
+) = withContext(ioDispatcher) {
     val fullUrl = if (baseURL.endsWith("/")) {
         baseURL + APIEndpoints.aiChat().removePrefix("/")
     } else {

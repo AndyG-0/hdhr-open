@@ -47,10 +47,6 @@ fun ScrubBar(
 
     val previewTime = if (duration > 0) effectiveRatio.toDouble() * duration else currentTime
 
-    val activeThumbnail = remember(previewTime, thumbnailCues) {
-        thumbnailCues.firstOrNull { it.contains(previewTime) }
-    }
-
     Column(modifier = modifier.fillMaxWidth()) {
         // Thumbnail / Time Preview Bubble if dragging
         if (isDragging) {

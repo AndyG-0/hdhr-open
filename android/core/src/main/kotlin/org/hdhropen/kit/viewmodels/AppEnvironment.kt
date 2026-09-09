@@ -29,6 +29,7 @@ class AppEnvironment(
     val tunerViewModel = TunerViewModel(apiClient)
     val settingsViewModel = SettingsViewModel(apiClient)
     val authViewModel = AuthViewModel(authManager)
+    val aiAssistantViewModel = AIAssistantViewModel(apiClient)
 
     fun updateServerURL(url: String) {
         serverDiscovery.setServerURL(url)

@@ -30,7 +30,7 @@ class WatchSessionManagerTest {
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         apiClient = mockk(relaxed = true)
-        manager = WatchSessionManager(apiClient, testScope)
+        manager = WatchSessionManager(apiClient, testScope, testDispatcher)
     }
 
     @After
