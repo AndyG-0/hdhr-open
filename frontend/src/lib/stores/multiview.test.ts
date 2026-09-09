@@ -38,7 +38,6 @@ import {
 	replaceFeed,
 	setAudioSlot,
 	swapSlots,
-	setLayout,
 	expandSlot,
 	closeAll,
 	recommendedLayout,
@@ -264,7 +263,7 @@ describe('multiview store', () => {
 		await addFeed(mockChannel('5.1', 'WFAA'));
 
 		swapSlots(2, 0);
-		let state = get(multiview);
+		const state = get(multiview);
 		expect(state.slots[0].channel.channel_number).toBe('5.1');
 		expect(state.slots[2].channel.channel_number).toBe('2.1');
 		expect(state.activeSlotIndex).toBe(2);

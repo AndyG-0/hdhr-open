@@ -26,9 +26,7 @@
 		roomCode = null,
 		participants = [],
 		isHost = false,
-		pingMs = 0,
 		status = 'disconnected',
-		currentContent = null,
 		onJoinRoom,
 		onCreateRoom,
 		onLeaveRoom,
@@ -50,8 +48,8 @@
 		try {
 			await onJoinRoom(cleanCode);
 			inputCode = '';
-		} catch (err: any) {
-			errorMessage = err?.message || 'Failed to join room';
+		} catch (err: unknown) {
+			errorMessage = err instanceof Error ? err.message : 'Failed to join room';
 		} finally {
 			isJoining = false;
 		}
@@ -62,8 +60,8 @@
 		errorMessage = null;
 		try {
 			await onCreateRoom();
-		} catch (err: any) {
-			errorMessage = err?.message || 'Failed to create room';
+		} catch (err: unknown) {
+			errorMessage = err instanceof Error ? err.message : 'Failed to create room';
 		} finally {
 			isCreating = false;
 		}

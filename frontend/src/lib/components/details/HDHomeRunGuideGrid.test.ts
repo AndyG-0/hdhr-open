@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import HDHomeRunGuideGrid from './HDHomeRunGuideGrid.svelte';
 import type { HDHomeRunChannel, HDHomeRunFullGuideChannel } from '$lib/api';
@@ -23,6 +23,7 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 	const mockFullGuide: HDHomeRunFullGuideChannel[] = [
 		{
 			channel_number: '4.1',
+			channel_name: 'KDFW',
 			airings: [
 				{
 					title: 'Morning News',
@@ -33,6 +34,7 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 				},
 				{
 					title: 'Daytime Talk',
+					episode_title: null,
 					synopsis: 'Celebrity guests and gossip',
 					start: Math.floor(Date.now() / 1000) + 1500,
 					end: Math.floor(Date.now() / 1000) + 3300,
@@ -55,8 +57,8 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 				channels: [mockChannel],
 				fullGuide: mockFullGuide,
 				recordingRules: [],
-				pendingRuleIds: new Set(),
-				favoriteChannels: new Set(),
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
 				savingFavorite: false,
 				recordingLoading: null,
 				officialDvrActive: false,
@@ -80,8 +82,8 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 				channels: [mockChannel],
 				fullGuide: mockFullGuide,
 				recordingRules: [],
-				pendingRuleIds: new Set(),
-				favoriteChannels: new Set(),
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
 				savingFavorite: false,
 				recordingLoading: null,
 				officialDvrActive: false,
@@ -105,8 +107,8 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 				channels: [mockChannel],
 				fullGuide: mockFullGuide,
 				recordingRules: [],
-				pendingRuleIds: new Set(),
-				favoriteChannels: new Set(),
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
 				savingFavorite: false,
 				recordingLoading: null,
 				officialDvrActive: false,
@@ -137,8 +139,8 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 				channels: [mockChannel],
 				fullGuide: mockFullGuide,
 				recordingRules: [],
-				pendingRuleIds: new Set(),
-				favoriteChannels: new Set(),
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
 				savingFavorite: false,
 				recordingLoading: null,
 				officialDvrActive: false,

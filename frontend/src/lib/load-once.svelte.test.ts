@@ -4,7 +4,7 @@ import { loadOnceWhen } from './load-once.svelte';
 
 describe('loadOnceWhen', () => {
 	it('does not call load while the condition is false', () => {
-		let ready = $state(false);
+		const ready = false;
 		let calls = 0;
 
 		const cleanup = $effect.root(() => {

@@ -177,7 +177,7 @@ describe('playback store', () => {
 	it('syncOwnedPlaybackContext supports dynamic getter for pathname', () => {
 		startPlayback(media(), '/player', context());
 
-		let currentRoute = '/player';
+		const currentRoute = '/player';
 		const updated = syncOwnedPlaybackContext(() => currentRoute, () => ({
 			...context(),
 			recordingLoading: 'rec-789',

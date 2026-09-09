@@ -16,7 +16,6 @@
 		playback,
 		startPlayback,
 		stopPlayback,
-		updateContext,
 		useOwnedPlaybackContext,
 		type PlaybackMedia,
 	} from '$lib/stores/playback';
@@ -26,7 +25,7 @@
 		buildUpdateRulePayload,
 		findNewFallbackRule,
 	} from '$lib/recording-rule-actions';
-	import { multiview, addFeed } from '$lib/stores/multiview';
+	import { addFeed } from '$lib/stores/multiview';
 
 	let channels = $state<HDHomeRunChannel[]>([]);
 	let guideAvailable = $state(false);

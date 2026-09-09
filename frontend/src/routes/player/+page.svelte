@@ -3,12 +3,10 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { _ } from 'svelte-i18n';
-	import { get } from 'svelte/store';
 	import {
 		api,
 		type HDHomeRunChannel,
 		type HDHomeRunGuideEntry,
-		type HDHomeRunRecording,
 		type HDHomeRunRecordingRule,
 		type RecordingRuleOptions,
 	} from '$lib/api';
@@ -171,7 +169,7 @@
 	}
 
 	async function loadChannel(channelNumber: string) {
-		let channelList: HDHomeRunChannel[] = [];
+		let channelList: HDHomeRunChannel[];
 		try {
 			const res = await api.getHDHomeRunChannels();
 			channels = res.channels;
@@ -192,7 +190,7 @@
 		};
 
 		// Try loading guide entry for current airing metadata
-		let currentAiring: HDHomeRunGuideEntry | null = null;
+		let currentAiring: HDHomeRunGuideEntry | null;
 		try {
 			const fullGuide = await api.getHDHomeRunGuide();
 			const nowSec = Math.floor(Date.now() / 1000);

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import HDHomeRunRecordingOptionsDialog from './HDHomeRunRecordingOptionsDialog.svelte';
-import type { HDHomeRunGuideEntry } from '$lib/api';
+import type { HDHomeRunGuideEntry, HDHomeRunChannel } from '$lib/api';
 
 const airing: HDHomeRunGuideEntry = {
 	series_id: 'SH123',
@@ -11,7 +11,7 @@ const airing: HDHomeRunGuideEntry = {
 	end: 1_700_003_600,
 };
 
-function renderDialog(overrides: { officialDvrActive?: boolean; canRecordSeries?: boolean; channels?: any[] } = {}) {
+function renderDialog(overrides: { officialDvrActive?: boolean; canRecordSeries?: boolean; channels?: HDHomeRunChannel[] } = {}) {
 	const onConfirm = vi.fn();
 	const onClose = vi.fn();
 	render(HDHomeRunRecordingOptionsDialog, {
@@ -19,9 +19,9 @@ function renderDialog(overrides: { officialDvrActive?: boolean; canRecordSeries?
 		channelName: 'KDFW',
 		channelNumber: '4.1',
 		channels: [
-			{ channel_number: '4.1', name: 'KDFW FOX' },
-			{ channel_number: '5.1', name: 'KXAS NBC' },
-			{ channel_number: '8.1', name: 'WFAA ABC' },
+			{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1', now: null, next: null },
+			{ channel_number: '5.1', name: 'KXAS NBC', is_hd: true, is_drm: false, stream_url: '/stream/5.1', playback_url: '/play/5.1', now: null, next: null },
+			{ channel_number: '8.1', name: 'WFAA ABC', is_hd: true, is_drm: false, stream_url: '/stream/8.1', playback_url: '/play/8.1', now: null, next: null },
 		],
 		canRecordSeries: true,
 		officialDvrActive: false,
@@ -321,8 +321,8 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			channelName: 'KDFW',
 			channelNumber: '4.1',
 			channels: [
-				{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1' } as any,
-				{ channel_number: '5.1', name: 'KXAS NBC', is_hd: true, is_drm: false, stream_url: '/stream/5.1', playback_url: '/play/5.1' } as any,
+				{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1', now: null, next: null },
+				{ channel_number: '5.1', name: 'KXAS NBC', is_hd: true, is_drm: false, stream_url: '/stream/5.1', playback_url: '/play/5.1', now: null, next: null },
 			],
 			canRecordSeries: true,
 			officialDvrActive: false,

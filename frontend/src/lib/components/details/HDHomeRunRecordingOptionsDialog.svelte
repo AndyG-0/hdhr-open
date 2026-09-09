@@ -183,7 +183,7 @@
 		startOfToday.setHours(0, 0, 0, 0);
 		const diffDays = Math.round((startDate.getTime() - startOfToday.getTime()) / (86400 * 1000));
 
-		let dayStr = '';
+		let dayStr: string;
 		if (diffDays === 0) {
 			dayStr = $_('hdhomerun.detail.guide_today');
 		} else if (diffDays === 1) {
@@ -303,7 +303,7 @@
 				<span class="badge feature-badge">{formatAudio(airing.audio)}</span>
 			{/if}
 			{#if airing.category}
-				{#each airing.category.split(',').map((c) => c.trim()).filter(Boolean) as cat}
+				{#each airing.category.split(',').map((c) => c.trim()).filter(Boolean) as cat (cat)}
 					<span class="badge category-badge">{cat}</span>
 				{/each}
 			{/if}
@@ -424,7 +424,7 @@
 					<div class="channel-picker-wrap">
 						<span class="channel-picker-prompt">{$_('hdhomerun.detail.select_channels_prompt')}</span>
 						<div class="channel-checklist" role="group" aria-label={$_('hdhomerun.detail.select_channels_prompt')}>
-							{#each channels as ch}
+							{#each channels as ch (ch.channel_number)}
 								<label class="channel-check-item">
 									<input
 										type="checkbox"

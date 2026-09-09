@@ -275,7 +275,7 @@ export async function addFeed(
 	channel: HDHomeRunChannel,
 	airing?: HDHomeRunGuideEntry | null,
 ): Promise<string> {
-	let currentState = get(multiview);
+	const currentState = get(multiview);
 	const maxFeeds = currentState.maxFeeds || 2;
 	if (currentState.slots.length >= maxFeeds) {
 		throw new Error(`Maximum of ${maxFeeds} concurrent feeds reached.`);

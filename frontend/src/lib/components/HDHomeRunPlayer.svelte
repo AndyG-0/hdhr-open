@@ -310,7 +310,7 @@
 		return `${m}:${s.toString().padStart(2, '0')}`;
 	}
 
-	function buildStreamUrl(startSeconds: number | undefined, audioIndex: number | null): string {
+	function buildStreamUrl(startSeconds?: number, audioIndex: number | null = currentAudioIndex): string {
 		if (!seekable || !playUrl) return src;
 		return api.hdhomerunRecordingStreamUrl(playUrl, {
 			start: startSeconds,
@@ -819,8 +819,6 @@
 	const handleRecordEpisode = (options?: RecordingRuleOptions) => recordingActionsController.handleRecordEpisode(options);
 	const handleRecordSeries = (options?: RecordingRuleOptions) => recordingActionsController.handleRecordSeries(options);
 	const handleCancelRecording = () => recordingActionsController.handleCancelRecording();
-	const handleUpdateRule = (ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) =>
-		recordingActionsController.handleUpdateRule(ruleId, mode, options);
 	const handleConfirmOptions = (mode: 'episode' | 'series', options: RecordingRuleOptions) =>
 		recordingActionsController.handleConfirmOptions(mode, options);
 

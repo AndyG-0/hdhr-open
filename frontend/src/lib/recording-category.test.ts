@@ -7,8 +7,9 @@ describe('recording-category', () => {
 		return {
 			recording_id: 'rec-1',
 			title: 'Regular Show',
-			start_time: 1000,
-			duration: 3600,
+			channel_name: null,
+			start: 1000,
+			record_end: 4600,
 			...overrides,
 		};
 	}

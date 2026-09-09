@@ -14,7 +14,6 @@
 		maxSlotsForLayout,
 		availableLayouts,
 		initTunerCapacity,
-		type MultiViewLayout,
 	} from '$lib/stores/multiview';
 	import { api, type HDHomeRunChannel } from '$lib/api';
 	import PlayerIcon from '../icons/PlayerIcon.svelte';
@@ -398,7 +397,7 @@
 				{/each}
 
 				<!-- Empty Placeholder Tiles up to layout max capacity -->
-				{#each Array(emptySlotsCount) as _, emptyIndex}
+				{#each Array.from(Array(emptySlotsCount).keys()) as emptyIndex (emptyIndex)}
 					{@const targetSlotNum = $multiview.slots.length + emptyIndex}
 					<div class="grid-cell empty-cell">
 						<MultiViewEmptyTile

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import MultiViewPlayer from './MultiViewPlayer.svelte';
-import { multiview, closeAll, addFeed, initTunerCapacity } from '$lib/stores/multiview';
+import { closeAll, addFeed, initTunerCapacity } from '$lib/stores/multiview';
 
 vi.mock('$lib/mpegts-player', () => ({
 	createMpegtsPlayer: () => ({

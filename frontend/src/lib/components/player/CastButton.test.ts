@@ -60,9 +60,7 @@ describe('CastButton.svelte', () => {
 	});
 
 	it('renders cast button when devices are available and initiates cast session on click', async () => {
-		let stateCallback: (state: string) => void = () => {};
 		watchCastState.mockImplementation((cb) => {
-			stateCallback = cb;
 			cb('not_connected');
 			return () => {};
 		});

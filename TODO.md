@@ -229,7 +229,7 @@ the player component tree, API client, and stores. Existing accessibility
 work (scrub bar `role="slider"`, guide grid row virtualization) was checked
 and found solid — not itemized below.
 
-- [ ] **REV-FE-1 — [High] `multiview.ts` currently fails lint — will break CI as-is.**
+- [x] **REV-FE-1 — [High] `multiview.ts` currently fails lint — will break CI as-is.**
   `stopAllHeartbeats()` (`src/lib/stores/multiview.ts:87`) does
   `for (const [slotId, handle] of heartbeatHandles.entries())` and never
   uses `slotId`. Verified via `npx eslint`: `error 'slotId' is assigned a
@@ -239,7 +239,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/lib/stores/multiview.ts` (MODIFY: `for (const handle of heartbeatHandles.values())`)
 
-- [ ] **REV-FE-2 — [High] `HDHomeRunPlayer.svelte` (1842 lines) mixes five distinct responsibilities.**
+- [x] **REV-FE-2 — [High] `HDHomeRunPlayer.svelte` (1842 lines) mixes five distinct responsibilities.**
   Owns recording-rule CRUD (~130 lines), media lifecycle/switching, AirPlay
   session negotiation (~130 lines of platform-quirk-heavy logic), keyboard
   shortcut dispatch, and top-level layout — all in one component. It already
@@ -248,7 +248,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: extract `recording-actions.ts` and `airplay-controller.ts` controllers)
 
-- [ ] **REV-FE-3 — [Medium] Action-error state is set on failure but never cleared on success — stale error banners persist.**
+- [x] **REV-FE-3 — [Medium] Action-error state is set on failure but never cleared on success — stale error banners persist.**
   Every `catch` block in `recordings/+page.svelte` and
   `HDHomeRunPlayer.svelte` sets `error`/`errorMessage`, but no success path
   ever resets it to `null`. Once any recording-rule action fails once, the
@@ -258,7 +258,7 @@ and found solid — not itemized below.
     - `frontend/src/routes/recordings/+page.svelte` (MODIFY: clear error at the start of each action handler)
     - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: same pattern)
 
-- [ ] **REV-FE-4 — [Medium] No fetch timeouts anywhere in `api.ts`.**
+- [x] **REV-FE-4 — [Medium] No fetch timeouts anywhere in `api.ts`.**
   None of the 9 `fetch()` call sites (`getJSON`/`postJSON`/`putJSON`/
   `patchJSON`/`deleteJSON`) use `AbortController`/`signal` or any timeout. A
   hung backend request leaves `await` pending forever with the UI stuck in
@@ -266,7 +266,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/lib/api.ts` (MODIFY: add a shared `AbortSignal.timeout(...)` wrapper in the common request helpers)
 
-- [ ] **REV-FE-5 — [Medium] SyncPlay WebSocket has no reconnect-on-drop logic.**
+- [x] **REV-FE-5 — [Medium] SyncPlay WebSocket has no reconnect-on-drop logic.**
   `ws.onclose` (`syncplay-controller.ts:151-158`) only rejects the initial
   connect promise if unresolved; if the socket drops mid-session, `status`
   silently flips to `'disconnected'` with no automatic reconnect attempt —
@@ -274,7 +274,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/lib/syncplay-controller.ts` (MODIFY: add bounded exponential-backoff reconnect reusing `room_code`)
 
-- [ ] **REV-FE-6 — [Medium] `recordings/+page.svelte` (1463 lines) duplicates category-filtering markup four times.**
+- [x] **REV-FE-6 — [Medium] `recordings/+page.svelte` (1463 lines) duplicates category-filtering markup four times.**
   The four `{#if typeFilter === ...}` branches each re-render essentially
   the same `RecordingCard` loop with only the source array and empty-state
   string differing — should collapse to one parameterized loop. The
@@ -283,7 +283,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/routes/recordings/+page.svelte` (MODIFY: parameterize the filter loop; extract `TunerStatusPopover.svelte` and `lib/recording-category.ts`)
 
-- [ ] **REV-FE-7 — [Medium] Twelve component/store files have no test coverage.**
+- [x] **REV-FE-7 — [Medium] Twelve component/store files have no test coverage.**
   `PlayerFooter.svelte`, `PlayerHeader.svelte`, `PlayerScrubBar.svelte`,
   `PlayerSettingsMenu.svelte`, `PlayerVolumeControl.svelte`, `CastButton.svelte`,
   `MiniPlayer.svelte`, `HDHomeRunGuideGrid.svelte`, `HDHomeRunGuideCellMenu.svelte`,
@@ -297,7 +297,7 @@ and found solid — not itemized below.
     - `frontend/src/lib/components/details/HDHomeRunGuideGrid.svelte` (NEW: test virtualization, search, long-press)
     - (remaining files listed above; lower priority)
 
-- [ ] **REV-FE-8 — [Low] i18n: `player.keep_playing_label` missing from `de`/`es`/`fr` locales.**
+- [x] **REV-FE-8 — [Low] i18n: `player.keep_playing_label` missing from `de`/`es`/`fr` locales.**
   Confirmed via a full top-level-key diff — this is the only key that
   differs across all four locale files. Non-English users see a raw key or
   English fallback wherever the "keep playing on navigate" toggle renders.
@@ -306,7 +306,7 @@ and found solid — not itemized below.
     - `frontend/src/lib/i18n/locales/es.json` (MODIFY: add translated key)
     - `frontend/src/lib/i18n/locales/fr.json` (MODIFY: add translated key)
 
-- [ ] **REV-FE-9 — [Low] AirPlay session-swap logic has no test coverage and encodes fragile, hardware-verified assumptions inline.**
+- [x] **REV-FE-9 — [Low] AirPlay session-swap logic has no test coverage and encodes fragile, hardware-verified assumptions inline.**
   `HDHomeRunPlayer.svelte:1106-1231` documents behavior "confirmed against
   real Safari/Apple TV hardware" (audio-only negotiation, CORS
   credential/wildcard-origin conflict, crossorigin toggling) — exactly the
@@ -315,7 +315,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: extract to testable `airplay-controller.ts`)
 
-- [ ] **REV-FE-10 — [Low] Guide search re-scans all channels/airings on every keystroke with no debounce.**
+- [x] **REV-FE-10 — [Low] Guide search re-scans all channels/airings on every keystroke with no debounce.**
   `searchResults` in `HDHomeRunGuideGrid.svelte` is a `$derived.by` that
   iterates every channel × every airing on each keystroke with no debounce.
   Not currently a measured problem, but worth a cheap debounce guard if
@@ -323,7 +323,7 @@ and found solid — not itemized below.
   - **Files**:
     - `frontend/src/lib/components/details/HDHomeRunGuideGrid.svelte` (MODIFY: debounce `searchQuery` before recomputing `searchResults`)
 
-- [ ] **REV-FE-11 — [Low] Recording-rule payload construction duplicated near-verbatim across two files.**
+- [x] **REV-FE-11 — [Low] Recording-rule payload construction duplicated near-verbatim across two files.**
   `HDHomeRunPlayer.svelte` and `recordings/+page.svelte` independently build
   the same `api.addHDHomeRunRecordingRule(...)`/`updateHDHomeRunRecordingRule(...)`
   payload shape and fallback-notice detection logic — drift risk if a
@@ -333,7 +333,7 @@ and found solid — not itemized below.
     - `frontend/src/lib/components/HDHomeRunPlayer.svelte` (MODIFY: use shared helper)
     - `frontend/src/routes/recordings/+page.svelte` (MODIFY: use shared helper)
 
-- [ ] **REV-FE-12 — [Low] `PlaybackContext` page-ownership pattern is a hand-rolled, copy-pasted protocol.**
+- [x] **REV-FE-12 — [Low] `PlaybackContext` page-ownership pattern is a hand-rolled, copy-pasted protocol.**
   Pages that "own" the persistent player's closures must remember to add an
   `$effect` that calls `get(playback)` (not `$playback`) and compares
   `originPath` against the current path before republishing — documented at

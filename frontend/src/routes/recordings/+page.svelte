@@ -28,10 +28,8 @@
 	import { get } from 'svelte/store';
 	import { page } from '$app/state';
 	import {
-		playback,
 		startPlayback,
 		stopPlayback,
-		updateContext,
 		useOwnedPlaybackContext,
 		type PlaybackMedia,
 	} from '$lib/stores/playback';
@@ -165,8 +163,8 @@
 				tuners = await api.getTunerStatus();
 			}
 			tunerToTerminate = null;
-		} catch (err: any) {
-			error = err?.message || 'Failed to terminate tuner';
+		} catch (err: unknown) {
+			error = err instanceof Error ? err.message : 'Failed to terminate tuner';
 		} finally {
 			terminatingTunerIndex = null;
 		}

@@ -19,7 +19,7 @@ describe('api', () => {
 		const result = await api.themes();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/theme', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual({ themes: [], default: 'dark' });
 	});
 
@@ -30,7 +30,7 @@ describe('api', () => {
 		const result = await api.settings();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/settings', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(settings);
 	});
 
@@ -62,7 +62,7 @@ describe('api', () => {
 		const result = await api.getHDHomeRunGuide();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(channels);
 	});
 
@@ -84,7 +84,7 @@ describe('api', () => {
 		const result = await api.getHDHomeRunChannels();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(body);
 	});
 
@@ -154,7 +154,7 @@ describe('api', () => {
 		const result = await api.listNetworkIntegrations();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(rows);
 	});
 
@@ -213,7 +213,7 @@ describe('api', () => {
 		const result = await api.listUsers();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(profiles);
 	});
 
@@ -298,7 +298,7 @@ describe('api', () => {
 		const result = await api.currentUser();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(me);
 	});
 
@@ -337,7 +337,7 @@ describe('api', () => {
 		const result = await api.getPreferences();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me/preferences', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(prefs);
 	});
 
@@ -364,7 +364,7 @@ describe('api', () => {
 		const result = await api.setupStatus();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/setup/status', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(status);
 	});
 
@@ -377,7 +377,7 @@ describe('api', () => {
 		const result = await api.listHouseholdUsers();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(members);
 	});
 
@@ -460,7 +460,7 @@ describe('api', () => {
 		const result = await api.getChannelSettings();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels/settings', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(channels);
 	});
 
@@ -488,7 +488,7 @@ describe('api', () => {
 		const result = await api.getXmltvFeedChannels();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv-feed-channels', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(feedChannels);
 	});
 
@@ -530,8 +530,7 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith(
 			'http://api.test/api/network-settings/schedules-direct/headends?postal_code=90210&country=USA',
-			{ credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal }
+			{ credentials: 'include', signal: defaultSignal }
 		);
 		expect(result).toEqual(headends);
 	});
@@ -543,8 +542,7 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith(
 			'http://api.test/api/network-settings/schedules-direct/lineups/USA-OTA-90210',
-			{ method: 'POST', credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal }
+			{ method: 'POST', credentials: 'include', signal: defaultSignal }
 		);
 		expect(result).toEqual({ code: 0 });
 	});
@@ -556,8 +554,7 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith(
 			'http://api.test/api/network-settings/schedules-direct/lineups/USA-OTA-90210',
-			{ method: 'DELETE', credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal }
+			{ method: 'DELETE', credentials: 'include', signal: defaultSignal }
 		);
 		expect(result).toEqual({ code: 0 });
 	});
@@ -594,7 +591,7 @@ describe('api', () => {
 		const result = await api.getXmltvStats();
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv/stats', { credentials: 'include',
-			signal: defaultSignal, signal: defaultSignal });
+			signal: defaultSignal });
 		expect(result).toEqual(stats);
 	});
 

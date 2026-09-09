@@ -133,7 +133,7 @@
 					<div class="channel-picker-wrap">
 						<span class="channel-picker-prompt">{$_('hdhomerun.detail.select_channels_prompt')}</span>
 						<div class="channel-checklist" role="group" aria-label={$_('hdhomerun.detail.select_channels_prompt')}>
-							{#each channels as ch}
+							{#each channels as ch (ch.channel_number)}
 								<label class="channel-check-item">
 									<input
 										type="checkbox"
