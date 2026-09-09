@@ -123,11 +123,22 @@ public actor APIClient {
     }
 
     private func extractErrorDetail(from data: Data) -> String? {
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let detail = json["detail"] as? String
-        {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            if let raw = String(data: data, encoding: .utf8), !raw.isEmpty {
+                Log.network.error("Non-JSON error body: \(raw, privacy: .public)")
+            }
+            return nil
+        }
+        if let detail = json["detail"] as? String {
             return detail
         }
+        if let detailObject = json["detail"] as? [String: Any], let message = detailObject["message"] as? String {
+            return message
+        }
+        if let error = json["error"] as? String {
+            return error
+        }
+        Log.network.error("Unrecognized error body shape: \(String(describing: json), privacy: .public)")
         return nil
     }
 
@@ -353,14 +364,24 @@ public actor APIClient {
     }
 
     public func syncPlayWsUrl(roomCode: String, userName: String? = nil) -> URL? {
+        // Note: the resulting URL carries the bearer token in its query string
+        // (see APIEndpoints.syncPlayWs) - deliberately not logging the URL
+        // itself here, only that construction failed and why.
         let path = APIEndpoints.syncPlayWs(roomCode: roomCode, userName: userName, token: bearerToken)
-        guard let httpUrl = URL(string: path, relativeTo: baseURL)?.absoluteURL else { return nil }
+        guard let httpUrl = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
+            Log.network.error("syncPlayWsUrl: failed to construct base URL for room \(roomCode, privacy: .public)")
+            return nil
+        }
         var comps = URLComponents(url: httpUrl, resolvingAgainstBaseURL: true)
         if comps?.scheme == "https" {
             comps?.scheme = "wss"
         } else {
             comps?.scheme = "ws"
         }
-        return comps?.url
+        guard let result = comps?.url else {
+            Log.network.error("syncPlayWsUrl: failed to resolve URLComponents for room \(roomCode, privacy: .public)")
+            return nil
+        }
+        return result
     }
 }

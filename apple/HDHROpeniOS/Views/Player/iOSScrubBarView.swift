@@ -55,7 +55,8 @@ public struct iOSScrubBarView: View {
             if isDragging {
                 VStack(spacing: 4) {
                     if let cue = thumbnailCues.first(where: { $0.contains(time: activeTime) }),
-                       let url = spriteURL {
+                       let url = spriteURL
+                    {
                         AsyncImage(url: url) { image in
                             image
                                 .resizable()
@@ -103,7 +104,7 @@ public struct iOSScrubBarView: View {
                         .fill(isLive ? Color.red : Color.blue)
                         .frame(width: max(0, geo.size.width * CGFloat(currentProgress)), height: 6)
 
-                    if isSeekable && duration > 0 {
+                    if isSeekable, duration > 0 {
                         Circle()
                             .fill(Color.white)
                             .shadow(color: Color.black.opacity(0.4), radius: 3, x: 0, y: 1)
@@ -135,6 +136,21 @@ public struct iOSScrubBarView: View {
                 )
             }
             .frame(height: 44)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Playback position")
+            .accessibilityValue(TimeFormatting.formatDuration(seconds: activeTime))
+            .accessibilityAdjustableAction { direction in
+                guard isSeekable, duration > 0 else { return }
+                let step: Double = 10
+                switch direction {
+                case .increment:
+                    onSeek(min(duration, currentTime + step))
+                case .decrement:
+                    onSeek(max(0, currentTime - step))
+                @unknown default:
+                    break
+                }
+            }
 
             // Timestamps
             HStack {

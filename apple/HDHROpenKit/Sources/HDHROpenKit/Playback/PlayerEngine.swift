@@ -46,6 +46,12 @@ public final class PlayerEngine: NSObject, ObservableObject {
     /// is showing the floating window.
     @Published public private(set) var isPictureInPictureActive = false
     @Published public private(set) var isMuted = false
+    /// `AVPlayerItem.preferredPeakBitRate` applied to every item this engine
+    /// loads - `0` means unlimited. Not reset by `reset()`, mirroring
+    /// `isMuted`'s treatment, so a background multi-view slot that
+    /// re-negotiates a new stream stays capped across the reload instead of
+    /// silently reverting to unlimited.
+    @Published public private(set) var preferredPeakBitRate: Double = 0
 
     public private(set) var avPlayer: AVPlayer?
 
@@ -139,16 +145,17 @@ public final class PlayerEngine: NSObject, ObservableObject {
         initialStart: Double? = nil,
         initialDuration: Double? = nil,
         initialTimeOffset: Double = 0.0,
-        headers: [String: String] = [:]
+        headers: [String: String] = [:],
+        autoplay: Bool = true
     ) {
         reset()
         self.isLive = isLive
         self.isSeekable = isSeekable
-        self.timeOffset = initialTimeOffset
+        timeOffset = initialTimeOffset
         if let initDur = initialDuration, initDur > 0 {
-            self.duration = initDur
+            duration = initDur
         }
-        self.currentTime = initialTimeOffset + (initialStart ?? 0.0)
+        currentTime = initialTimeOffset + (initialStart ?? 0.0)
         state = .loading
 
         Log.player.info("Loading media: \(url.absoluteString, privacy: .public) isLive=\(isLive) isSeekable=\(isSeekable)")
@@ -164,6 +171,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
             AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
         }
         let playerItem = AVPlayerItem(asset: asset)
+        playerItem.preferredPeakBitRate = preferredPeakBitRate
 
         if let start = initialStart, start > 0 {
             playerItem.seek(to: CMTime(seconds: start, preferredTimescale: 600), completionHandler: nil)
@@ -179,12 +187,29 @@ public final class PlayerEngine: NSObject, ObservableObject {
         avPlayer?.isMuted = isMuted
 
         setupTimeObserver()
-        avPlayer?.play()
+        if autoplay {
+            avPlayer?.play()
+        } else {
+            // `state` was set to `.loading` above; without this, skipping
+            // autoplay would leave it stuck there forever since nothing else
+            // drives it to `.paused` (the timeControlStatus observer only
+            // transitions out of `.buffering`, not `.loading`).
+            avPlayer?.pause()
+            state = .paused
+        }
     }
 
     public func setMuted(_ muted: Bool) {
         isMuted = muted
         avPlayer?.isMuted = muted
+    }
+
+    /// Sets the decode bitrate cap for the current and all future items this
+    /// engine loads (`0` = unlimited). Used by multi-view to cap non-focused
+    /// tiles' decode/bandwidth cost while keeping them visibly live.
+    public func setPreferredPeakBitRate(_ bitRate: Double) {
+        preferredPeakBitRate = bitRate
+        avPlayer?.currentItem?.preferredPeakBitRate = bitRate
     }
 
     public func play() {
@@ -256,7 +281,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
             let start = range.start.seconds
             let end = start + range.duration.seconds
             let effectiveEnd = max(start, end - 0.5)
-            if relativeSeconds >= start && relativeSeconds <= effectiveEnd {
+            if relativeSeconds >= start, relativeSeconds <= effectiveEnd {
                 return true
             }
         }

@@ -9,6 +9,9 @@ final class MultiPlayerViewModelTests: XCTestCase {
 
     override func tearDown() {
         MockURLProtocol.handlers = [:]
+        MockURLProtocol.resetLog()
+        MockURLProtocol.resetGates()
+        MockURLProtocol.resetQueues()
         super.tearDown()
     }
 
@@ -297,6 +300,13 @@ final class MultiPlayerViewModelTests: XCTestCase {
         XCTAssertFalse(vm.slots[1].playerEngine.isMuted)
         XCTAssertTrue(vm.slots[2].isMuted)
 
+        // REV-APL-15: the audio-focused slot's decode bitrate is uncapped;
+        // every other slot is capped rather than paused, since multi-view's
+        // whole premise is every tile staying visibly live.
+        XCTAssertGreaterThan(vm.slots[0].playerEngine.preferredPeakBitRate, 0)
+        XCTAssertEqual(vm.slots[1].playerEngine.preferredPeakBitRate, 0)
+        XCTAssertGreaterThan(vm.slots[2].playerEngine.preferredPeakBitRate, 0)
+
         // Switch audio to slot 2 (ABC)
         vm.setAudioSlot(index: 2)
         XCTAssertEqual(vm.activeSlotIndex, 2)
@@ -304,6 +314,10 @@ final class MultiPlayerViewModelTests: XCTestCase {
         XCTAssertTrue(vm.slots[1].isMuted)
         XCTAssertFalse(vm.slots[2].isMuted)
         XCTAssertFalse(vm.slots[2].playerEngine.isMuted)
+
+        XCTAssertGreaterThan(vm.slots[0].playerEngine.preferredPeakBitRate, 0)
+        XCTAssertGreaterThan(vm.slots[1].playerEngine.preferredPeakBitRate, 0)
+        XCTAssertEqual(vm.slots[2].playerEngine.preferredPeakBitRate, 0)
     }
 
     // MARK: - Tile Swapping
@@ -476,6 +490,73 @@ final class MultiPlayerViewModelTests: XCTestCase {
         XCTAssertEqual(vm.slots[0].hlsSessionId, "hls_sess2")
     }
 
+    /// A second `replaceFeed(at:)` targeting the same slot while the first
+    /// is still negotiating must win outright: the first call's result has
+    /// to be discarded (never overwriting the second's) and its
+    /// now-orphaned session torn down. Uses `MockURLProtocol`'s gate
+    /// mechanism to land the second call deterministically mid-negotiation
+    /// of the first, rather than racing on timing.
+    func testReplaceFeedIsNoOpIfSlotWasReplacedAgainWhileInFlight() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        XCTAssertEqual(vm.slots[0].hlsSessionId, "hls_sess1")
+
+        setupMockFeed(channelNumber: "5.1", sessId: "sess2")
+        setupMockFeed(channelNumber: "7.1", sessId: "sess3")
+        MockURLProtocol.addGate(for: "/api/watch/5.1/start")
+
+        // `/api/dvr/recording-stream-hls` is one fixed path shared by every
+        // session negotiation - plain `handlers[path] =` entries for two
+        // different sessions on it just clobber each other, which is fine
+        // when only one negotiation is in flight at a time but not here.
+        // Queue the two responses explicitly, in the order the requests are
+        // expected to actually arrive: the second replace (7.1) runs
+        // ungated and reaches this endpoint first; the stale replace (5.1)
+        // only reaches it after its gate is released below.
+        MockURLProtocol.enqueueResponse(
+            Data("{\"session_id\":\"hls_sess3\",\"playlist_url\":\"/api/streaming/hls/hls_sess3/playlist.m3u8\"}".utf8),
+            status: 200, for: "/api/dvr/recording-stream-hls"
+        )
+        MockURLProtocol.enqueueResponse(
+            Data("{\"session_id\":\"hls_sess2\",\"playlist_url\":\"/api/streaming/hls/hls_sess2/playlist.m3u8\"}".utf8),
+            status: 200, for: "/api/dvr/recording-stream-hls"
+        )
+
+        let staleTask = Task {
+            try await vm.replaceFeed(at: 0, with: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
+        }
+
+        // Give the stale replace time to clear its tuner-availability check
+        // and reach the gated negotiation call before the second replace
+        // targets the same slot.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try await vm.replaceFeed(at: 0, with: HDHomeRunChannel(channelNumber: "7.1", name: "ABC"))
+
+        XCTAssertEqual(vm.slots[0].channel.channelNumber, "7.1")
+        XCTAssertEqual(vm.slots[0].hlsSessionId, "hls_sess3")
+
+        MockURLProtocol.releaseGate(for: "/api/watch/5.1/start")
+        try await staleTask.value
+
+        // The second replace's result must survive untouched.
+        XCTAssertEqual(vm.slots[0].channel.channelNumber, "7.1")
+        XCTAssertEqual(vm.slots[0].hlsSessionId, "hls_sess3")
+
+        for _ in 0..<25 where !(
+            MockURLProtocol.requestLog.contains("/api/hls/hls_sess2/stop")
+                && MockURLProtocol.requestLog.contains("/api/watch/sess2/stop")
+        ) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(MockURLProtocol.requestLog.contains("/api/hls/hls_sess2/stop"), "Expected the stale replace's orphaned HLS session to be stopped")
+        XCTAssertTrue(MockURLProtocol.requestLog.contains("/api/watch/sess2/stop"), "Expected the stale replace's orphaned watch session to be stopped")
+    }
+
     func testCloseAllTearsDownEverything() async throws {
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
@@ -548,6 +629,54 @@ final class MultiPlayerViewModelTests: XCTestCase {
         try await vm.finishAddFeed(slotId: slotId)
 
         XCTAssertTrue(vm.slots.isEmpty)
+        // The slot was already gone before `finishAddFeed` ran, so it should
+        // bail out at its very first guard, never negotiating a session in
+        // the first place - nothing to tear down.
+        XCTAssertFalse(MockURLProtocol.requestLog.contains("/api/watch/4.1/start"))
+    }
+
+    /// Exercises the *other* branch of the same guard: the slot is removed
+    /// while a session negotiation is genuinely in flight (network call
+    /// already sent), not before it starts. Uses `MockURLProtocol`'s gate
+    /// mechanism to land the removal deterministically mid-negotiation
+    /// rather than racing on timing, so the orphaned session's teardown can
+    /// be asserted directly instead of merely inferred from `slots.isEmpty`.
+    func testFinishAddFeedTearsDownNegotiatedSessionIfSlotWasRemovedWhileInFlight() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        MockURLProtocol.addGate(for: "/api/watch/4.1/start")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+
+        let channel = HDHomeRunChannel(channelNumber: "4.1", name: "NBC")
+        let slotId = try vm.beginAddFeed(channel: channel)
+
+        let finishTask = Task { try await vm.finishAddFeed(slotId: slotId) }
+
+        // Give `finishAddFeed` time to clear its tuner-availability check
+        // and reach the gated negotiation call before removing the slot out
+        // from under it.
+        try await Task.sleep(nanoseconds: 100_000_000)
+        vm.removeFeed(at: 0)
+        XCTAssertTrue(vm.slots.isEmpty)
+
+        MockURLProtocol.releaseGate(for: "/api/watch/4.1/start")
+        try await finishTask.value
+
+        XCTAssertTrue(vm.slots.isEmpty)
+
+        // The stop calls are themselves fire-and-forget background tasks
+        // (`runWithBackgroundGrace`), so poll briefly rather than asserting
+        // immediately after `finishTask` resolves.
+        for _ in 0..<25 where !(
+            MockURLProtocol.requestLog.contains("/api/hls/hls_sess1/stop")
+                && MockURLProtocol.requestLog.contains("/api/watch/sess1/stop")
+        ) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(MockURLProtocol.requestLog.contains("/api/hls/hls_sess1/stop"), "Expected the orphaned HLS session to be stopped")
+        XCTAssertTrue(MockURLProtocol.requestLog.contains("/api/watch/sess1/stop"), "Expected the orphaned watch session to be stopped")
     }
 
     // MARK: - Expand/Collapse Background Pause-Resume (tvOS multi-view Fix 2)

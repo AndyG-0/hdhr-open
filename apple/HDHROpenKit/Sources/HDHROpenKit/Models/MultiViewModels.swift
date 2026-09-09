@@ -40,11 +40,11 @@ public enum MultiViewLayout: String, CaseIterable, Codable, Sendable, Identifiab
     /// Returns layouts available for a given maximum feed limit (based on physical tuner capacity).
     public static func availableLayouts(for maxFeeds: Int) -> [MultiViewLayout] {
         if maxFeeds <= 2 {
-            return [.sideBySide]
+            [.sideBySide]
         } else if maxFeeds == 3 {
-            return [.sideBySide, .threeBox]
+            [.sideBySide, .threeBox]
         } else {
-            return [.sideBySide, .threeBox, .quad]
+            [.sideBySide, .threeBox, .quad]
         }
     }
 
@@ -101,6 +101,13 @@ public struct MultiViewSlot: Identifiable, Equatable {
     public var isMuted: Bool
     public var warningMessage: String?
     public var playbackMode: PlaybackMode?
+    /// Bumped by `MultiPlayerViewModel` at the start of every negotiation
+    /// (`finishAddFeed`/`replaceFeed`) targeting this slot, so a negotiation
+    /// that resumes after the slot was removed or re-targeted can detect it's
+    /// stale and tear down the session it just negotiated instead of
+    /// silently leaking it or clobbering a newer negotiation's result. Not
+    /// part of the slot's user-visible identity, so it's excluded from `==`.
+    public var negotiationGeneration: Int
 
     public init(
         id: UUID = UUID(),
@@ -111,7 +118,8 @@ public struct MultiViewSlot: Identifiable, Equatable {
         hlsSessionId: String? = nil,
         isMuted: Bool = true,
         warningMessage: String? = nil,
-        playbackMode: PlaybackMode? = .serverTranscodedHls
+        playbackMode: PlaybackMode? = .serverTranscodedHls,
+        negotiationGeneration: Int = 0
     ) {
         self.id = id
         self.channel = channel
@@ -122,6 +130,7 @@ public struct MultiViewSlot: Identifiable, Equatable {
         self.isMuted = isMuted
         self.warningMessage = warningMessage
         self.playbackMode = playbackMode
+        self.negotiationGeneration = negotiationGeneration
     }
 
     @MainActor

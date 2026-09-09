@@ -113,6 +113,8 @@ public struct iOSPlayerView: View {
                                 .font(.title)
                                 .foregroundColor(.white)
                         }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("Close player")
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(playerViewModel.mediaTitle)
@@ -151,6 +153,10 @@ public struct iOSPlayerView: View {
                                     }
                                 }
                             }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(playerViewModel.syncPlayClient
+                                .room != nil ? "SyncPlay watch party, \(playerViewModel.syncPlayClient.participants.count) participants" :
+                                "Start SyncPlay watch party")
                             .padding(.trailing, 8)
                         }
 
@@ -178,6 +184,8 @@ public struct iOSPlayerView: View {
                                     }
                                 }
                             }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(playerViewModel.sharePlayCoordinator.isSessionActive ? "Leave SharePlay session" : "Start SharePlay session")
                             .padding(.trailing, 8)
                         }
 
@@ -194,6 +202,8 @@ public struct iOSPlayerView: View {
                                     .font(.title3)
                                     .foregroundColor(.white)
                             }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel("Add to multi-view")
                             .padding(.trailing, 8)
                         }
 
@@ -205,6 +215,8 @@ public struct iOSPlayerView: View {
                                 .font(.title3)
                                 .foregroundColor(.white)
                         }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel("Playback info")
                         .padding(.trailing, 8)
 
                         // Captions Button
@@ -215,6 +227,8 @@ public struct iOSPlayerView: View {
                                 .font(.title3)
                                 .foregroundColor(playerViewModel.captionController.isEnabled ? .yellow : .white)
                         }
+                        .frame(minWidth: 44, minHeight: 44)
+                        .accessibilityLabel(playerViewModel.captionController.isEnabled ? "Turn off captions" : "Turn on captions")
 
                         // Picture in Picture Button
                         if playerViewModel.playerEngine.isPictureInPictureSupported {
@@ -225,6 +239,8 @@ public struct iOSPlayerView: View {
                                     .font(.title3)
                                     .foregroundColor(.white)
                             }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel(playerViewModel.playerEngine.isPictureInPictureActive ? "Exit Picture in Picture" : "Enter Picture in Picture")
                             .padding(.trailing, 8)
                         }
 
@@ -245,6 +261,8 @@ public struct iOSPlayerView: View {
                                     .font(.system(size: 32))
                                     .foregroundColor(.white)
                             }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel("Skip back 10 seconds")
                         }
 
                         Button(action: { playerViewModel.togglePlayPause() }) {
@@ -252,6 +270,7 @@ public struct iOSPlayerView: View {
                                 .font(.system(size: 64))
                                 .foregroundColor(.white)
                         }
+                        .accessibilityLabel(playerViewModel.isPlaying ? "Pause" : "Play")
 
                         if playerViewModel.playerEngine.isSeekable {
                             Button(action: { playerViewModel.skipForward(seconds: 10) }) {
@@ -259,6 +278,8 @@ public struct iOSPlayerView: View {
                                     .font(.system(size: 32))
                                     .foregroundColor(.white)
                             }
+                            .frame(minWidth: 44, minHeight: 44)
+                            .accessibilityLabel("Skip forward 10 seconds")
                         }
                     }
 
@@ -489,6 +510,30 @@ public struct iOSPlayerView: View {
                     resetTimer()
                 }
             }
+        }
+        .alert("Error", isPresented: Binding(
+            get: { guideViewModel.error != nil },
+            set: {
+                if !$0 {
+                    guideViewModel.dismissError()
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(guideViewModel.error ?? "")
+        }
+        .alert("Error", isPresented: Binding(
+            get: { playerViewModel.error != nil },
+            set: {
+                if !$0 {
+                    playerViewModel.dismissError()
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(playerViewModel.error ?? "")
         }
     }
 

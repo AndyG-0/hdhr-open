@@ -461,7 +461,7 @@ State-ownership conventions (`@Published`/`ObservableObject`/`@MainActor`)
 are consistent across every ViewModel checked, and `iOSScrubBarView.swift`
 already gets accessibility/hit-target sizing right — not itemized below.
 
-- [ ] **REV-APL-1 — [High] `PlayerViewModel.swift` (804 lines, largest file in the repo) mixes five unrelated concerns.**
+- [x] **REV-APL-1 — [High] `PlayerViewModel.swift` (804 lines, largest file in the repo) mixes five unrelated concerns.**
   Covers HLS session negotiation, a nontrivial live-caption timestamp-remapping
   algorithm, recording promotion, SyncPlay/SharePlay wiring, and UI overlay
   flags. None depend on each other's internals. Recommend a
@@ -470,7 +470,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift` (MODIFY: extract the three coordinators above)
 
-- [ ] **REV-APL-2 — [High] Stream-session-negotiation logic is copy-pasted three times and has already drifted.**
+- [x] **REV-APL-2 — [High] Stream-session-negotiation logic is copy-pasted three times and has already drifted.**
   `PlayerViewModel.playChannel`, `MultiPlayerViewModel.finishAddFeed`, and
   `MultiPlayerViewModel.replaceFeed` all implement "try watch session →
   build recording HLS session → fall back to direct channel HLS session"
@@ -481,7 +481,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift` (MODIFY: use shared negotiator)
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/MultiPlayerViewModel.swift` (MODIFY: use shared negotiator in `finishAddFeed`/`replaceFeed`)
 
-- [ ] **REV-APL-3 — [High] No cancellation/generation guard around async stream-session negotiation — leaks backend sessions on rapid channel-switch or slot-close.**
+- [x] **REV-APL-3 — [High] No cancellation/generation guard around async stream-session negotiation — leaks backend sessions on rapid channel-switch or slot-close.**
   Unlike `seek()` (which stores and cancels `serverSeekTask`), `playChannel`/
   `playRecording` have no task handle: rapid channel switching can let a
   stale call overwrite `activeChannel`/`activeHLSSessionId` after finishing,
@@ -496,7 +496,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift` (MODIFY: add a stored, cancellable `Task` for `playChannel`/`playRecording`, mirroring `serverSeekTask`)
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/MultiPlayerViewModel.swift` (MODIFY: guard `finishAddFeed` against the slot being removed mid-negotiation and tear down any session created after the fact)
 
-- [ ] **REV-APL-4 — [High] "Add to Multi-View" from the TV Guide reintroduces the flash-back bug the Player path explicitly fixed.**
+- [x] **REV-APL-4 — [High] "Add to Multi-View" from the TV Guide reintroduces the flash-back bug the Player path explicitly fixed.**
   `TVPlayerView`'s handler deliberately calls `beginAddFeed(...)` synchronously
   before dismissing, with a comment explaining this avoids a flash back to
   the previous screen while the stream negotiates. `TVGuideView`'s "Add to
@@ -507,7 +507,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
     - `apple/HDHROpenTV/Views/Guide/TVGuideView.swift` (MODIFY: route through `beginAddFeed`/`finishAddFeed` like `TVPlayerView`)
     - `apple/HDHROpenTV/Views/Guide/TVProgramDetailModal.swift` (MODIFY: same)
 
-- [ ] **REV-APL-5 — [High] Focus index and audio routing desync from the multi-view grid after slot removal/swap.**
+- [x] **REV-APL-5 — [High] Focus index and audio routing desync from the multi-view grid after slot removal/swap.**
   `focusedSlotIndex` is tracked as a raw array index in TV-local `@State`;
   `MultiPlayerViewModel.removeFeed`/`swapSlots` shift/exchange the
   underlying `slots` array with no notification back to that index. The
@@ -519,7 +519,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
     - `apple/HDHROpenTV/Views/Player/MultiView/TVMultiPlayerView.swift` (MODIFY: explicitly re-push focus/audio state after `removeFeed`/`swapSlots`, mirroring the existing `closeEditBar()` round-trip-through-nil pattern)
     - `apple/HDHROpenTV/Views/Player/MultiView/TVMultiViewGrid.swift` (MODIFY: same)
 
-- [ ] **REV-APL-6 — [Medium] Secondary-action failures are silently swallowed with `try?`, and `PlayerViewModel`/`MultiPlayerViewModel` have no error-surfacing property.**
+- [x] **REV-APL-6 — [Medium] Secondary-action failures are silently swallowed with `try?`, and `PlayerViewModel`/`MultiPlayerViewModel` have no error-surfacing property.**
   All recording-rule actions in `iOSPlayerView.swift`'s Record menu use
   `try? await guideViewModel.recordX(...)` — on failure, the menu just
   closes as if it succeeded. `promoteToRecording()` only logs on failure.
@@ -530,7 +530,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift` (MODIFY: add an `error: String?` property matching `GuideViewModel`'s convention)
     - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY: route Record-menu actions through it instead of `try?`)
 
-- [ ] **REV-APL-7 — [Medium] `loadRecordingMetadata`'s background `Task` is never cancelled on `closePlayer()`.**
+- [x] **REV-APL-7 — [Medium] `loadRecordingMetadata`'s background `Task` is never cancelled on `closePlayer()`.**
   `closePlayer()` correctly cancels `serverSeekTask` and `captionPollTask`,
   but the metadata-fetch task is fire-and-forget with no stored handle. If
   the player closes mid-fetch, this task can still complete afterward and
@@ -539,7 +539,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/PlayerViewModel.swift` (MODIFY: store and cancel this `Task` in `closePlayer()`)
 
-- [ ] **REV-APL-8 — [Medium] Server-side seek resumes playback even if the player was paused.**
+- [x] **REV-APL-8 — [Medium] Server-side seek resumes playback even if the player was paused.**
   `loadMedia` (`PlayerEngine.swift`) unconditionally calls `avPlayer?.play()`
   at the end regardless of pre-seek state. A paused user who scrubs to an
   unbuffered position (triggering the server-seek path) will have playback
@@ -547,7 +547,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/PlayerEngine.swift` (MODIFY: accept/respect an autoplay-intent parameter instead of always playing)
 
-- [ ] **REV-APL-9 — [Medium] Icon-only transport buttons lack accessibility labels and adequate hit targets.**
+- [x] **REV-APL-9 — [Medium] Icon-only transport buttons lack accessibility labels and adequate hit targets.**
   Captions/info/PiP/skip buttons in `iOSPlayerView.swift` have no
   `.accessibilityLabel` (VoiceOver reads raw SF Symbol names like
   "gobackward.10") and no explicit `.frame(minWidth: 44, minHeight: 44)`,
@@ -556,7 +556,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpeniOS/Views/Player/iOSPlayerView.swift` (MODIFY: add accessibility labels and 44×44pt hit targets to transport buttons)
 
-- [ ] **REV-APL-10 — [Medium] No test exercises cancellation or race conditions in `PlayerViewModel`, despite that being most of its real complexity.**
+- [x] **REV-APL-10 — [Medium] No test exercises cancellation or race conditions in `PlayerViewModel`, despite that being most of its real complexity.**
   Grepping all `PlayerViewModel*Tests.swift`/`MultiPlayerViewModelTests.swift`
   for "cancel" returns zero matches. No coverage proves a superseded seek
   stops its stale HLS session, that double-tapping a channel doesn't leak a
@@ -565,7 +565,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenKit/Tests/HDHROpenKitTests/` (NEW: cancellation/race-condition regression tests, added alongside REV-APL-3/REV-APL-7 fixes)
 
-- [ ] **REV-APL-11 — [Medium] tvOS tests exercise the view tree, not the focus engine.**
+- [x] **REV-APL-11 — [Medium] tvOS tests exercise the view tree, not the focus engine.**
   Every ViewInspector-based test in `TVMultiPlayerViewTests.swift`/
   `TVPlayerViewTests.swift`/`TVAIAssistantModalTests.swift` asserts static
   structure, never `@FocusState` transitions or the two-way
@@ -576,7 +576,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenTVTests/TVMultiPlayerViewTests.swift` (MODIFY: add focus-transition and audio-routing-sync assertions)
 
-- [ ] **REV-APL-12 — [Medium] Tuner-exhaustion warning in multi-view is easy to miss and never refreshed.**
+- [x] **REV-APL-12 — [Medium] Tuner-exhaustion warning in multi-view is easy to miss and never refreshed.**
   Rendered at 11pt in the bottom corner of a quad-grid tile — effectively
   unreadable at 10-foot viewing distance. Computed once at `finishAddFeed`
   time and never re-evaluated as tuners free up or become further exhausted
@@ -586,7 +586,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenTV/Views/Player/MultiView/TVMultiViewSlotOverlay.swift` (MODIFY: larger/more prominent warning treatment, re-evaluated periodically)
 
-- [ ] **REV-APL-13 — [Medium] Slot "Close" and "Make Primary" are only reachable via an undiscoverable long-press context menu.**
+- [x] **REV-APL-13 — [Medium] Slot "Close" and "Make Primary" are only reachable via an undiscoverable long-press context menu.**
   These actions exist only inside `.contextMenu` on each tile, requiring a
   long click-and-hold Siri Remote press, with no on-screen hint anywhere
   that a tile supports this. In a 10-foot UX with no cursor/hover affordance
@@ -595,7 +595,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenTV/Views/Player/MultiView/TVMultiViewGrid.swift` (MODIFY: add a visible hint/icon indicating long-press actions)
 
-- [ ] **REV-APL-14 — [Low] `WatchSessionManager` carries two parallel, permanently-coexisting APIs.**
+- [x] **REV-APL-14 — [Low] `WatchSessionManager` carries two parallel, permanently-coexisting APIs.**
   The multi-session API (`startSession`/`stopSession`/`promoteSession`) and
   a "Single-Session Backward Compatibility" wrapper (`startWatch`/
   `promoteWatch`/`stopWatch`) both stay permanently live — `PlayerViewModel`
@@ -605,14 +605,14 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenKit/Sources/HDHROpenKit/Networking/WatchSessionManager.swift` (MODIFY: have `PlayerViewModel` adopt the multi-session API with its own session-id property)
 
-- [ ] **REV-APL-15 — [Low] `MultiPlayerViewModel` keeps up to 4 concurrent `AVPlayer` instances decoding simultaneously.**
+- [x] **REV-APL-15 — [Low] `MultiPlayerViewModel` keeps up to 4 concurrent `AVPlayer` instances decoding simultaneously.**
   Only audio-muted, not paused, unless `pauseBackgroundSlots` is explicitly
   invoked — worth a performance/battery gut-check on iPad multi-view
   specifically (in addition to whatever tvOS hardware constraints apply).
   - **Files**:
     - `apple/HDHROpenKit/Sources/HDHROpenKit/ViewModels/MultiPlayerViewModel.swift` (MODIFY: consider pausing/reducing decode work for unfocused slots by default)
 
-- [ ] **REV-APL-16 — [Low] `TVAIAssistantModal` doesn't explicitly claim initial focus.**
+- [x] **REV-APL-16 — [Low] `TVAIAssistantModal` doesn't explicitly claim initial focus.**
   Every other TV overlay/modal (`TVPlayerSettingsOverlay`, `TVSyncPlayOverlay`,
   `TVPlayerRecordMenuOverlay`, `TVChannelSwitcherOverlay`, the multi-view
   edit bar) has an explicit `@FocusState` + `.onAppear` claim with a comment
@@ -622,7 +622,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenTV/Views/AI/TVAIAssistantModal.swift` (MODIFY: add `@FocusState` + `.onAppear` default-focus claim matching the rest of the codebase)
 
-- [ ] **REV-APL-17 — [Low] `APIClient` swallows non-JSON error bodies; SyncPlay WebSocket URL puts the bearer token in a plain query string.**
+- [x] **REV-APL-17 — [Low] `APIClient` swallows non-JSON error bodies; SyncPlay WebSocket URL puts the bearer token in a plain query string.**
   `extractErrorDetail` only parses `{"detail": "string"}`, discarding any
   other error body shape into a generic "Request failed with status code N".
   Separately, `syncPlayWsUrl` encodes the bearer token directly into the
@@ -632,7 +632,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenKit/Sources/HDHROpenKit/Networking/APIClient.swift` (MODIFY: broaden error-detail extraction; audit logging around `syncPlayWsUrl`)
 
-- [ ] **REV-APL-18 — [Low] `.onMoveCommand`'s "intercepts everything" workaround has no regression test.**
+- [x] **REV-APL-18 — [Low] `.onMoveCommand`'s "intercepts everything" workaround has no regression test.**
   A long comment in `TVPlayerView.swift:264-289` explains a hard-won,
   non-obvious platform behavior (an `.onMoveCommand` anywhere in the ZStack's
   modifier chain intercepts 100% of directional presses on-device) and
@@ -641,4 +641,21 @@ already gets accessibility/hit-target sizing right — not itemized below.
   modifier during a refactor, with no test asserting the fallback behavior.
   - **Files**:
     - `apple/HDHROpenTVTests/TVPlayerViewTests.swift` (NEW: assert fallback-focus-then-reveal-controls behavior via move commands)
+
+- [ ] **REV-APL-19 — [Low] `apple/check.sh`'s combined coverage gate fails: 78.54% vs. the 80% threshold.**
+  Discovered by running `check.sh` to completion for the first time (it had
+  previously always stopped earlier, at the SwiftFormat stage, before any
+  REV-APL-1..18 session ran it this far). SwiftLint, SwiftFormat, and every
+  `HDHROpenKit`/`HDHROpeniOS`/`HDHROpenTV` test suite now pass; only the
+  coverage threshold does not. The shortfall is concentrated in large,
+  mostly pre-existing view/coordinator files largely untouched by the
+  REV-APL-1..18 fixes: `TVMultiPlayerView.swift` (14.5%),
+  `SharePlayCoordinator.swift` (30.2%), `iOSAIAssistantSheet.swift` (35.5%),
+  `TVAIAssistantModal.swift` (36.8%). Treated as separate, pre-existing repo
+  debt rather than part of the REV-APL-1..18 scope.
+  - **Files**:
+    - `apple/HDHROpenTV/Views/Player/MultiView/TVMultiPlayerView.swift` (NEW/MODIFY tests)
+    - `apple/HDHROpenKit/Sources/HDHROpenKit/Playback/SharePlayCoordinator.swift` (NEW/MODIFY tests)
+    - `apple/HDHROpeniOS/Views/AI/iOSAIAssistantSheet.swift` (NEW/MODIFY tests)
+    - `apple/HDHROpenTV/Views/AI/TVAIAssistantModal.swift` (NEW/MODIFY tests)
 

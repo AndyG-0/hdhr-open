@@ -125,8 +125,13 @@ public final class GuideViewModel: ObservableObject {
             maxEpisodesToKeep: options?.maxEpisodesToKeep,
             server: options?.server
         )
-        recordingRules = try await apiClient.addRecordingRule(payload: payload)
-        await loadRules()
+        do {
+            recordingRules = try await apiClient.addRecordingRule(payload: payload)
+            await loadRules()
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
     }
 
     public func recordSeries(
@@ -146,8 +151,13 @@ public final class GuideViewModel: ObservableObject {
             maxEpisodesToKeep: options?.maxEpisodesToKeep,
             server: options?.server
         )
-        recordingRules = try await apiClient.addRecordingRule(payload: payload)
-        await loadRules()
+        do {
+            recordingRules = try await apiClient.addRecordingRule(payload: payload)
+            await loadRules()
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
     }
 
     public func updateRule(
@@ -171,13 +181,27 @@ public final class GuideViewModel: ObservableObject {
             maxEpisodesToKeep: options?.maxEpisodesToKeep,
             server: options?.server
         )
-        recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
-        await loadRules()
+        do {
+            recordingRules = try await apiClient.updateRecordingRule(id: ruleId, payload: payload)
+            await loadRules()
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
     }
 
     public func cancelRule(ruleId: String) async throws {
-        recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
-        await loadRules()
+        do {
+            recordingRules = try await apiClient.deleteRecordingRule(id: ruleId)
+            await loadRules()
+        } catch {
+            self.error = error.localizedDescription
+            throw error
+        }
+    }
+
+    public func dismissError() {
+        error = nil
     }
 
     public func getAirings(for channelNumber: String) -> [HDHomeRunGuideEntry] {

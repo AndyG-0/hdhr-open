@@ -19,6 +19,18 @@ public struct TVMultiViewGrid: View {
     let onCloseSlot: (Int) -> Void
 
     @FocusState private var slotFocus: Int?
+    /// Which slot's options dialog (Make Primary / Close Slot) is showing, if any.
+    @State private var tileOptionsIndex: Int?
+
+    /// Distinct `slotFocus` sentinel per tile's options button, so it can be
+    /// focused independently of the tile's own select-button (`index`) and
+    /// the page-level options button (`optionsFocusIndex`). Negative and
+    /// disjoint from both, so `TVMultiPlayerView`'s
+    /// `slots.indices.contains(index)` guard on `focusedSlotIndex` changes
+    /// correctly ignores it rather than mistaking it for a real slot index.
+    private static func tileOptionsFocusIndex(_ index: Int) -> Int {
+        -(index + 2)
+    }
 
     public init(
         slots: [MultiViewSlot],
@@ -175,44 +187,81 @@ public struct TVMultiViewGrid: View {
     private func slotView(at index: Int) -> some View {
         if slots.indices.contains(index) {
             let slot = slots[index]
-            Button(action: {
-                onSlotSelect(index)
-            }) {
-                ZStack {
-                    Color.black
-
-                    if let player = slot.playerEngine.avPlayer {
-                        PlayerLayerView(player: player)
-                    }
-
-                    TVMultiViewSlotOverlay(
-                        slot: slot,
-                        isFocused: slotFocus == index,
-                        isActiveAudio: activeSlotIndex == index
-                    )
+            // The tile options button used to live in a long-press `.contextMenu` on the tile
+            // itself - undiscoverable (no visible affordance) and, per this file's header
+            // comment on the page-level options button, a button placed *inside* the tile
+            // Button's own geometry is unreachable by tvOS's directional focus search anyway.
+            // A slim header row above the video, in its own `.focusSection()`, gives the same
+            // non-overlapping-geometry fix the page-level button already relies on.
+            VStack(spacing: 8) {
+                HStack {
+                    Spacer()
+                    tileOptionsButton(for: index)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .focusSection()
+
+                Button(action: {
+                    onSlotSelect(index)
+                }) {
+                    ZStack {
+                        Color.black
+
+                        if let player = slot.playerEngine.avPlayer {
+                            PlayerLayerView(player: player)
+                        }
+
+                        TVMultiViewSlotOverlay(
+                            slot: slot,
+                            isFocused: slotFocus == index,
+                            isActiveAudio: activeSlotIndex == index
+                        )
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .focused($slotFocus, equals: index)
             }
-            .buttonStyle(.plain)
-            .focused($slotFocus, equals: index)
-            .contextMenu {
+            .confirmationDialog(
+                "Tile Options",
+                isPresented: Binding(
+                    get: { tileOptionsIndex == index },
+                    set: {
+                        if !$0 {
+                            tileOptionsIndex = nil
+                        }
+                    }
+                ),
+                titleVisibility: .visible
+            ) {
                 if index != 0 {
-                    Button {
+                    Button("Make Primary (Hero)") {
                         onSwapWithHero(index)
-                    } label: {
-                        Label("Make Primary (Hero)", systemImage: "star")
                     }
                 }
-
-                Button(role: .destructive) {
+                Button("Close Slot", role: .destructive) {
                     onCloseSlot(index)
-                } label: {
-                    Label("Close Slot", systemImage: "xmark.circle")
                 }
             }
         } else {
             emptySlotView(at: index)
         }
+    }
+
+    private func tileOptionsButton(for index: Int) -> some View {
+        Button(action: {
+            tileOptionsIndex = index
+        }) {
+            Image(systemName: "ellipsis.circle.fill")
+                .font(.system(size: 22))
+                .foregroundColor(.white)
+                .padding(8)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .focused($slotFocus, equals: Self.tileOptionsFocusIndex(index))
+        .accessibilityIdentifier("tileOptions_\(index)")
+        .accessibilityLabel("Tile options")
     }
 
     private func emptySlotView(at index: Int) -> some View {

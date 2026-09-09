@@ -17,15 +17,51 @@ public final class PlayerViewModel: ObservableObject {
     public let playerEngine: PlayerEngine
     public let captionController: CaptionController
     public let watchSessionManager: WatchSessionManager
+    public let sessionCoordinator: StreamSessionCoordinator
 
     @Published public private(set) var activeChannel: HDHomeRunChannel?
     @Published public private(set) var activeAiring: HDHomeRunGuideEntry?
-    @Published public internal(set) var activeRecording: HDHomeRunRecording?
-    @Published public private(set) var isWatchSession = false
-    @Published public private(set) var activeHLSSessionId: String?
-    @Published public private(set) var playbackMode: PlaybackMode?
-    @Published public private(set) var thumbnailCues: [ThumbnailCue] = []
-    @Published public private(set) var thumbnailSpriteURL: URL?
+
+    /// `activeRecording`/`isWatchSession`/`activeHLSSessionId`/`playbackMode`/
+    /// `thumbnailCues`/`thumbnailSpriteURL`/`error` are now owned by
+    /// `sessionCoordinator`; these forward to it so the public API (and every
+    /// existing view/test that reads `playerViewModel.<x>`) is unchanged.
+    /// `objectWillChange` forwarding (below, in `init`) makes them reactive
+    /// despite not being `@Published` themselves.
+    public internal(set) var activeRecording: HDHomeRunRecording? {
+        get { sessionCoordinator.activeRecording }
+        set { sessionCoordinator.activeRecording = newValue }
+    }
+
+    public var isWatchSession: Bool {
+        sessionCoordinator.isWatchSession
+    }
+
+    public internal(set) var activeHLSSessionId: String? {
+        get { sessionCoordinator.activeHLSSessionId }
+        set { sessionCoordinator.activeHLSSessionId = newValue }
+    }
+
+    public var playbackMode: PlaybackMode? {
+        sessionCoordinator.playbackMode
+    }
+
+    public var thumbnailCues: [ThumbnailCue] {
+        sessionCoordinator.thumbnailCues
+    }
+
+    public var thumbnailSpriteURL: URL? {
+        sessionCoordinator.thumbnailSpriteURL
+    }
+
+    public var error: String? {
+        sessionCoordinator.error
+    }
+
+    public func dismissError() {
+        sessionCoordinator.dismissError()
+    }
+
     @Published public private(set) var isPromoting = false
     @Published public private(set) var isPromoted = false
     @Published public private(set) var isSwitchingAudioTrack = false
@@ -66,6 +102,33 @@ public final class PlayerViewModel: ObservableObject {
         captionController = CaptionController()
         syncPlayClient = SyncPlayClient()
         sharePlayCoordinator = SharePlayCoordinator()
+        let negotiator = ChannelStreamNegotiator(apiClient: apiClient, watchSessionManager: watchSessionManager)
+        sessionCoordinator = StreamSessionCoordinator(apiClient: apiClient, watchSessionManager: watchSessionManager, negotiator: negotiator)
+
+        // Forward sessionCoordinator changes - views only observe
+        // `playerViewModel`, so its nested @Published state needs relaying
+        // the same way playerEngine/syncPlayClient/sharePlayCoordinator are below.
+        sessionCoordinator.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        sessionCoordinator.onMetadataDetail = { [weak self] detail in
+            guard let self else { return }
+            playerEngine.setAudioTracks(detail.audio)
+            playerEngine.setVideoSpecs(detail.video)
+            playerEngine.setTranscodeInfo(detail.transcode)
+            if let dur = detail.durationSeconds, dur > 0 {
+                playerEngine.setDuration(dur)
+            }
+        }
+
+        sessionCoordinator.onCaptionsReady = { [weak self] recording in
+            guard let self else { return }
+            await fetchCaptionsOnce(recording: recording)
+            startCaptionPolling(recording: recording)
+        }
 
         // Sync player engine time with captions
         playerEngine.$currentTime
@@ -224,63 +287,17 @@ public final class PlayerViewModel: ObservableObject {
             sharePlayCoordinator.sendContentChange(syncContent)
         }
 
-        let baseURL = await apiClient.baseURL
-
-        // 1. Try starting a watch session for live pause/rewind, packaged as HLS
-        do {
-            if let watchRec = try await watchSessionManager.startWatch(channelNumber: channel.channelNumber),
-               let playUrl = watchRec.playUrl
-            {
-                let hlsSession = try await apiClient.createRecordingHLSSession(
-                    url: playUrl,
-                    recordingId: watchRec.recordingId
-                )
-                if let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) {
-                    Log.player
-                        .info("Watch session HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
-                    activeRecording = watchRec
-                    isWatchSession = true
-                    activeHLSSessionId = hlsSession.sessionId
-                    playbackMode = .serverTranscodedHls
-                    await playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: true, headers: hlsAuthHeaders())
-                    loadRecordingMetadata(recording: watchRec)
-                    return
-                }
-            }
-        } catch {
-            Log.player.warning("Watch session auto-start failed, falling back to direct HLS stream: \(error.localizedDescription)")
-        }
-
-        // 2. Direct HLS streaming fallback (busy tuner / no watch session)
-        do {
-            let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber)
-            guard let sessionId = rec.sessionId,
-                  let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: sessionId)
-            else {
-                playerEngine.setFailed("Could not build stream URL.")
-                return
-            }
-            Log.player.info("Direct channel HLS: sessionId=\(sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
-            isWatchSession = false
-            activeRecording = rec.recordingId != nil ? rec : nil
-            activeHLSSessionId = sessionId
-            playbackMode = .serverTranscodedHls
-            await playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: false, headers: hlsAuthHeaders())
-            if rec.recordingId != nil {
-                loadRecordingMetadata(recording: rec)
-            }
-        } catch {
-            Log.player.error("Direct HLS channel stream failed: \(error.localizedDescription)")
-            playerEngine.setFailed(error.localizedDescription)
-        }
+        await sessionCoordinator.startChannel(channel, engine: playerEngine)
     }
 
     public func playRecording(_ recording: HDHomeRunRecording) async {
         closePlayer()
-        activeRecording = recording
         activeChannel = nil
         activeAiring = nil
-        isWatchSession = false
+        // Set optimistically, before negotiation, so SyncPlay/SharePlay
+        // "now playing" state and observers reflect the requested recording
+        // even if the HLS session negotiation below fails.
+        activeRecording = recording
         playerEngine.setLoading()
 
         let syncContent = SyncPlayContent(
@@ -297,36 +314,7 @@ public final class PlayerViewModel: ObservableObject {
             sharePlayCoordinator.sendContentChange(syncContent)
         }
 
-        let baseURL = await apiClient.baseURL
-        guard let playUrl = recording.playUrl, !playUrl.isEmpty else {
-            playerEngine.setFailed("No playable URL for this recording.")
-            return
-        }
-
-        do {
-            let hlsSession = try await apiClient.createRecordingHLSSession(
-                url: playUrl,
-                recordingId: recording.recordingId
-            )
-            guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
-                playerEngine.setFailed("Could not build stream URL.")
-                return
-            }
-            Log.player.info("Recording HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
-            activeHLSSessionId = hlsSession.sessionId
-            playbackMode = .serverTranscodedHls
-            await playerEngine.loadMedia(
-                url: playlistURL,
-                isLive: recording.isInProgress,
-                isSeekable: true,
-                initialDuration: recording.durationSeconds,
-                headers: hlsAuthHeaders()
-            )
-            loadRecordingMetadata(recording: recording)
-        } catch {
-            Log.player.error("Recording HLS stream failed: \(error.localizedDescription)")
-            playerEngine.setFailed(error.localizedDescription)
-        }
+        await sessionCoordinator.startRecording(recording, engine: playerEngine)
     }
 
     public func promoteToRecording() async {
@@ -334,13 +322,8 @@ public final class PlayerViewModel: ObservableObject {
         isPromoting = true
         defer { isPromoting = false }
 
-        do {
-            let promoted = try await watchSessionManager.promoteWatch()
-            activeRecording = promoted
+        if await sessionCoordinator.promote() != nil {
             isPromoted = true
-            Log.player.info("Promoted live watch to DVR recording: \(promoted.title)")
-        } catch {
-            Log.player.error("Failed to promote watch session: \(error.localizedDescription)")
         }
     }
 
@@ -413,44 +396,6 @@ public final class PlayerViewModel: ObservableObject {
     private func hlsAuthHeaders() async -> [String: String] {
         guard let token = await apiClient.currentBearerToken() else { return [:] }
         return ["Authorization": "Bearer \(token)"]
-    }
-
-    private func loadRecordingMetadata(recording: HDHomeRunRecording) {
-        guard let recId = recording.recordingId, let playUrl = recording.playUrl else { return }
-
-        Task {
-            let baseURL = await apiClient.baseURL
-
-            // Fetch Detail (audio tracks, video specs)
-            if let detail = try? await apiClient.getRecordingDetail(url: playUrl, recordingId: recId, recordEnd: recording.recordEnd) {
-                playerEngine.setAudioTracks(detail.audio)
-                playerEngine.setVideoSpecs(detail.video)
-                playerEngine.setTranscodeInfo(detail.transcode)
-                if let dur = detail.durationSeconds, dur > 0 {
-                    playerEngine.setDuration(dur)
-                }
-            }
-
-            // Fetch Thumbnails VTT
-            if let vttURL = StreamURLBuilder.thumbnailVttURL(baseURL: baseURL, recordingId: recId, playUrl: playUrl, recordEnd: recording.recordEnd) {
-                self.thumbnailSpriteURL = StreamURLBuilder.thumbnailSpriteURL(
-                    baseURL: baseURL,
-                    recordingId: recId,
-                    playUrl: playUrl,
-                    recordEnd: recording.recordEnd
-                )
-                if let (data, _) = try? await URLSession.shared.data(from: vttURL),
-                   let vttString = String(data: data, encoding: .utf8)
-                {
-                    self.thumbnailCues = VTTParser.parseThumbnailVtt(from: vttString)
-                }
-            }
-
-            // Fetch Captions VTT, then start live polling if this recording
-            // is still in progress.
-            await fetchCaptionsOnce(recording: recording)
-            startCaptionPolling(recording: recording)
-        }
     }
 
     /// Fetches and parses the caption VTT once, then aligns/stretches it
@@ -755,22 +700,10 @@ public final class PlayerViewModel: ObservableObject {
         captionPollTask = nil
         resetCueStretch()
         captionController.reset()
-        watchSessionManager.stopWatch()
-        if let sessionId = activeHLSSessionId {
-            let apiClient = apiClient
-            runWithBackgroundGrace(name: "StopHLSSession") {
-                try? await apiClient.stopHLSSession(sessionId: sessionId)
-            }
-        }
+        sessionCoordinator.teardown()
         activeChannel = nil
         activeAiring = nil
-        activeRecording = nil
-        isWatchSession = false
-        activeHLSSessionId = nil
-        playbackMode = nil
         isPromoted = false
-        thumbnailCues = []
-        thumbnailSpriteURL = nil
     }
 
     private func handleRemoteContentChange(_ content: SyncPlayContent) {

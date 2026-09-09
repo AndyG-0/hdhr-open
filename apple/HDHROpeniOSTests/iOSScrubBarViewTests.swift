@@ -76,7 +76,7 @@ final class iOSScrubBarViewTests: XCTestCase {
         XCTAssertEqual(seekableShapes, nonSeekableShapes)
     }
 
-    func testAcceptsOnScrubbingChangedCallback() throws {
+    func testAcceptsOnScrubbingChangedCallback() {
         var scrubbingChangedCalled = false
         let view = iOSScrubBarView(
             currentTime: 10,

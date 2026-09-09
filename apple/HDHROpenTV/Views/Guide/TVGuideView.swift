@@ -161,9 +161,17 @@ public struct TVGuideView: View {
                     selectedAiringForModal = nil
                 },
                 onAddToMultiView: {
-                    selectedAiringForModal = nil
-                    Task {
-                        try? await multiPlayerViewModel.addFeed(channel: selection.channel, airing: selection.airing)
+                    // Reserve the slot synchronously before dismissing the modal, so
+                    // the multi-view grid shows the new tile immediately instead of
+                    // a frame with an empty slot while the stream negotiates -
+                    // mirrors TVPlayerView's already-correct beginAddFeed/finishAddFeed split.
+                    if let slotId = try? multiPlayerViewModel.beginAddFeed(channel: selection.channel, airing: selection.airing) {
+                        selectedAiringForModal = nil
+                        Task {
+                            try? await multiPlayerViewModel.finishAddFeed(slotId: slotId)
+                        }
+                    } else {
+                        selectedAiringForModal = nil
                     }
                 }
             )

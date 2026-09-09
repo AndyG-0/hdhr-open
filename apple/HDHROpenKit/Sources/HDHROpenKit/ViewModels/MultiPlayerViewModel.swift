@@ -7,20 +7,26 @@ public final class MultiPlayerViewModel: ObservableObject {
     @Published public var activeSlotIndex = 0
     @Published public var layout: MultiViewLayout = .sideBySide
     @Published public private(set) var isAllocatingSlot = false
-    @Published public private(set) var totalTuners: Int = 2
-    @Published public private(set) var maxFeeds: Int = 2
+    @Published public private(set) var totalTuners = 2
+    @Published public private(set) var maxFeeds = 2
     @Published public private(set) var tunerWarning: String?
 
     public static let maxFeeds = 4
     public static let maxMultiViewFeeds = 4
+    /// ~2 Mbps: comfortably legible on a background multi-view tile without
+    /// meaningfully contributing to concurrent-decode battery/thermal cost.
+    private static let backgroundBitrateCapBps: Double = 2_000_000
 
     private let apiClient: APIClient
     private let watchSessionManager: WatchSessionManager
+    private let negotiator: ChannelStreamNegotiator
     private var engineCancellables: [UUID: AnyCancellable] = [:]
+    private var tunerPollTask: Task<Void, Never>?
 
     public init(apiClient: APIClient, watchSessionManager: WatchSessionManager) {
         self.apiClient = apiClient
         self.watchSessionManager = watchSessionManager
+        negotiator = ChannelStreamNegotiator(apiClient: apiClient, watchSessionManager: watchSessionManager)
     }
 
     public var canAddFeed: Bool {
@@ -153,6 +159,42 @@ public final class MultiPlayerViewModel: ObservableObject {
         )
     }
 
+    /// Starts periodically re-evaluating every active slot's tuner-capacity
+    /// warning. Without this, `warningMessage` is computed once at
+    /// negotiation time and never updated, so a slot can keep showing
+    /// "tuners at capacity" long after another feed frees one up, or never
+    /// warn about capacity reached while it was negotiated. Mirrors
+    /// `TunerViewModel`'s poll-loop pattern.
+    public func startTunerPolling(intervalSeconds: UInt64 = 5) {
+        guard tunerPollTask == nil else { return }
+        tunerPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                await refreshSlotWarnings()
+                try? await Task.sleep(nanoseconds: intervalSeconds * 1_000_000_000)
+            }
+        }
+    }
+
+    public func stopTunerPolling() {
+        tunerPollTask?.cancel()
+        tunerPollTask = nil
+    }
+
+    /// Re-evaluates the tuner-capacity warning for every settled (non-loading,
+    /// non-failed) slot against current tuner state.
+    private func refreshSlotWarnings() async {
+        for slot in slots where slot.hlsSessionId != nil || slot.watchRecording != nil {
+            let tunerAvail = await evaluateTunerAvailability(targetChannelNumber: slot.channel.channelNumber, excludeSlotId: slot.id)
+            let warning: String? = tunerAvail.isShared
+                ? nil
+                : (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
+            if let index = slots.firstIndex(where: { $0.id == slot.id }) {
+                slots[index].warningMessage = warning
+            }
+        }
+    }
+
     // MARK: - Feed Lifecycle
 
     /// Adds a channel feed to the multi-view grid.
@@ -222,88 +264,75 @@ public final class MultiPlayerViewModel: ObservableObject {
         let playerEngine = slots[index].playerEngine
         let isMuted = slots[index].isMuted
 
+        // Bump the generation before the first `await` below, so a slot
+        // that's removed or re-targeted by a second finishAddFeed/replaceFeed
+        // while this negotiation is in flight can be detected (by every
+        // re-fetch-by-id + generation check below) instead of this call
+        // silently clobbering a newer negotiation's result or leaking the
+        // backend session it's about to negotiate.
+        let myGeneration = slots[index].negotiationGeneration + 1
+        slots[index].negotiationGeneration = myGeneration
+
         // Evaluate physical tuner availability & sharing
         let tunerAvail = await evaluateTunerAvailability(targetChannelNumber: channel.channelNumber, excludeSlotId: slotId)
+
+        guard let currentIndex = slots.firstIndex(where: { $0.id == slotId }),
+              slots[currentIndex].negotiationGeneration == myGeneration
+        else {
+            return
+        }
+
         if !tunerAvail.available {
             let explanation = tunerAvail.explanation ?? "Physical tuners exhausted."
             playerEngine.setFailed(explanation)
             tunerWarning = explanation
-            if let finalIndex = slots.firstIndex(where: { $0.id == slotId }) {
-                slots[finalIndex] = MultiViewSlot(
-                    id: slotId,
-                    channel: channel,
-                    airing: airing,
-                    playerEngine: playerEngine,
-                    isMuted: isMuted,
-                    warningMessage: explanation,
-                    playbackMode: .serverTranscodedHls
-                )
-            }
+            slots[currentIndex] = MultiViewSlot(
+                id: slotId,
+                channel: channel,
+                airing: airing,
+                playerEngine: playerEngine,
+                isMuted: isMuted,
+                warningMessage: explanation,
+                playbackMode: .serverTranscodedHls,
+                negotiationGeneration: myGeneration
+            )
             throw MultiViewError.tunerUnavailable(explanation)
         }
 
-        let tunerWarningMessage: String? = tunerAvail.isShared ? nil : (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
+        let tunerWarningMessage: String? = tunerAvail
+            .isShared ? nil :
+            (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
 
-        let baseURL = await apiClient.baseURL
-        let authHeaders = await hlsAuthHeaders()
-
-        var watchRec: HDHomeRunRecording?
-        var hlsSessionId: String?
-        let playbackMode: PlaybackMode? = .serverTranscodedHls
-
-        // Stream negotiation: try watch session first, fallback to direct HLS
-        var streamStarted = false
+        let result: StreamNegotiationResult
         do {
-            if let rec = try await watchSessionManager.startSession(channelNumber: channel.channelNumber),
-               let playUrl = rec.playUrl
-            {
-                let hlsSession = try await apiClient.createRecordingHLSSession(
-                    url: playUrl,
-                    recordingId: rec.recordingId
-                )
-                if let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) {
-                    watchRec = rec
-                    hlsSessionId = hlsSession.sessionId
-                    playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: true, headers: authHeaders)
-                    streamStarted = true
-                    Log.player.info("Multi-view watch session HLS started: sessionId=\(hlsSession.sessionId) for channel \(channel.channelNumber)")
-                }
-            }
+            result = try await negotiator.negotiate(.channel(channel))
         } catch {
-            Log.player.warning("Multi-view watch session failed for \(channel.channelNumber), falling back to channel HLS: \(error.localizedDescription)")
+            playerEngine.setFailed(error.localizedDescription)
+            throw error
         }
 
-        if !streamStarted {
-            do {
-                let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber)
-                guard let sessionId = rec.sessionId,
-                      let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: sessionId)
-                else {
-                    playerEngine.setFailed("Could not build stream URL.")
-                    throw MultiViewError.streamURLCreationFailed
-                }
-                hlsSessionId = sessionId
-                watchRec = rec.recordingId != nil ? rec : nil
-                playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: false, headers: authHeaders)
-                Log.player.info("Multi-view direct channel HLS started: sessionId=\(sessionId) for channel \(channel.channelNumber)")
-            } catch {
-                playerEngine.setFailed(error.localizedDescription)
-                throw error
-            }
+        guard let finalIndex = slots.firstIndex(where: { $0.id == slotId }),
+              slots[finalIndex].negotiationGeneration == myGeneration
+        else {
+            negotiator.teardown(result)
+            return
         }
 
-        guard let finalIndex = slots.firstIndex(where: { $0.id == slotId }) else { return }
+        let authHeaders = await hlsAuthHeaders()
+        playerEngine.loadMedia(url: result.streamURL, isLive: result.isLive, isSeekable: result.isSeekable, headers: authHeaders)
+        Log.player.info("Multi-view stream started: sessionId=\(result.hlsSessionId) for channel \(channel.channelNumber)")
 
         slots[finalIndex] = MultiViewSlot(
             id: slotId,
             channel: channel,
             airing: airing,
             playerEngine: playerEngine,
-            watchRecording: watchRec,
-            hlsSessionId: hlsSessionId,
+            watchRecording: result.recording,
+            hlsSessionId: result.hlsSessionId,
             isMuted: isMuted,
             warningMessage: tunerWarningMessage,
-            playbackMode: playbackMode
+            playbackMode: .serverTranscodedHls,
+            negotiationGeneration: myGeneration
         )
     }
 
@@ -320,6 +349,7 @@ public final class MultiPlayerViewModel: ObservableObject {
         // Adjust activeSlotIndex
         if slots.isEmpty {
             activeSlotIndex = 0
+            stopTunerPolling()
         } else if activeSlotIndex >= slots.count {
             activeSlotIndex = slots.count - 1
         } else if index < activeSlotIndex {
@@ -351,75 +381,74 @@ public final class MultiPlayerViewModel: ObservableObject {
         playerEngine.setMuted(wasMuted)
         playerEngine.setLoading()
 
+        // Bump the generation before the first `await` below - see the
+        // matching comment in `finishAddFeed`. From here on, re-fetch the
+        // slot by `oldSlot.id` rather than trusting the positional `index`
+        // parameter: the array can mutate (a remove/swap/another replace)
+        // during either `await` below, which would otherwise make `index`
+        // point at an unrelated slot by the time of the final write.
+        let myGeneration = oldSlot.negotiationGeneration + 1
+        slots[index].negotiationGeneration = myGeneration
+
         // Check tuner availability
         let tunerAvail = await evaluateTunerAvailability(targetChannelNumber: channel.channelNumber, excludeSlotId: oldSlot.id)
+
+        guard let currentIndex = slots.firstIndex(where: { $0.id == oldSlot.id }),
+              slots[currentIndex].negotiationGeneration == myGeneration
+        else {
+            return
+        }
+
         if !tunerAvail.available {
             let explanation = tunerAvail.explanation ?? "Physical tuners exhausted."
             playerEngine.setFailed(explanation)
             tunerWarning = explanation
-            slots[index] = MultiViewSlot(
+            slots[currentIndex] = MultiViewSlot(
                 id: oldSlot.id,
                 channel: channel,
                 airing: airing ?? channel.now,
                 playerEngine: playerEngine,
                 isMuted: wasMuted,
                 warningMessage: explanation,
-                playbackMode: .serverTranscodedHls
+                playbackMode: .serverTranscodedHls,
+                negotiationGeneration: myGeneration
             )
             throw MultiViewError.tunerUnavailable(explanation)
         }
 
-        let tunerWarningMessage: String? = tunerAvail.isShared ? nil : (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
+        let tunerWarningMessage: String? = tunerAvail
+            .isShared ? nil :
+            (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
 
-        let baseURL = await apiClient.baseURL
-        let authHeaders = await hlsAuthHeaders()
-
-        var watchRec: HDHomeRunRecording?
-        var hlsSessionId: String?
-        var streamStarted = false
-
+        let result: StreamNegotiationResult
         do {
-            if let rec = try await watchSessionManager.startSession(channelNumber: channel.channelNumber),
-               let playUrl = rec.playUrl
-            {
-                let hlsSession = try await apiClient.createRecordingHLSSession(
-                    url: playUrl,
-                    recordingId: rec.recordingId
-                )
-                if let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) {
-                    watchRec = rec
-                    hlsSessionId = hlsSession.sessionId
-                    playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: true, headers: authHeaders)
-                    streamStarted = true
-                }
-            }
+            result = try await negotiator.negotiate(.channel(channel))
         } catch {
-            Log.player.warning("Multi-view replace feed watch session failed: \(error.localizedDescription)")
+            playerEngine.setFailed(error.localizedDescription)
+            throw error
         }
 
-        if !streamStarted {
-            let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber)
-            guard let sessionId = rec.sessionId,
-                  let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: sessionId)
-            else {
-                playerEngine.setFailed("Could not build stream URL.")
-                throw MultiViewError.streamURLCreationFailed
-            }
-            hlsSessionId = sessionId
-            watchRec = rec.recordingId != nil ? rec : nil
-            playerEngine.loadMedia(url: playlistURL, isLive: true, isSeekable: false, headers: authHeaders)
+        guard let finalIndex = slots.firstIndex(where: { $0.id == oldSlot.id }),
+              slots[finalIndex].negotiationGeneration == myGeneration
+        else {
+            negotiator.teardown(result)
+            return
         }
 
-        slots[index] = MultiViewSlot(
+        let authHeaders = await hlsAuthHeaders()
+        playerEngine.loadMedia(url: result.streamURL, isLive: result.isLive, isSeekable: result.isSeekable, headers: authHeaders)
+
+        slots[finalIndex] = MultiViewSlot(
             id: oldSlot.id,
             channel: channel,
             airing: airing ?? channel.now,
             playerEngine: playerEngine,
-            watchRecording: watchRec,
-            hlsSessionId: hlsSessionId,
+            watchRecording: result.recording,
+            hlsSessionId: result.hlsSessionId,
             isMuted: wasMuted,
             warningMessage: tunerWarningMessage,
-            playbackMode: .serverTranscodedHls
+            playbackMode: .serverTranscodedHls,
+            negotiationGeneration: myGeneration
         )
 
         updateAudioRouting()
@@ -481,6 +510,7 @@ public final class MultiPlayerViewModel: ObservableObject {
         engineCancellables.removeAll()
         slots.removeAll()
         activeSlotIndex = 0
+        stopTunerPolling()
     }
 
     // MARK: - Private Helpers
@@ -509,6 +539,24 @@ public final class MultiPlayerViewModel: ObservableObject {
                 slots[i].isMuted = isMuted
             }
             slots[i].playerEngine.setMuted(isMuted)
+        }
+        applyBackgroundBitrateCapping()
+    }
+
+    /// Caps decode bitrate on every slot except the audio-focused one: up to
+    /// 4 concurrent `AVPlayer`s decoding at full quality simultaneously is
+    /// expensive (battery/thermals), but multi-view's whole premise is
+    /// seeing every tile live at once, so tiles are never paused by default
+    /// (see `pauseBackgroundSlots`, which only fires on explicit fullscreen
+    /// expand) - this is the mitigation instead. Reset to unlimited (`0`) on
+    /// the focused slot so switching audio focus restores full quality
+    /// there. Called from `updateAudioRouting()` so it stays in sync with
+    /// every path that can change `activeSlotIndex` or the slot list
+    /// (`setAudioSlot`, `swapSlots`, add/replace/remove-feed).
+    private func applyBackgroundBitrateCapping() {
+        for (i, slot) in slots.enumerated() {
+            let bitRate = (i == activeSlotIndex) ? 0.0 : Self.backgroundBitrateCapBps
+            slot.playerEngine.setPreferredPeakBitRate(bitRate)
         }
     }
 

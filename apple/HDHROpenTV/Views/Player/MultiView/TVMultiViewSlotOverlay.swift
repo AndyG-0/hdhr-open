@@ -104,7 +104,30 @@ public struct TVMultiViewSlotOverlay: View {
 
                 Spacer()
 
-                // Bottom Program Info & Warnings
+                // Tuner-capacity warning: its own full-width banner, not squeezed into the
+                // bottom info row's leftover horizontal space - at 11-12pt sharing a row with
+                // channel/program text it was easy to miss from 10 feet away. A dedicated
+                // full-width pill with a larger, bold label reads at a glance instead.
+                if let warning = slot.warningMessage {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.black)
+                            .font(.system(size: 15, weight: .bold))
+                        Text(warning)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.black)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.yellow)
+                    .cornerRadius(10)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 6)
+                }
+
+                // Bottom Program Info
                 HStack(alignment: .bottom) {
                     if let airing = slot.airing {
                         VStack(alignment: .leading, spacing: 2) {
@@ -127,22 +150,6 @@ public struct TVMultiViewSlotOverlay: View {
                     }
 
                     Spacer()
-
-                    if let warning = slot.warningMessage {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.yellow)
-                                .font(.system(size: 12))
-                            Text(warning)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.yellow)
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.8))
-                        .cornerRadius(8)
-                    }
                 }
                 .padding(14)
             }

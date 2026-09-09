@@ -133,4 +133,50 @@ final class TVPlayerViewTests: XCTestCase {
 
         XCTAssertThrowsError(try view.inspect().find(TVPlayerRecordMenuOverlay.self))
     }
+
+    // REV-APL-18: regression coverage for the `.onMoveCommand` "intercepts
+    // everything" workaround (see the long comment at TVPlayerView.swift's
+    // fallback-focus block, just above `if !showControls`). `.onMoveCommand`
+    // is unsupported by ViewInspector on tvOS entirely (confirmed in the
+    // vendored ViewInspector's InteractionModifiers.swift), and the 7s
+    // auto-hide timer has no injectable clock, so this only tests what's
+    // reachable from here: in the default (`showControls == true`) state,
+    // no `Color.clear` view is in the tree - confirming the fallback-focus
+    // target (`Color.clear.focusable(true).focused($isFallbackFocused)`) is
+    // absent and so can't compete with `TVPlaybackControlsView` for focus,
+    // which is the whole point of the comment above it being a conditional
+    // ZStack child rather than an unconditional modifier. (The other
+    // `Color.clear` in this file, in the top gradient's `colors:` array, is a
+    // `Gradient` parameter, not a rendered child view, so it isn't part of
+    // this search space.) Full remote-input behavior (does a real
+    // directional press on the fallback target actually reveal controls)
+    // needs on-device verification; `showControls` is private `@State` with
+    // no injectable initial value, and - per this codebase's established
+    // ViewInspector limitation (see
+    // `TVMultiPlayerViewTests.assertTileOptionsButtonIsTappable`'s note) - a
+    // `.tap()`-driven `@State` mutation doesn't propagate to a subsequent
+    // inspection without `ViewHosting.host(view:)`, which this codebase
+    // deliberately avoids, so the post-toggle "fallback view is present when
+    // showControls == false" tree shape isn't independently verifiable here.
+    func testHidesFallbackFocusTargetWhileControlsAreVisibleByDefault() throws {
+        let (playerViewModel, guideViewModel, recordingsViewModel) = makeEnvironmentObjects()
+
+        let view = makeView(playerViewModel, guideViewModel, recordingsViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(TVPlaybackControlsView.self))
+        XCTAssertThrowsError(try view.inspect().find(ViewType.Color.self) { (try? $0.value()) == .clear })
+    }
+
+    /// Tapping the view is the only way (short of `ViewHosting`) to exercise
+    /// the `.onTapGesture` handler that toggles `showControls` and, when
+    /// hiding controls, claims `isFallbackFocused` - confirms the handler is
+    /// wired and doesn't throw, per this codebase's established
+    /// tap-without-re-inspection convention (see the note above).
+    func testTappingPlayerViewDoesNotThrow() throws {
+        let (playerViewModel, guideViewModel, recordingsViewModel) = makeEnvironmentObjects()
+
+        let view = makeView(playerViewModel, guideViewModel, recordingsViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(ViewType.ZStack.self).callOnTapGesture())
+    }
 }

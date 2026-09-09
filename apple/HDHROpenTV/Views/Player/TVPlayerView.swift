@@ -383,6 +383,30 @@ public struct TVPlayerView: View {
         .onExitCommand {
             playerViewModel.closePlayer()
         }
+        .alert("Error", isPresented: Binding(
+            get: { guideViewModel.error != nil },
+            set: {
+                if !$0 {
+                    guideViewModel.dismissError()
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(guideViewModel.error ?? "")
+        }
+        .alert("Error", isPresented: Binding(
+            get: { playerViewModel.error != nil },
+            set: {
+                if !$0 {
+                    playerViewModel.dismissError()
+                }
+            }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(playerViewModel.error ?? "")
+        }
     }
 
     private func resetControlsTimer() {

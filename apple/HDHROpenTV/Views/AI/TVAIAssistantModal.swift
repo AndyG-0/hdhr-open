@@ -6,10 +6,16 @@ public struct TVAIAssistantModal: View {
     @Environment(\.dismiss) private var dismiss
 
     @Namespace private var focusNamespace
+    @FocusState private var focusedElement: AIFocus?
     @State private var turns: [AIChatTurn] = []
     @State private var inputText = ""
     @State private var isSending = false
     @State private var errorText: String?
+
+    private enum AIFocus: Hashable {
+        case suggestion(Int)
+        case input
+    }
 
     public init(apiClient: APIClient) {
         self.apiClient = apiClient
@@ -49,6 +55,16 @@ public struct TVAIAssistantModal: View {
             )
         }
         .focusScope(focusNamespace)
+        // tvOS won't auto-retarget focus onto a newly-appeared modal - without
+        // this, focus stays wherever it was on the guide behind the modal, so
+        // the Siri Remote's directional input appears to do nothing.
+        .onAppear {
+            if !AIChatHelpers.quickSuggestions.isEmpty {
+                focusedElement = .suggestion(0)
+            } else {
+                focusedElement = .input
+            }
+        }
     }
 
     // MARK: - Header
@@ -82,7 +98,7 @@ public struct TVAIAssistantModal: View {
     private var quickSuggestionsBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 16) {
-                ForEach(AIChatHelpers.quickSuggestions, id: \.self) { suggestion in
+                ForEach(Array(AIChatHelpers.quickSuggestions.enumerated()), id: \.offset) { index, suggestion in
                     Button(action: {
                         sendPrompt(suggestion)
                     }) {
@@ -94,6 +110,7 @@ public struct TVAIAssistantModal: View {
                         .padding(.vertical, 8)
                     }
                     .buttonStyle(.bordered)
+                    .focused($focusedElement, equals: .suggestion(index))
                 }
             }
             .padding(.vertical, 4)
@@ -314,6 +331,7 @@ public struct TVAIAssistantModal: View {
                 .padding(14)
                 .background(Theme.appSurfaceVariant)
                 .cornerRadius(12)
+                .focused($focusedElement, equals: .input)
 
             Button(action: {
                 sendPrompt(inputText)

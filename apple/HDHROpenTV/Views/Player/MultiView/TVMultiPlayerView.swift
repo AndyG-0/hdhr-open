@@ -43,9 +43,11 @@ public struct TVMultiPlayerView: View {
                 },
                 onSwapWithHero: { index in
                     multiPlayerViewModel.swapSlots(from: index, to: 0)
+                    repushFocusToActiveSlot()
                 },
                 onCloseSlot: { index in
                     multiPlayerViewModel.removeFeed(at: index)
+                    repushFocusToActiveSlot()
                 }
             )
             // Grid shouldn't take focus/input while something is layered over it - a fullscreen
@@ -106,6 +108,7 @@ public struct TVMultiPlayerView: View {
         }
         .task {
             await multiPlayerViewModel.refreshTunerCapacity()
+            multiPlayerViewModel.startTunerPolling()
         }
     }
 
@@ -313,6 +316,23 @@ public struct TVMultiPlayerView: View {
     private func collapseExpandedSlot() {
         expandedSlotIndex = nil
         multiPlayerViewModel.resumeBackgroundSlots()
+    }
+
+    /// Round-trips `focusedSlotIndex` through nil so `TVMultiViewGrid`'s
+    /// two-way sync with tvOS's focus engine re-pushes focus even when
+    /// `activeSlotIndex` is unchanged from before the mutation - simply
+    /// reassigning the same value doesn't reliably re-push tvOS focus.
+    /// Mirrors `closeEditBar()`'s existing idiom, but keyed off
+    /// `activeSlotIndex` (already correctly maintained by `removeFeed`/
+    /// `swapSlots` for audio routing) rather than the previously-focused
+    /// index, since a close/swap can leave that index pointing at a
+    /// different slot or none at all.
+    private func repushFocusToActiveSlot() {
+        let target = multiPlayerViewModel.activeSlotIndex
+        focusedSlotIndex = nil
+        Task { @MainActor in
+            focusedSlotIndex = target
+        }
     }
 
     private func closeEditBar() {

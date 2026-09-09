@@ -93,6 +93,13 @@ final class iOSMultiPlayerViewTests: XCTestCase {
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
         setupMockFeed(channelNumber: "7.1", sessId: "sess3")
+        // `maxFeeds` defaults to 2 until tuner capacity is detected (see
+        // `MultiPlayerViewModel.evaluateTunerAvailability`), so without this
+        // a third feed is rejected before the layout ever reaches `.threeBox`.
+        MockURLProtocol.handlers["/api/tuner/info"] = (
+            Data("{\"friendly_name\":\"HDHomeRun CONNECT\",\"model_number\":\"HDHR4-2US\",\"tuner_count\":4}".utf8),
+            200
+        )
 
         let (multiPlayerViewModel, _, _) = makeEnvironment()
         try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))

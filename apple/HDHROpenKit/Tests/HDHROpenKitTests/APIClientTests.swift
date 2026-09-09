@@ -292,6 +292,51 @@ final class APIClientTests: XCTestCase {
         }
     }
 
+    func testStatusCode500ParsesNestedDetailObjectMessage() async {
+        MockURLProtocol.handlers["/api/tuner/status"] = (Data("{\"detail\":{\"message\":\"tuner offline\"}}".utf8), 500)
+        let client = makeMockedAPIClient()
+
+        do {
+            _ = try await client.getTunerStatus()
+            XCTFail("expected serverError")
+        } catch let APIError.serverError(statusCode, message) {
+            XCTAssertEqual(statusCode, 500)
+            XCTAssertEqual(message, "tuner offline")
+        } catch {
+            XCTFail("expected APIError.serverError, got \(error)")
+        }
+    }
+
+    func testStatusCode500ParsesErrorKey() async {
+        MockURLProtocol.handlers["/api/tuner/status"] = (Data("{\"error\":\"something broke\"}".utf8), 500)
+        let client = makeMockedAPIClient()
+
+        do {
+            _ = try await client.getTunerStatus()
+            XCTFail("expected serverError")
+        } catch let APIError.serverError(statusCode, message) {
+            XCTAssertEqual(statusCode, 500)
+            XCTAssertEqual(message, "something broke")
+        } catch {
+            XCTFail("expected APIError.serverError, got \(error)")
+        }
+    }
+
+    func testStatusCode500FallsBackToDefaultMessageOnNonJSONBody() async {
+        MockURLProtocol.handlers["/api/tuner/status"] = (Data("not json".utf8), 500)
+        let client = makeMockedAPIClient()
+
+        do {
+            _ = try await client.getTunerStatus()
+            XCTFail("expected serverError")
+        } catch let APIError.serverError(statusCode, message) {
+            XCTAssertEqual(statusCode, 500)
+            XCTAssertEqual(message, "Request failed with status code 500")
+        } catch {
+            XCTFail("expected APIError.serverError, got \(error)")
+        }
+    }
+
     func testOtherErrorStatusCodeFallsThroughToServerError() async {
         MockURLProtocol.handlers["/api/tuner/status"] = (Data("{\"detail\":\"teapot\"}".utf8), 418)
         let client = makeMockedAPIClient()
