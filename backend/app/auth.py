@@ -63,26 +63,39 @@ _MAX_FAILED_ATTEMPTS = 5
 _LOCKOUT_WINDOW_SECONDS = 60.0
 _failed_attempts: dict[str, list[float]] = {}
 
-# _recent_failures only prunes the one user_id it's asked about, so a
-# user_id that fails once and is never retried would otherwise sit in the
-# dict forever. This bounds that growth (e.g. a scripted probe cycling
-# through many distinct bogus user_ids) by sweeping every key on a timer
+# Same in-memory sliding-window shape, keyed by client IP instead of user_id,
+# guarding get_current_user's bearer-token/session-cookie resolution against
+# a scripted credential-stuffing loop. Much higher threshold and shared
+# window since this guards a per-request path, not a manual PIN pad.
+_IP_MAX_FAILED_ATTEMPTS = 200
+_ip_failed_attempts: dict[str, list[float]] = {}
+
+# _recent_failures only prunes the one key it's asked about, so a key that
+# fails once and is never retried would otherwise sit in the dict forever.
+# This bounds that growth (e.g. a scripted probe cycling through many
+# distinct bogus user_ids or source IPs) by sweeping every key on a timer
 # instead of only the one currently being read/written.
 _SWEEP_INTERVAL_SECONDS = 300.0
 _last_sweep_at = 0.0
 
 
-def _recent_failures(user_id: str) -> list[float]:
-    attempts = _failed_attempts.get(user_id)
+def _recent_failures(store: dict[str, list[float]], key: str, window_seconds: float) -> list[float]:
+    attempts = store.get(key)
     if not attempts:
         return []
-    cutoff = time.monotonic() - _LOCKOUT_WINDOW_SECONDS
+    cutoff = time.monotonic() - window_seconds
     fresh = [t for t in attempts if t >= cutoff]
     if fresh:
-        _failed_attempts[user_id] = fresh
+        store[key] = fresh
     else:
-        _failed_attempts.pop(user_id, None)
+        store.pop(key, None)
     return fresh
+
+
+def _record_failure(store: dict[str, list[float]], key: str, window_seconds: float) -> None:
+    _recent_failures(store, key, window_seconds)
+    store.setdefault(key, []).append(time.monotonic())
+    _sweep_stale_entries_if_due()
 
 
 def _sweep_stale_entries_if_due() -> None:
@@ -91,23 +104,31 @@ def _sweep_stale_entries_if_due() -> None:
     if now - _last_sweep_at < _SWEEP_INTERVAL_SECONDS:
         return
     _last_sweep_at = now
-    cutoff = now - _LOCKOUT_WINDOW_SECONDS
-    for user_id in [uid for uid, attempts in _failed_attempts.items() if not any(t >= cutoff for t in attempts)]:
-        _failed_attempts.pop(user_id, None)
+    stores = (_failed_attempts, _ip_failed_attempts)
+    for store, window_seconds in ((s, _LOCKOUT_WINDOW_SECONDS) for s in stores):
+        cutoff = now - window_seconds
+        for key in [k for k, attempts in store.items() if not any(t >= cutoff for t in attempts)]:
+            store.pop(key, None)
 
 
 def is_locked_out(user_id: str) -> bool:
-    return len(_recent_failures(user_id)) >= _MAX_FAILED_ATTEMPTS
+    return len(_recent_failures(_failed_attempts, user_id, _LOCKOUT_WINDOW_SECONDS)) >= _MAX_FAILED_ATTEMPTS
 
 
 def record_failed_login(user_id: str) -> None:
-    _recent_failures(user_id)
-    _failed_attempts.setdefault(user_id, []).append(time.monotonic())
-    _sweep_stale_entries_if_due()
+    _record_failure(_failed_attempts, user_id, _LOCKOUT_WINDOW_SECONDS)
 
 
 def record_successful_login(user_id: str) -> None:
     _failed_attempts.pop(user_id, None)
+
+
+def _is_ip_locked_out(client_ip: str) -> bool:
+    return len(_recent_failures(_ip_failed_attempts, client_ip, _LOCKOUT_WINDOW_SECONDS)) >= _IP_MAX_FAILED_ATTEMPTS
+
+
+def _record_ip_failure(client_ip: str) -> None:
+    _record_failure(_ip_failed_attempts, client_ip, _LOCKOUT_WINDOW_SECONDS)
 
 
 def new_token() -> str:
@@ -164,15 +185,23 @@ async def _resolve_bearer_token(request: Request) -> dict[str, Any] | None:
 
 
 async def get_current_user(request: Request) -> dict[str, Any]:
-    token_row = await _resolve_bearer_token(request)
-    if token_row is not None:
-        user_id = token_row["user_id"]
-    else:
-        session = await get_current_session(request)
-        user_id = session["user_id"]
-    user = await asyncio.to_thread(get_user, user_id)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Not logged in")
+    client_ip = request.client.host if request.client else "unknown"
+    if _is_ip_locked_out(client_ip):
+        raise HTTPException(status_code=429, detail="Too many failed auth attempts, try again shortly")
+    try:
+        token_row = await _resolve_bearer_token(request)
+        if token_row is not None:
+            user_id = token_row["user_id"]
+        else:
+            session = await get_current_session(request)
+            user_id = session["user_id"]
+        user = await asyncio.to_thread(get_user, user_id)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Not logged in")
+    except HTTPException as exc:
+        if exc.status_code != 429:
+            _record_ip_failure(client_ip)
+        raise
     return user
 
 

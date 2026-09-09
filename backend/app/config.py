@@ -20,7 +20,7 @@ DB_PATH = Path(os.environ.get("DB_PATH", str(BACKEND_ROOT / "storage.db")))
 # redeploy that loses this file would strand every encrypted secret it holds.
 SECRET_KEY_PATH = Path(os.environ.get("SECRET_KEY_PATH", str(BACKEND_ROOT / "secret.key")))
 # Generated closed-caption WebVTT and scrub-bar thumbnail sprites for
-# completed recordings, keyed by recording id (see app/dvr/media_cache.py).
+# completed recordings, keyed by recording id (see app/dvr/media/).
 # Overridable via env for the same reason as DB_PATH — must live in the same
 # persistent volume, or every redeploy pays the ffmpeg/ffprobe cost again.
 HDHOMERUN_MEDIA_CACHE_DIR = Path(

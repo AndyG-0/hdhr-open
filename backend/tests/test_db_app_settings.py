@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from app import crypto
 from app.storage import db
 
 
@@ -53,3 +54,16 @@ def test_keys_listed_in_secret_app_settings_keys_are_encrypted_on_disk(tmp_db, m
     assert "sk-secret" not in stored
 
     assert db.get_app_settings() == {"api_token": "sk-secret"}
+
+
+def test_get_app_settings_omits_a_key_that_fails_to_decrypt(tmp_db, monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "SECRET_APP_SETTINGS_KEYS", ("api_token",))
+    db.save_app_settings({"api_token": "sk-secret", "timezone": "UTC"})
+
+    # Simulate a rotated/lost encryption key: the stored ciphertext no longer
+    # decrypts with the (now different) key.
+    crypto.SECRET_KEY_PATH.unlink()
+    monkeypatch.setattr(crypto, "SECRET_KEY_PATH", tmp_path / "rotated-secret.key")
+    crypto.reset_key_cache()
+
+    assert db.get_app_settings() == {"timezone": "UTC"}

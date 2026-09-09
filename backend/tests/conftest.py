@@ -14,11 +14,13 @@ def _reset_shared_state():
     into each other."""
     cache._store.clear()
     auth._failed_attempts.clear()
+    auth._ip_failed_attempts.clear()
     auth._last_sweep_at = 0.0
     subprocess_streaming._recent_stream_failures.clear()
     yield
     cache._store.clear()
     auth._failed_attempts.clear()
+    auth._ip_failed_attempts.clear()
     auth._last_sweep_at = 0.0
     subprocess_streaming._recent_stream_failures.clear()
 

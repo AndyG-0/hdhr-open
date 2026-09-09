@@ -26,6 +26,11 @@ logger = logging.getLogger(__name__)
 # and pass those through unchanged instead of raising.
 _ENCRYPTED_PREFIX = "enc:v1:"
 
+class DecryptionError(Exception):
+    """Raised by `decrypt()` when a stored value can't be decrypted with the
+    current key — see the `InvalidToken` handling below for why."""
+
+
 _key_cache: bytes | None = None
 
 
@@ -63,14 +68,20 @@ def encrypt(value: str) -> str:
 
 def decrypt(value: str) -> str:
     """Reverses `encrypt`. A value without the marker prefix is returned
-    as-is (see module docstring) rather than raising."""
+    as-is (see module docstring) rather than raising.
+
+    Raises `DecryptionError` if the value carries the marker prefix but
+    can't be decrypted with the current key — callers must distinguish this
+    from "this setting simply isn't configured" rather than treating both
+    the same way.
+    """
     if not value.startswith(_ENCRYPTED_PREFIX):
         return value
 
     token = value[len(_ENCRYPTED_PREFIX) :].encode("ascii")
     try:
         return Fernet(_load_key()).decrypt(token).decode("utf-8")
-    except InvalidToken:
+    except InvalidToken as exc:
         # The key file changed (or is missing/regenerated) since this value
         # was written — treat it as unreadable rather than crashing whatever
         # feature is trying to use it. Logged rather than silently swallowed:
@@ -83,4 +94,4 @@ def decrypt(value: str) -> str:
             "probably not pointed at persistent storage.",
             SECRET_KEY_PATH,
         )
-        return ""
+        raise DecryptionError(str(exc)) from exc

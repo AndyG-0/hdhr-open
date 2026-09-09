@@ -46,11 +46,12 @@ def test_reuses_the_persisted_key_across_separate_encrypt_calls():
     assert crypto.decrypt(first) == "value"
 
 
-def test_decrypt_returns_empty_string_for_ciphertext_from_a_different_key(tmp_path):
+def test_decrypt_raises_decryption_error_for_ciphertext_from_a_different_key(tmp_path):
     ciphertext = crypto.encrypt("value")
 
     crypto.SECRET_KEY_PATH.unlink()
     crypto.reset_key_cache()
     crypto.encrypt("unrelated")  # generates a fresh, different key
 
-    assert crypto.decrypt(ciphertext) == ""
+    with pytest.raises(crypto.DecryptionError):
+        crypto.decrypt(ciphertext)

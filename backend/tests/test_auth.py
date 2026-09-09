@@ -33,10 +33,16 @@ def test_new_token_returns_distinct_unguessable_values():
     assert auth.new_token() != auth.new_token()
 
 
+class _FakeClient:
+    def __init__(self, host: str):
+        self.host = host
+
+
 class _FakeRequest:
-    def __init__(self, cookies: dict[str, str], headers: dict[str, str] | None = None):
+    def __init__(self, cookies: dict[str, str], headers: dict[str, str] | None = None, client_ip: str = "127.0.0.1"):
         self.cookies = cookies
         self.headers = headers or {}
+        self.client = _FakeClient(client_ip) if client_ip else None
 
 
 async def test_get_current_session_raises_401_without_a_cookie(tmp_db):
@@ -189,3 +195,41 @@ def test_periodic_sweep_prunes_a_stale_user_id_never_queried_again(monkeypatch):
     auth.record_failed_login("bob")
 
     assert "alice" not in auth._failed_attempts
+
+
+async def test_get_current_user_rate_limits_repeated_failures_from_one_ip(tmp_db):
+    request = _FakeRequest({}, headers={"Authorization": "Bearer nope"}, client_ip="10.0.0.5")
+
+    for _ in range(auth._IP_MAX_FAILED_ATTEMPTS):
+        with pytest.raises(HTTPException) as exc_info:
+            await auth.get_current_user(request)
+        assert exc_info.value.status_code == 401
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth.get_current_user(request)
+    assert exc_info.value.status_code == 429
+
+
+async def test_get_current_user_rate_limit_is_scoped_per_ip(tmp_db):
+    tripped = _FakeRequest({}, headers={"Authorization": "Bearer nope"}, client_ip="10.0.0.5")
+    other = _FakeRequest({}, headers={"Authorization": "Bearer nope"}, client_ip="10.0.0.6")
+
+    for _ in range(auth._IP_MAX_FAILED_ATTEMPTS + 1):
+        with pytest.raises(HTTPException):
+            await auth.get_current_user(tripped)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth.get_current_user(other)
+    assert exc_info.value.status_code == 401
+
+
+async def test_get_current_user_success_does_not_count_as_a_failure(tmp_db):
+    db.create_user("alice", "Alice", None, None, None, None, "2020-01-01T00:00:00Z")
+    db.create_session("sess1", "alice", "2020-01-01T00:00:00Z", auth.session_expiry())
+    good_request = _FakeRequest({auth.SESSION_COOKIE_NAME: "sess1"}, client_ip="10.0.0.9")
+
+    for _ in range(auth._IP_MAX_FAILED_ATTEMPTS * 2):
+        user = await auth.get_current_user(good_request)
+        assert user["id"] == "alice"
+
+    assert auth._is_ip_locked_out("10.0.0.9") is False

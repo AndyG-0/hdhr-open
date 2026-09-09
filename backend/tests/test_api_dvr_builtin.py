@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import dvr as dvr_api
+from app.api import dvr_streaming
 from app.auth import get_current_user
 from app.storage import db
 
@@ -93,8 +94,8 @@ def test_get_recording_poster_fallback_and_generation(client, tmp_db, tmp_path, 
     dummy_jpg = tmp_path / "rec_poster.poster.jpg"
     dummy_jpg.write_bytes(b"JPEGDATA")
 
-    from app.dvr import media_cache
-    monkeypatch.setattr(media_cache, "generate_poster", AsyncMock(return_value=dummy_jpg))
+    from app.dvr.media import thumbnails
+    monkeypatch.setattr(thumbnails, "generate_poster", AsyncMock(return_value=dummy_jpg))
 
     db.create_recording(
         {
@@ -393,6 +394,40 @@ def test_delete_recording_builtin(client, tmp_db, tmp_path, monkeypatch):
     assert del_res.json() == {"status": "deleted"}
     assert not video_file.exists()
     assert db.get_recording("rec_to_delete") is None
+
+
+def test_delete_recording_invalidates_probe_and_edl_cache(client, tmp_db, tmp_path, monkeypatch):
+    from app.dvr.builtin import retention
+
+    monkeypatch.setattr(retention, "RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(retention, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path / "cache")
+
+    video_file = tmp_path / "test_del_cache.ts"
+    video_file.write_bytes(b"DATA")
+
+    db.create_recording(
+        {
+            "id": "rec_cached",
+            "title": "Cached Episode",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "completed",
+        }
+    )
+
+    dvr_streaming._probe_cache["rec_cached"] = {"duration": 1234.0}
+    dvr_streaming._probe_cache_in_progress["rec_cached"] = {}
+    dvr_streaming._edl_cache["rec_cached"] = (0.0, [])
+
+    del_res = client.delete("/api/dvr/recordings/rec_cached")
+    assert del_res.status_code == 200
+
+    assert "rec_cached" not in dvr_streaming._probe_cache
+    assert "rec_cached" not in dvr_streaming._probe_cache_in_progress
+    assert "rec_cached" not in dvr_streaming._edl_cache
 
 
 def test_delete_recording_not_found(client, tmp_db):
@@ -911,8 +946,8 @@ def test_recording_detail_commercial_segments_invalidate_on_edl_mtime_change(cli
 
 
 def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tmp_db, tmp_path, monkeypatch):
-    from app.dvr import media_cache
     from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+    from app.dvr.media import captions_live
 
     video_file = tmp_path / "in_progress.ts"
     video_file.write_bytes(b"MPEG-TS data")
@@ -937,11 +972,11 @@ def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tm
     capture_pipeline._active_captures["rec_live"] = active_capture
 
     def fake_ensure_live_captions(recording_id, file_path, is_source_alive, capture_start_ts=None, channel=1):
-        media_cache.live_captions_path(recording_id, channel).write_text(
+        captions_live.live_captions_path(recording_id, channel).write_text(
             "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n"
         )
 
-    monkeypatch.setattr(media_cache, "ensure_live_captions", fake_ensure_live_captions)
+    monkeypatch.setattr(captions_live, "ensure_live_captions", fake_ensure_live_captions)
 
     try:
         response = client.get(
@@ -952,7 +987,7 @@ def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tm
         assert "Hi" in response.text
     finally:
         capture_pipeline._active_captures.pop("rec_live", None)
-        media_cache.live_captions_path("rec_live").unlink(missing_ok=True)
+        captions_live.live_captions_path("rec_live").unlink(missing_ok=True)
 
 
 def test_recording_captions_404_when_capture_gone(client, tmp_db, tmp_path):
@@ -964,8 +999,8 @@ def test_recording_captions_404_when_capture_gone(client, tmp_db, tmp_path):
 
 
 def test_recording_captions_track2_routes_to_channel2_path(client, tmp_db, tmp_path, monkeypatch):
-    from app.dvr import media_cache
     from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+    from app.dvr.media import captions_live
 
     video_file = tmp_path / "in_progress.ts"
     video_file.write_bytes(b"MPEG-TS data")
@@ -993,11 +1028,11 @@ def test_recording_captions_track2_routes_to_channel2_path(client, tmp_db, tmp_p
 
     def fake_ensure_live_captions(recording_id, file_path, is_source_alive, capture_start_ts=None, channel=1):
         received_channels.append(channel)
-        media_cache.live_captions_path(recording_id, channel).write_text(
+        captions_live.live_captions_path(recording_id, channel).write_text(
             "WEBVTT\n\n00:00:05.000 --> 00:00:06.000\nSegunda\n"
         )
 
-    monkeypatch.setattr(media_cache, "ensure_live_captions", fake_ensure_live_captions)
+    monkeypatch.setattr(captions_live, "ensure_live_captions", fake_ensure_live_captions)
 
     try:
         response = client.get(
@@ -1009,7 +1044,7 @@ def test_recording_captions_track2_routes_to_channel2_path(client, tmp_db, tmp_p
         assert received_channels == [2]
     finally:
         capture_pipeline._active_captures.pop("rec_live", None)
-        media_cache.live_captions_path("rec_live", channel=2).unlink(missing_ok=True)
+        captions_live.live_captions_path("rec_live", channel=2).unlink(missing_ok=True)
 
 
 def test_recording_captions_invalid_track_returns_400(client, tmp_db, tmp_path):
@@ -1043,7 +1078,7 @@ def test_recording_captions_track2_404_for_finished_recording(client, tmp_db, tm
 
 def test_recording_detail_secondary_captions_reflects_track2_status(client, tmp_db, tmp_path, monkeypatch):
     from app import media_probe as media_probe_module
-    from app.dvr import media_cache
+    from app.dvr.media import captions_live
 
     db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
 
@@ -1053,7 +1088,7 @@ def test_recording_detail_secondary_captions_reflects_track2_status(client, tmp_
     now = time.time()
     probe_result = {"video": None, "audio": [], "has_captions": False}
     monkeypatch.setattr(media_probe_module, "probe_in_progress", AsyncMock(return_value=probe_result))
-    monkeypatch.setattr(media_cache, "live_caption_track2_status", lambda recording_id: "unknown")
+    monkeypatch.setattr(captions_live, "live_caption_track2_status", lambda recording_id: "unknown")
 
     response = client.get(
         "/api/dvr/recording-detail",
@@ -1063,7 +1098,7 @@ def test_recording_detail_secondary_captions_reflects_track2_status(client, tmp_
     assert response.json()["secondary_captions"] == "unknown"
 
     # Finished recordings never report a secondary track, regardless of
-    # media_cache state - only live recordings run the channel-2 pipeline.
+    # captions_live state - only live recordings run the channel-2 pipeline.
     db.create_recording(
         {
             "id": "rec_done_secondary",
@@ -1115,7 +1150,7 @@ def test_recording_stream_proceeds_immediately_once_capture_has_data(client, tmp
     db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
 
     video_file = tmp_path / "live.ts"
-    video_file.write_bytes(b"x" * (dvr_api._LIVE_CAPTURE_READY_MIN_BYTES + 1))
+    video_file.write_bytes(b"x" * (dvr_streaming._LIVE_CAPTURE_READY_MIN_BYTES + 1))
 
     now = time.time()
     active_capture = ActiveCapture(
@@ -1168,13 +1203,12 @@ async def test_recording_stream_spawn_failure_502s_stops_pump_and_skips_hwaccel_
     from fastapi import HTTPException
 
     from app import hwaccel
-    from app.api import dvr as dvr_module
     from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
 
     db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
 
     video_file = tmp_path / "live_failing.ts"
-    video_file.write_bytes(b"x" * (dvr_api._LIVE_CAPTURE_READY_MIN_BYTES + 1))
+    video_file.write_bytes(b"x" * (dvr_streaming._LIVE_CAPTURE_READY_MIN_BYTES + 1))
 
     now = time.time()
     active_capture = ActiveCapture(
@@ -1210,7 +1244,7 @@ async def test_recording_stream_spawn_failure_502s_stops_pump_and_skips_hwaccel_
     async def fake_pump_tail_follow(file_path, writer, stop_event, is_alive, *, start_offset_bytes=None):
         await stop_event.wait()
 
-    monkeypatch.setattr(dvr_module, "pump_tail_follow", fake_pump_tail_follow)
+    monkeypatch.setattr(dvr_streaming, "pump_tail_follow", fake_pump_tail_follow)
 
     background_tasks: list[asyncio.Task] = []
 
@@ -1219,7 +1253,7 @@ async def test_recording_stream_spawn_failure_502s_stops_pump_and_skips_hwaccel_
         background_tasks.append(task)
         return task
 
-    monkeypatch.setattr(dvr_module, "run_in_background", tracking_run_in_background)
+    monkeypatch.setattr(dvr_streaming, "run_in_background", tracking_run_in_background)
 
     mock_probe = AsyncMock()
     monkeypatch.setattr(hwaccel, "probe_transcode", mock_probe)
@@ -1227,7 +1261,7 @@ async def test_recording_stream_spawn_failure_502s_stops_pump_and_skips_hwaccel_
     try:
         fake_request = SimpleNamespace(url=f"/api/dvr/recording-stream?url={video_file}&recording_id=rec_spawn_fail")
         with pytest.raises(HTTPException) as exc_info:
-            await dvr_module.stream_recording(
+            await dvr_streaming.stream_recording(
                 fake_request, url=str(video_file), recording_id="rec_spawn_fail"
             )
 
@@ -1279,8 +1313,8 @@ def test_recording_stream_502s_without_spawning_ffmpeg_when_capture_stays_empty(
     )
     capture_pipeline._active_captures["rec_empty"] = active_capture
 
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
     spawn_mock = AsyncMock(side_effect=lambda *a, **kw: _fake_transcode_process())
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
 
@@ -1332,8 +1366,8 @@ def test_recording_stream_repeat_request_after_502_fails_fast_without_respawning
     )
     capture_pipeline._active_captures["rec_empty"] = active_capture
 
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
     spawn_mock = AsyncMock(side_effect=lambda *a, **kw: _fake_transcode_process())
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
 
@@ -1397,8 +1431,8 @@ def test_recording_stream_waits_for_readiness_when_capture_file_not_yet_created(
     )
     capture_pipeline._active_captures["rec_not_created"] = active_capture
 
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
     spawn_mock = AsyncMock(side_effect=lambda *a, **kw: _fake_transcode_process())
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
 
@@ -1455,7 +1489,7 @@ def test_resolve_target_media_url_404s_for_unknown_recording_id_without_official
 
     settings = {"tuner_host": "hdhomerun.local"}  # tuner only, no dvr_host
     with pytest.raises(HTTPException) as exc_info:
-        dvr_api._resolve_target_media_url(settings, "/recorded/rec_missing", "rec_missing")
+        dvr_streaming._resolve_target_media_url(settings, "/recorded/rec_missing", "rec_missing")
     assert exc_info.value.status_code == 404
 
 
@@ -1468,7 +1502,7 @@ def test_resolve_target_media_url_still_falls_through_when_official_dvr_configur
     mock_resolve = MagicMock(return_value="http://dvr.local:50000/recorded/off_1")
     monkeypatch.setattr(dvr_api.hdhomerun_client, "resolve_recording_url", mock_resolve)
 
-    result = dvr_api._resolve_target_media_url(settings, "/recorded/off_1", "off_1")
+    result = dvr_streaming._resolve_target_media_url(settings, "/recorded/off_1", "off_1")
 
     assert result == "http://dvr.local:50000/recorded/off_1"
     mock_resolve.assert_called_once_with(settings, "/recorded/off_1")
@@ -1491,7 +1525,7 @@ def test_resolve_target_media_url_404s_for_builtin_provider_even_with_official_d
     monkeypatch.setattr(dvr_api.hdhomerun_client, "resolve_recording_url", mock_resolve)
 
     with pytest.raises(HTTPException) as exc_info:
-        dvr_api._resolve_target_media_url(
+        dvr_streaming._resolve_target_media_url(
             settings, "/recorded/rec_missing", "rec_missing", provider="builtin"
         )
 
@@ -1506,7 +1540,7 @@ def test_resolve_target_media_url_falls_through_for_hdhomerun_provider(tmp_db, m
     mock_resolve = MagicMock(return_value="http://dvr.local:50000/recorded/off_1")
     monkeypatch.setattr(dvr_api.hdhomerun_client, "resolve_recording_url", mock_resolve)
 
-    result = dvr_api._resolve_target_media_url(
+    result = dvr_streaming._resolve_target_media_url(
         settings, "/recorded/off_1", "off_1", provider="hdhomerun"
     )
 
@@ -1515,13 +1549,13 @@ def test_resolve_target_media_url_falls_through_for_hdhomerun_provider(tmp_db, m
 
 
 def _spy_on_build_ffmpeg_args(monkeypatch, captured_kwargs: dict):
-    real_build = dvr_api.transcoding.build_ffmpeg_args
+    real_build = dvr_streaming.transcoding.build_ffmpeg_args
 
     def _spy(*args, **kwargs):
         captured_kwargs.update(kwargs)
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr(dvr_api.transcoding, "build_ffmpeg_args", _spy)
+    monkeypatch.setattr(dvr_streaming.transcoding, "build_ffmpeg_args", _spy)
 
 
 def test_recording_stream_hls_uses_vod_packaging_for_completed_recording(client, tmp_db, tmp_path, monkeypatch):
@@ -1552,7 +1586,7 @@ def test_recording_stream_hls_uses_vod_packaging_for_completed_recording(client,
 
     fake_session = MagicMock()
     fake_session.session_id = "sess_vod"
-    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", AsyncMock(return_value=fake_session))
+    monkeypatch.setattr(dvr_streaming.hls_streaming, "create_session", AsyncMock(return_value=fake_session))
 
     response = client.post(
         "/api/dvr/recording-stream-hls",
@@ -1571,7 +1605,7 @@ def test_recording_stream_hls_uses_live_style_packaging_for_active_capture(clien
     db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
 
     video_file = tmp_path / "live.ts"
-    video_file.write_bytes(b"x" * (dvr_api._LIVE_CAPTURE_READY_MIN_BYTES + 1))
+    video_file.write_bytes(b"x" * (dvr_streaming._LIVE_CAPTURE_READY_MIN_BYTES + 1))
 
     now = time.time()
     active_capture = ActiveCapture(
@@ -1603,8 +1637,8 @@ def test_recording_stream_hls_uses_live_style_packaging_for_active_capture(clien
         on_process_spawned(_fake_transcode_process())
         return fake_session
 
-    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", _fake_create_session)
-    monkeypatch.setattr(dvr_api, "pump_tail_follow", AsyncMock(return_value=None))
+    monkeypatch.setattr(dvr_streaming.hls_streaming, "create_session", _fake_create_session)
+    monkeypatch.setattr(dvr_streaming, "pump_tail_follow", AsyncMock(return_value=None))
 
     try:
         response = client.post(
@@ -1642,7 +1676,7 @@ def test_recording_stream_hls_for_cast_returns_token_scoped_playlist_url(client,
     fake_session = MagicMock()
     fake_session.session_id = "sess_dvr_cast"
     create_session_mock = AsyncMock(return_value=fake_session)
-    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", create_session_mock)
+    monkeypatch.setattr(dvr_streaming.hls_streaming, "create_session", create_session_mock)
 
     response = client.post(
         "/api/dvr/recording-stream-hls",
@@ -1679,7 +1713,7 @@ def test_recording_stream_hls_without_for_cast_omits_cast_token(client, tmp_db, 
     fake_session = MagicMock()
     fake_session.session_id = "sess_dvr_native"
     create_session_mock = AsyncMock(return_value=fake_session)
-    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", create_session_mock)
+    monkeypatch.setattr(dvr_streaming.hls_streaming, "create_session", create_session_mock)
 
     response = client.post(
         "/api/dvr/recording-stream-hls",
@@ -1711,9 +1745,9 @@ def test_estimate_byte_offset_aligns_to_ts_packet_boundary(tmp_path, monkeypatch
     # target_start_seconds=1.0 -> raw arithmetic offset is 1000, which is NOT
     # a multiple of 188 (1000 / 188 = 5.319...) - this is exactly the case
     # that previously corrupted playback.
-    offset = dvr_api._estimate_byte_offset(capture, 1.0)
+    offset = dvr_streaming._estimate_byte_offset(capture, 1.0)
     assert offset == 940  # (1000 // 188) * 188
-    assert offset % dvr_api._TS_PACKET_SIZE == 0
+    assert offset % dvr_streaming._TS_PACKET_SIZE == 0
     assert offset <= 1000
 
 
@@ -1727,7 +1761,7 @@ def test_recording_stream_hls_aligns_resume_offset_to_ts_packet_boundary(client,
     db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
 
     video_file = tmp_path / "live.ts"
-    video_file.write_bytes(b"x" * (dvr_api._LIVE_CAPTURE_READY_MIN_BYTES + 1_000))
+    video_file.write_bytes(b"x" * (dvr_streaming._LIVE_CAPTURE_READY_MIN_BYTES + 1_000))
 
     now = time.time()
     active_capture = ActiveCapture(
@@ -1759,7 +1793,7 @@ def test_recording_stream_hls_aligns_resume_offset_to_ts_packet_boundary(client,
         on_process_spawned(_fake_transcode_process())
         return fake_session
 
-    monkeypatch.setattr(dvr_api.hls_streaming, "create_session", _fake_create_session)
+    monkeypatch.setattr(dvr_streaming.hls_streaming, "create_session", _fake_create_session)
 
     pump_kwargs: dict = {}
 
@@ -1767,7 +1801,7 @@ def test_recording_stream_hls_aligns_resume_offset_to_ts_packet_boundary(client,
         pump_kwargs.update(kwargs)
         return None
 
-    monkeypatch.setattr(dvr_api, "pump_tail_follow", _fake_pump_tail_follow)
+    monkeypatch.setattr(dvr_streaming, "pump_tail_follow", _fake_pump_tail_follow)
 
     try:
         response = client.post(
@@ -1777,7 +1811,7 @@ def test_recording_stream_hls_aligns_resume_offset_to_ts_packet_boundary(client,
         assert response.status_code == 200
         offset = pump_kwargs.get("start_offset_bytes")
         assert offset is not None
-        assert offset % dvr_api._TS_PACKET_SIZE == 0
+        assert offset % dvr_streaming._TS_PACKET_SIZE == 0
     finally:
         capture_pipeline._active_captures.pop("rec_resume", None)
 

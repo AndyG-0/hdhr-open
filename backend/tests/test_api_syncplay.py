@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app.api.syncplay import hub
 from app.main import app
 
 
+def _login(client: TestClient, name: str) -> dict:
+    user = client.post("/api/users", json={"name": name}).json()
+    client.post(f"/api/users/{user['id']}/login", json={})
+    return user
+
+
 def test_syncplay_rest_room_crud(tmp_db):
     hub.rooms.clear()
     with TestClient(app) as client:
-        # Create room
         payload = {
             "content": {
                 "type": "channel",
@@ -19,6 +26,14 @@ def test_syncplay_rest_room_crud(tmp_db):
                 "play_url": "http://example.com/stream",
             }
         }
+
+        # Unauthenticated callers are rejected.
+        assert client.post("/api/syncplay/rooms", json=payload).status_code == 401
+        assert client.get("/api/syncplay/rooms").status_code == 401
+
+        _login(client, "Alice")
+
+        # Create room
         res = client.post("/api/syncplay/rooms", json=payload)
         assert res.status_code == 200
         data = res.json()
@@ -43,9 +58,28 @@ def test_syncplay_rest_room_crud(tmp_db):
         assert res_404.status_code == 404
 
 
+def test_syncplay_websocket_rejects_unauthenticated(tmp_db):
+    hub.rooms.clear()
+    with TestClient(app) as client:
+        _login(client, "Alice")
+        res = client.post(
+            "/api/syncplay/rooms",
+            json={"content": {"type": "channel", "id": "5.1", "title": "NBC News"}},
+        )
+        room_code = res.json()["room_code"]
+        client.post("/api/users/logout")
+
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with client.websocket_connect(f"/api/syncplay/ws/{room_code}"):
+                pass
+        assert exc_info.value.code == 4401
+
+
 def test_syncplay_websocket_flow(tmp_db):
     hub.rooms.clear()
     with TestClient(app) as client:
+        _login(client, "Alice")
+
         # Create a room
         res = client.post(
             "/api/syncplay/rooms",
@@ -59,8 +93,11 @@ def test_syncplay_websocket_flow(tmp_db):
         )
         room_code = res.json()["room_code"]
 
+        peer_client = TestClient(app)
+        _login(peer_client, "Bob")
+
         # Connect Host via WebSocket
-        with client.websocket_connect(f"/api/syncplay/ws/{room_code}?user_name=Alice") as ws_host:
+        with client.websocket_connect(f"/api/syncplay/ws/{room_code}") as ws_host:
             host_state = ws_host.receive_json()
             assert host_state["type"] == "room_state"
             assert host_state["room"]["room_code"] == room_code
@@ -68,7 +105,7 @@ def test_syncplay_websocket_flow(tmp_db):
             assert host_state["room"]["host_session_id"] == host_session_id
 
             # Connect Peer via WebSocket
-            with client.websocket_connect(f"/api/syncplay/ws/{room_code}?user_name=Bob") as ws_peer:
+            with peer_client.websocket_connect(f"/api/syncplay/ws/{room_code}") as ws_peer:
                 peer_state = ws_peer.receive_json()
                 assert peer_state["type"] == "room_state"
                 peer_session_id = peer_state["your_session_id"]
@@ -144,6 +181,7 @@ def test_syncplay_websocket_flow(tmp_db):
 def test_syncplay_host_election_on_disconnect(tmp_db):
     hub.rooms.clear()
     with TestClient(app) as client:
+        _login(client, "HostAlice")
         res = client.post(
             "/api/syncplay/rooms",
             json={
@@ -156,11 +194,14 @@ def test_syncplay_host_election_on_disconnect(tmp_db):
         )
         room_code = res.json()["room_code"]
 
-        with client.websocket_connect(f"/api/syncplay/ws/{room_code}?user_name=HostAlice") as ws_host:
+        peer_client = TestClient(app)
+        _login(peer_client, "PeerBob")
+
+        with client.websocket_connect(f"/api/syncplay/ws/{room_code}") as ws_host:
             host_state = ws_host.receive_json()
             host_session_id = host_state["your_session_id"]
 
-            with client.websocket_connect(f"/api/syncplay/ws/{room_code}?user_name=PeerBob") as ws_peer:
+            with peer_client.websocket_connect(f"/api/syncplay/ws/{room_code}") as ws_peer:
                 peer_state = ws_peer.receive_json()
                 peer_session_id = peer_state["your_session_id"]
                 ws_host.receive_json()  # participant_joined

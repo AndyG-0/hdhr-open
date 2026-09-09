@@ -7,13 +7,18 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from app.auth import SESSION_COOKIE_NAME, get_auth_token_by_hash, get_session, get_user, hash_token
+from app.auth import SESSION_COOKIE_NAME, get_auth_token_by_hash, get_current_user, get_session, get_user, hash_token
 
 logger = logging.getLogger(__name__)
 
+# Unlike dvr.py/streaming.py/watch.py, this router cannot declare `dependencies=` at the
+# APIRouter level: FastAPI applies router-level dependencies to `@router.websocket(...)`
+# routes too, but a websocket scope can't satisfy get_current_user's `Request` parameter
+# (it errors at dependency-resolution time). So auth is applied per-route below for the
+# REST endpoints, and the WebSocket endpoint authenticates itself explicitly instead.
 router = APIRouter(prefix="/api/syncplay", tags=["syncplay"])
 
 # 6-character room codes using uppercase letters and digits, omitting ambiguous characters (0, O, 1, I)
@@ -234,6 +239,16 @@ class SyncPlayRoom:
 
 
 class SyncPlayHub:
+    """Room state is in-memory only, by design — consistent with the rest of
+    the engine's crash-recovery model (see `dvr/builtin/watch.py`'s session
+    registry for the same rationale): on a process restart there's no
+    meaningful state to persist for viewers who are no longer connected
+    anyway. A client reconnecting with a stale room code after a restart
+    gets the same `4004` close it would get for a simply-invalid code — that
+    is the intended recovery signal, not a bug to be papered over with
+    silent reconnection.
+    """
+
     def __init__(self):
         self.rooms: dict[str, SyncPlayRoom] = {}
         self._lock = asyncio.Lock()
@@ -270,8 +285,13 @@ class SyncPlayHub:
 hub = SyncPlayHub()
 
 
-async def _resolve_ws_user(websocket: WebSocket, token: str | None = None) -> tuple[str | None, str, str | None]:
-    """Resolves (user_id, display_name, avatar) from WebSocket cookies or token parameter."""
+async def _resolve_ws_identity(websocket: WebSocket, token: str | None = None) -> tuple[str, str, str | None] | None:
+    """Resolves (user_id, display_name, avatar) for an authenticated caller from WebSocket
+    cookies or a token query parameter, or None if neither resolves to a real user.
+
+    Router-level `dependencies` (used for the REST routes in this module) do not apply to
+    `@router.websocket(...)` routes, so this WebSocket endpoint must authenticate explicitly.
+    """
     # 1. Bearer / Query Token
     if token:
         token_hash = hash_token(token)
@@ -290,22 +310,17 @@ async def _resolve_ws_user(websocket: WebSocket, token: str | None = None) -> tu
             if user:
                 return user["id"], user.get("name", "Viewer"), user.get("avatar")
 
-    # 3. Query param user_name or default
-    query_user = websocket.query_params.get("user_name")
-    if query_user:
-        return None, query_user, None
-
-    return None, "Viewer", None
+    return None
 
 
-@router.post("/rooms", response_model=CreateRoomResponse)
+@router.post("/rooms", response_model=CreateRoomResponse, dependencies=[Depends(get_current_user)])
 async def create_room(payload: CreateRoomRequest, request: Request):
     """Creates a new watch room with the provided content metadata."""
     room = await hub.create_room(payload.content)
     return CreateRoomResponse(room_code=room.room_code, room=room.to_summary())
 
 
-@router.get("/rooms/{room_code}", response_model=SyncPlayRoomSummary)
+@router.get("/rooms/{room_code}", response_model=SyncPlayRoomSummary, dependencies=[Depends(get_current_user)])
 async def get_room(room_code: str):
     """Fetches watch room details and active participant status."""
     room = hub.get_room(room_code)
@@ -314,7 +329,7 @@ async def get_room(room_code: str):
     return room.to_summary()
 
 
-@router.get("/rooms", response_model=list[SyncPlayRoomSummary])
+@router.get("/rooms", response_model=list[SyncPlayRoomSummary], dependencies=[Depends(get_current_user)])
 async def list_rooms():
     """Lists active watch rooms."""
     hub.reap_stale_rooms()
@@ -329,6 +344,14 @@ async def syncplay_websocket_endpoint(
     user_name: str | None = Query(default=None),
 ):
     """WebSocket endpoint for real-time SyncPlay synchronization."""
+    identity = await _resolve_ws_identity(websocket, token=token)
+    if identity is None:
+        # 4401: custom close code for "Unauthorized" (mirrors the 4004 "Watch room not
+        # found" convention below). Checked before the room lookup so an unauthenticated
+        # caller can't use this endpoint to probe whether a room code exists.
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
+
     room = hub.get_room(room_code)
     if not room:
         await websocket.close(code=4004, reason="Watch room not found")
@@ -336,8 +359,8 @@ async def syncplay_websocket_endpoint(
 
     await websocket.accept()
 
-    user_id, display_name, avatar = await _resolve_ws_user(websocket, token=token)
-    if user_name and not user_id:
+    user_id, display_name, avatar = identity
+    if user_name:
         display_name = user_name
 
     session_id = uuid.uuid4().hex[:8]

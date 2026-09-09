@@ -114,4 +114,34 @@ describe('SyncPlayModal', () => {
 		await fireEvent.click(leaveBtn);
 		expect(onLeaveRoom).toHaveBeenCalled();
 	});
+
+	it('shows a session-ended message when the server closes the room', () => {
+		const mockRoom: SyncPlayRoom = {
+			room_code: 'XYZ789',
+			created_at: 1000,
+			host_session_id: 'sess_1',
+			content: { type: 'channel', id: '4.1', title: 'NBC 4', channel_number: '4.1' },
+			playback_state: { is_playing: false, position: 0, playback_rate: 1.0, updated_at: 1000 },
+			participants: [],
+		};
+
+		render(SyncPlayModal, {
+			props: {
+				show: true,
+				room: mockRoom,
+				roomCode: 'XYZ789',
+				participants: [],
+				isHost: true,
+				pingMs: 0,
+				status: 'ended',
+				onJoinRoom: vi.fn(),
+				onCreateRoom: vi.fn(),
+				onLeaveRoom: vi.fn(),
+				onTransferHost: vi.fn(),
+				onClose: vi.fn(),
+			},
+		});
+
+		expect(screen.getByText('Session ended — please rejoin')).toBeInTheDocument();
+	});
 });

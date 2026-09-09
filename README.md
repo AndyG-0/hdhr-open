@@ -81,7 +81,9 @@ There is no authentication in front of the HTTP server beyond the app's own
 PIN-based profile login — treat the `ports:` mapping in your compose file (or
 whatever reverse proxy you put in front of it) as the real security
 perimeter. Don't expose this directly to the internet without a reverse
-proxy and TLS in front of it.
+proxy and TLS in front of it. The optional DVR SSH connection (for
+retention/cleanup on a HDHomeRun DVR box) likewise does not pin host keys
+(`known_hosts=None`) — same LAN-trust assumption as the HTTP calls above.
 
 ## Releasing
 

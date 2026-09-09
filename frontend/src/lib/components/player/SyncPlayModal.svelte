@@ -151,6 +151,8 @@
 									{$_('syncplay.synced', { default: 'Synced' })}
 								{:else if status === 'syncing'}
 									{$_('syncplay.syncing', { default: 'Syncing…' })}
+								{:else if status === 'ended'}
+									{$_('syncplay.session_ended', { default: 'Session ended — please rejoin' })}
 								{:else}
 									{$_('syncplay.connected', { default: 'Connected' })}
 								{/if}

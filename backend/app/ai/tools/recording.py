@@ -21,6 +21,7 @@ from typing import Any
 from app.ai.tools.guide import get_hdhomerun_settings_or_empty
 from app.ai.tools.registry import ToolDefinition, register
 from app.api import dvr as dvr_api
+from app.api import dvr_rules
 from app.dvr.builtin.tuner_allocator import tuner_allocator
 from app.storage import db
 
@@ -31,7 +32,7 @@ _PERMISSION = "enable_recording_tools"
 
 
 async def list_recording_rules() -> dict[str, Any]:
-    rules = await dvr_api.list_recording_rules()
+    rules = await dvr_rules.list_recording_rules()
     return {"rules": rules}
 
 
@@ -82,7 +83,7 @@ async def _preview_schedule_recording(
     title_match_mode: str | None = None,
     keyword_query: str | None = None,
 ) -> dict[str, Any]:
-    resolved_title = title or await asyncio.to_thread(dvr_api._lookup_guide_title, series_id, channel, date_time)
+    resolved_title = title or await asyncio.to_thread(dvr_rules._lookup_guide_title, series_id, channel, date_time)
     channel_row = await asyncio.to_thread(db.get_channel_by_number, channel) if channel else None
     return {
         "title": resolved_title,
@@ -114,7 +115,7 @@ async def _execute_schedule_recording(
     title_match_mode: str | None = None,
     keyword_query: str | None = None,
 ) -> dict[str, Any]:
-    payload = dvr_api.RecordingRuleCreateRequest(
+    payload = dvr_rules.RecordingRuleCreateRequest(
         series_id=series_id,
         channel=channel,
         date_time=date_time,
@@ -127,7 +128,7 @@ async def _execute_schedule_recording(
         title_match_mode=title_match_mode,
         keyword_query=keyword_query,
     )
-    rules = await dvr_api.create_recording_rule(payload)
+    rules = await dvr_rules.create_recording_rule(payload)
     return {"status": "scheduled", "rules": rules}
 
 
@@ -138,7 +139,7 @@ async def _preview_cancel_recording_rule(rule_id: str) -> dict[str, Any]:
     builtin = await asyncio.to_thread(db.get_recording_rule, rule_id)
     if builtin:
         return {"rule_id": rule_id, "title": builtin.get("title"), "provider": "builtin"}
-    rules = await dvr_api.list_recording_rules()
+    rules = await dvr_rules.list_recording_rules()
     match = next((r for r in rules if r.get("RecordingRuleID") == rule_id), None)
     if match is None:
         return {"error": f"No recording rule with id '{rule_id}'"}
@@ -146,7 +147,7 @@ async def _preview_cancel_recording_rule(rule_id: str) -> dict[str, Any]:
 
 
 async def _execute_cancel_recording_rule(rule_id: str) -> dict[str, Any]:
-    rules = await dvr_api.delete_recording_rule(rule_id)
+    rules = await dvr_rules.delete_recording_rule(rule_id)
     return {"status": "cancelled", "rules": rules}
 
 

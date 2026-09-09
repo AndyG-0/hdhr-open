@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from app import crypto
 from app.storage import db
 
 
@@ -105,3 +106,17 @@ def test_delete_network_integration_removes_row(tmp_db):
 
 def test_delete_network_integration_unknown_id_is_a_no_op(tmp_db):
     db.delete_network_integration("nope")
+
+
+def test_get_network_integration_omits_a_secret_that_fails_to_decrypt(tmp_db, monkeypatch, tmp_path):
+    db.save_network_integration("pihole", "pihole", "Pi-hole", {"host": "pi.local", "password": "secret"})
+
+    # Simulate a rotated/lost encryption key: the stored ciphertext no longer
+    # decrypts with the (now different) key.
+    crypto.SECRET_KEY_PATH.unlink()
+    monkeypatch.setattr(crypto, "SECRET_KEY_PATH", tmp_path / "rotated-secret.key")
+    crypto.reset_key_cache()
+
+    row = db.get_network_integration("pihole")
+
+    assert row["settings"] == {"host": "pi.local"}

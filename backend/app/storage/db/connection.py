@@ -255,6 +255,7 @@ def _connect() -> Iterator[sqlite3.Connection]:
     # refresh, not data corruption.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")  # ms; bounds how long a writer waits on a lock
     try:
         with conn:
             yield conn

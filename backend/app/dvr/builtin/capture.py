@@ -21,8 +21,8 @@ from typing import Any
 from app import jobs, media_probe
 from app.async_utils import run_in_background, terminate_process
 from app.config import RECORDINGS_DIR
-from app.dvr import media_cache
 from app.dvr.builtin import poster_lookup
+from app.dvr.media import captions_live, captions_static
 from app.integrations import hdhomerun_client
 from app.storage import db
 
@@ -270,7 +270,7 @@ class CapturePipeline:
             # Update scheduled recording status
             await asyncio.to_thread(db.mark_scheduled_recording_in_progress, scheduled_id, recording_id)
 
-        media_cache.ensure_live_captions(
+        captions_live.ensure_live_captions(
             recording_id,
             file_path,
             lambda: self.is_capture_active(recording_id),
@@ -289,7 +289,7 @@ class CapturePipeline:
         if capture is None:
             return None
 
-        media_cache.stop_live_captions(recording_id)
+        captions_live.stop_live_captions(recording_id)
 
         await terminate_process(capture.process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
 
@@ -382,7 +382,7 @@ class CapturePipeline:
         if is_success and has_captions:
             jobs.run_tracked_in_background(
                 CAPTION_EXTRACTION_JOB_ID,
-                media_cache.generate_captions_vtt(str(capture.file_path), recording_id),
+                captions_static.generate_captions_vtt(str(capture.file_path), recording_id),
             )
 
         return {

@@ -17,6 +17,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=1.13",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
     "respx>=0.22.0",
@@ -26,6 +27,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["app/transcoding.py", "app/config.py"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120

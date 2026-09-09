@@ -235,7 +235,7 @@ async def test_stop_capture_schedules_eager_caption_generation_when_has_captions
     scheduled: list = []
     monkeypatch.setattr(capture_module.jobs, "run_in_background", lambda coro: scheduled.append(coro))
     generate_mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(capture_module.media_cache, "generate_captions_vtt", generate_mock)
+    monkeypatch.setattr(capture_module.captions_static, "generate_captions_vtt", generate_mock)
 
     capture = await pipeline.start_capture(
         recording_id="rec-captions",
@@ -263,7 +263,7 @@ async def test_stop_capture_does_not_schedule_caption_generation_when_no_caption
     scheduled: list = []
     monkeypatch.setattr(capture_module, "run_in_background", lambda coro: scheduled.append(coro))
     generate_mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(capture_module.media_cache, "generate_captions_vtt", generate_mock)
+    monkeypatch.setattr(capture_module.captions_static, "generate_captions_vtt", generate_mock)
 
     await _start_stop_capture_no_image(
         pipeline, tmp_path, monkeypatch, "rec-no-captions", image_url="http://example.com/img.jpg"

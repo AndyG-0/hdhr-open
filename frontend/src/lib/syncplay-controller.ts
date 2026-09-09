@@ -1,7 +1,7 @@
 import { api, type SyncPlayContent, type SyncPlayParticipant, type SyncPlayPlaybackState, type SyncPlayRoom } from '$lib/api';
 import { logger } from '$lib/logger';
 
-export type SyncPlayStatus = 'disconnected' | 'connecting' | 'connected' | 'in_sync' | 'syncing';
+export type SyncPlayStatus = 'disconnected' | 'connecting' | 'connected' | 'in_sync' | 'syncing' | 'ended';
 
 export interface SyncPlayControllerCallbacks {
 	getVideoElement: () => HTMLVideoElement | null;
@@ -148,8 +148,11 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 				}
 			};
 
-			ws.onclose = () => {
-				status = 'disconnected';
+			ws.onclose = (event: CloseEvent) => {
+				// 4004: the room the server had for us is gone (server restart, or the
+				// room was reaped) — surface as a clear "session ended" state rather
+				// than a generic disconnect, so the UI can prompt the user to rejoin.
+				status = event.code === 4004 ? 'ended' : 'disconnected';
 				stopTimers();
 				if (!resolved) {
 					resolved = true;
