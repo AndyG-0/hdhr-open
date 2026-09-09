@@ -83,38 +83,102 @@ public final class SharePlayCoordinator: ObservableObject {
         let messenger = GroupSessionMessenger(session: session)
         self.messenger = messenger
 
+        let stateStream = Self.makeStateStream(session)
         stateTask = Task { [weak self] in
-            for await state in session.$state.values {
-                guard let self else { return }
-                switch state {
-                case .waiting, .joined:
-                    break
-                case .invalidated:
-                    teardownSession()
-                    onSessionEnded?()
-                @unknown default:
-                    break
-                }
-            }
+            await self?.handleStateStream(stateStream)
         }
 
+        let participantsStream = Self.makeParticipantsStream(session)
         participantsTask = Task { [weak self] in
-            for await participants in session.$activeParticipants.values {
-                guard let self else { return }
-                participantCount = participants.count
-            }
+            await self?.handleParticipantsStream(participantsStream)
         }
 
+        let messagesStream = Self.makeMessagesStream(messenger)
         messagesTask = Task { [weak self] in
-            for await (content, _) in messenger.messages(of: SyncPlayContent.self) {
-                guard let self else { return }
-                onRemoteContentChange?(content)
-            }
+            await self?.handleMessagesStream(messagesStream)
         }
 
         isSessionActive = true
         session.join()
         onSessionAvailable?(session)
+    }
+
+    /// Consumes the session's `.waiting`/`.joined`/`.invalidated` state
+    /// transitions. Extracted from `configure(_:)` so it can be exercised
+    /// with a hand-fed `AsyncStream` in tests, since `GroupSession` itself
+    /// has no public initializer - only its nested `State` enum does.
+    func handleStateStream(_ states: AsyncStream<GroupSession<WatchProgramActivity>.State>) async {
+        for await state in states {
+            switch state {
+            case .waiting, .joined:
+                break
+            case .invalidated:
+                teardownSession()
+                onSessionEnded?()
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    /// Tracks the live participant count. Extracted for the same testability
+    /// reason as `handleStateStream(_:)`.
+    func handleParticipantsStream(_ participants: AsyncStream<Set<Participant>>) async {
+        for await current in participants {
+            participantCount = current.count
+        }
+    }
+
+    /// Forwards remote content-change messages. Extracted for the same
+    /// testability reason as `handleStateStream(_:)`.
+    func handleMessagesStream(_ messages: AsyncStream<SyncPlayContent>) async {
+        for await content in messages {
+            onRemoteContentChange?(content)
+        }
+    }
+
+    /// Bridges the session's Combine-published state into a plain
+    /// `AsyncStream` so the consuming loop lives in a small, independently
+    /// testable method (`handleStateStream(_:)`) rather than inline in
+    /// `configure(_:)`.
+    private static func makeStateStream(
+        _ session: GroupSession<WatchProgramActivity>
+    ) -> AsyncStream<GroupSession<WatchProgramActivity>.State> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await state in session.$state.values {
+                    continuation.yield(state)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func makeParticipantsStream(
+        _ session: GroupSession<WatchProgramActivity>
+    ) -> AsyncStream<Set<Participant>> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await participants in session.$activeParticipants.values {
+                    continuation.yield(participants)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private static func makeMessagesStream(_ messenger: GroupSessionMessenger) -> AsyncStream<SyncPlayContent> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await (content, _) in messenger.messages(of: SyncPlayContent.self) {
+                    continuation.yield(content)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     private func teardownSession() {

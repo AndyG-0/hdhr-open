@@ -10,6 +10,8 @@ public struct iOSAIAssistantSheet: View {
     @State private var isSending = false
     @State private var errorText: String?
 
+    let inspection = Inspection<Self>()
+
     public init(apiClient: APIClient) {
         self.apiClient = apiClient
     }
@@ -52,6 +54,7 @@ public struct iOSAIAssistantSheet: View {
                 }
             }
         }
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
 
     // MARK: - Messages View

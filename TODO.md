@@ -642,7 +642,7 @@ already gets accessibility/hit-target sizing right — not itemized below.
   - **Files**:
     - `apple/HDHROpenTVTests/TVPlayerViewTests.swift` (NEW: assert fallback-focus-then-reveal-controls behavior via move commands)
 
-- [ ] **REV-APL-19 — [Low] `apple/check.sh`'s combined coverage gate fails: 78.54% vs. the 80% threshold.**
+- [x] **REV-APL-19 — [Low] `apple/check.sh`'s combined coverage gate fails: 78.54% vs. the 80% threshold.**
   Discovered by running `check.sh` to completion for the first time (it had
   previously always stopped earlier, at the SwiftFormat stage, before any
   REV-APL-1..18 session ran it this far). SwiftLint, SwiftFormat, and every

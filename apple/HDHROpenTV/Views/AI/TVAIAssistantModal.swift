@@ -12,6 +12,8 @@ public struct TVAIAssistantModal: View {
     @State private var isSending = false
     @State private var errorText: String?
 
+    let inspection = Inspection<Self>()
+
     private enum AIFocus: Hashable {
         case suggestion(Int)
         case input
@@ -65,6 +67,7 @@ public struct TVAIAssistantModal: View {
                 focusedElement = .input
             }
         }
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
 
     // MARK: - Header

@@ -257,4 +257,205 @@ final class TVMultiPlayerViewTests: XCTestCase {
         binding.wrappedValue = target
         XCTAssertEqual(focusedIndex, multiPlayerViewModel.activeSlotIndex)
     }
+
+    // MARK: - REV-APL-19: ViewHosting-driven interaction coverage
+
+    /// Locates the page-level "..." options button (opens the edit bar) rather than one of the
+    /// per-tile options buttons, which are distinguishable by their `tileOptions_<index>`
+    /// accessibility identifier. Both use the same `ellipsis.circle.fill` glyph, so identifier
+    /// (or its absence) is the only reliable way to tell them apart.
+    private func findPageOptionsButton(in view: InspectableView<some Any>) throws -> InspectableView<ViewType.Button> {
+        try XCTUnwrap(view.findAll(ViewType.Button.self).first {
+            (try? $0.accessibilityIdentifier())?.hasPrefix("tileOptions_") != true
+        })
+    }
+
+    private func setupChannelsFeed() {
+        let channelJSON = { (number: String, name: String) in
+            "{\"channel_number\":\"\(number)\",\"name\":\"\(name)\"," +
+                "\"is_hd\":true,\"is_drm\":false,\"stream_url\":\"/stream/\(number)\"}"
+        }
+        let json = "{\"channels\":[" +
+            channelJSON("4.1", "NBC") + "," +
+            channelJSON("9.1", "FOX") +
+            "],\"guide_available\":true}"
+        MockURLProtocol.handlers["/api/guide/channels"] = (Data(json.utf8), 200)
+    }
+
+    func testOptionsButtonOpensEditBarWithLayoutAndFeedControls() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        setupMockFeed(channelNumber: "5.1", sessId: "sess2")
+
+        let (multiPlayerViewModel, playerViewModel, guideViewModel) = makeEnvironment()
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
+
+        let sut = TVMultiPlayerView()
+
+        let exp1 = sut.inspection.inspect(after: 0) { view in
+            XCTAssertThrowsError(try view.find(text: "Multi-View Playback"))
+            try self.findPageOptionsButton(in: view).tap()
+        }
+        let exp2 = sut.inspection.inspect(after: 0.3) { view in
+            XCTAssertNoThrow(try view.find(text: "Multi-View Playback"))
+            XCTAssertNoThrow(try view.find(button: "2-Up"))
+            XCTAssertNoThrow(try view.find(button: "Done"))
+            XCTAssertNoThrow(try view.find(button: "Close Multi-View"))
+        }
+
+        ViewHosting.host(
+            view: sut
+                .environmentObject(multiPlayerViewModel)
+                .environmentObject(playerViewModel)
+                .environmentObject(guideViewModel)
+        )
+        defer { ViewHosting.expel() }
+        await fulfillment(of: [exp1, exp2], timeout: 2)
+    }
+
+    func testEditBarQuadButtonSwitchesLayoutWhenTunerCapacityAllowsFour() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        setupMockFeed(channelNumber: "5.1", sessId: "sess2")
+        MockURLProtocol.handlers["/api/tuner/info"] = (
+            Data("{\"friendly_name\":\"HDHR\",\"tuner_count\":4}".utf8), 200
+        )
+
+        let (multiPlayerViewModel, playerViewModel, guideViewModel) = makeEnvironment()
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
+
+        let sut = TVMultiPlayerView()
+
+        // The first inspection fires as soon as the view appears - before `.task`'s
+        // `refreshTunerCapacity()` call (mocked, but still asynchronous) has necessarily
+        // resolved - so it only opens the edit bar. The mocked round-trip is fast enough
+        // that by the second, delayed inspection `maxFeeds` has already updated to 4 and
+        // the Quad button is present.
+        let exp1 = sut.inspection.inspect(after: 0) { view in
+            try self.findPageOptionsButton(in: view).tap()
+        }
+        let exp2 = sut.inspection.inspect(after: 0.3) { view in
+            XCTAssertEqual(multiPlayerViewModel.maxFeeds, 4)
+            try view.find(button: "Quad").tap()
+        }
+        let exp3 = sut.inspection.inspect(after: 0.5) { _ in
+            XCTAssertEqual(multiPlayerViewModel.layout, .quad)
+        }
+
+        ViewHosting.host(
+            view: sut
+                .environmentObject(multiPlayerViewModel)
+                .environmentObject(playerViewModel)
+                .environmentObject(guideViewModel)
+        )
+        defer { ViewHosting.expel() }
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 2)
+    }
+
+    func testAddFeedButtonOpensChannelPickerAndSelectingChannelAddsFeed() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        setupMockFeed(channelNumber: "9.1", sessId: "sess3")
+        setupChannelsFeed()
+
+        let (multiPlayerViewModel, playerViewModel, guideViewModel) = makeEnvironment()
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        await guideViewModel.loadChannels()
+
+        let sut = TVMultiPlayerView()
+
+        let exp1 = sut.inspection.inspect(after: 0) { view in
+            try self.findPageOptionsButton(in: view).tap()
+        }
+        let exp2 = sut.inspection.inspect(after: 0.3) { view in
+            try view.find(button: "Add Feed").tap()
+        }
+        let exp3 = sut.inspection.inspect(after: 0.5) { view in
+            XCTAssertNoThrow(try view.find(text: "Select Channel to Add"))
+            try view.find(button: "9.1").tap()
+        }
+
+        ViewHosting.host(
+            view: sut
+                .environmentObject(multiPlayerViewModel)
+                .environmentObject(playerViewModel)
+                .environmentObject(guideViewModel)
+        )
+        defer { ViewHosting.expel() }
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 2)
+
+        // `selectChannel` dispatches `addFeed` in a detached `Task`, so give it a beat to
+        // land after the tap before asserting on the resulting slot list.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(multiPlayerViewModel.slots.count, 2)
+        XCTAssertTrue(multiPlayerViewModel.slots.contains { $0.channel.channelNumber == "9.1" })
+    }
+
+    func testDoneButtonClosesEditBar() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+
+        let (multiPlayerViewModel, playerViewModel, guideViewModel) = makeEnvironment()
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+
+        let sut = TVMultiPlayerView()
+
+        let exp1 = sut.inspection.inspect(after: 0) { view in
+            try self.findPageOptionsButton(in: view).tap()
+        }
+        let exp2 = sut.inspection.inspect(after: 0.3) { view in
+            XCTAssertNoThrow(try view.find(text: "Multi-View Playback"))
+            try view.find(button: "Done").tap()
+        }
+        let exp3 = sut.inspection.inspect(after: 0.5) { view in
+            XCTAssertThrowsError(try view.find(text: "Multi-View Playback"))
+        }
+
+        ViewHosting.host(
+            view: sut
+                .environmentObject(multiPlayerViewModel)
+                .environmentObject(playerViewModel)
+                .environmentObject(guideViewModel)
+        )
+        defer { ViewHosting.expel() }
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 2)
+    }
+
+    /// Expanding a tile disables the underlying `TVMultiViewGrid` (see its `.disabled(...)`
+    /// modifier, keyed off `expandedSlotIndex != nil`) so focus can't leak back into the
+    /// grid while the fullscreen tile is showing. `expandedSlotIndex` itself is private, so
+    /// this observable side effect is what's asserted instead.
+    func testTappingSlotDisablesGridWhileExpanded() async throws {
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+
+        let (multiPlayerViewModel, playerViewModel, guideViewModel) = makeEnvironment()
+        try await multiPlayerViewModel.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+
+        let sut = TVMultiPlayerView()
+
+        let exp1 = sut.inspection.inspect(after: 0) { view in
+            let grid = try view.find(TVMultiViewGrid.self)
+            XCTAssertFalse(grid.isDisabled())
+
+            // Non-tile-options buttons in render order are: the page-level options button,
+            // then each slot's own select button - so index 1 is slot 0's select button.
+            let nonTileOptionsButtons = view.findAll(ViewType.Button.self).filter {
+                (try? $0.accessibilityIdentifier())?.hasPrefix("tileOptions_") != true
+            }
+            let candidate: InspectableView<ViewType.Button>? = nonTileOptionsButtons.count > 1 ? nonTileOptionsButtons[1] : nil
+            let slotButton = try XCTUnwrap(candidate)
+            try slotButton.tap()
+        }
+        let exp2 = sut.inspection.inspect(after: 0.3) { view in
+            let grid = try view.find(TVMultiViewGrid.self)
+            XCTAssertTrue(grid.isDisabled())
+        }
+
+        ViewHosting.host(
+            view: sut
+                .environmentObject(multiPlayerViewModel)
+                .environmentObject(playerViewModel)
+                .environmentObject(guideViewModel)
+        )
+        defer { ViewHosting.expel() }
+        await fulfillment(of: [exp1, exp2], timeout: 2)
+    }
 }

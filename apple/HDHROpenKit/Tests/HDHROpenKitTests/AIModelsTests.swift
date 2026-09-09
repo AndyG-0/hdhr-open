@@ -99,4 +99,84 @@ final class AIModelsTests: XCTestCase {
         XCTAssertEqual(wire[2].role, "tool")
         XCTAssertEqual(wire[2].toolCallId, "call_1")
     }
+
+    func testToWireMessagesPlainAssistantTurnWithoutResolvedToolCalls() {
+        // No tool calls at all, and a tool call whose result hasn't come back yet -
+        // both should fall into the resolvedCalls.isEmpty branch and emit a single
+        // plain assistant message, not a tool_calls-carrying one.
+        let turns = [
+            AIChatTurn(role: "user", text: "What's on tonight?"),
+            AIChatTurn(role: "assistant", text: "Here's tonight's lineup."),
+            AIChatTurn(
+                role: "assistant",
+                text: "Let me look that up.",
+                toolCalls: [AIToolCallRecord(id: "call_2", name: "search_guide", arguments: [:], result: nil)]
+            )
+        ]
+
+        let wire = AIChatHelpers.toWireMessages(turns: turns)
+        XCTAssertEqual(wire.count, 3)
+        XCTAssertEqual(wire[1].role, "assistant")
+        XCTAssertEqual(wire[1].content?.value as? String, "Here's tonight's lineup.")
+        XCTAssertNil(wire[1].toolCalls)
+        XCTAssertEqual(wire[2].role, "assistant")
+        XCTAssertEqual(wire[2].content?.value as? String, "Let me look that up.")
+        XCTAssertNil(wire[2].toolCalls)
+    }
+
+    func testMemberwiseInitializers() {
+        let event = AIStreamEvent(
+            type: "tool_status",
+            text: "partial",
+            id: "id_1",
+            tool: "search_guide",
+            status: "running",
+            message: "Searching...",
+            arguments: ["query": AnyCodable("news")],
+            content: ["k": AnyCodable("v")],
+            actionId: "act_1",
+            preview: ["title": AnyCodable("Star Trek")]
+        )
+        XCTAssertEqual(event.type, "tool_status")
+        XCTAssertEqual(event.text, "partial")
+        XCTAssertEqual(event.id, "id_1")
+        XCTAssertEqual(event.tool, "search_guide")
+        XCTAssertEqual(event.status, "running")
+        XCTAssertEqual(event.message, "Searching...")
+        XCTAssertEqual(event.arguments?["query"]?.value as? String, "news")
+        XCTAssertEqual(event.content?["k"]?.value as? String, "v")
+        XCTAssertEqual(event.actionId, "act_1")
+        XCTAssertEqual(event.preview?["title"]?.value as? String, "Star Trek")
+
+        let confirmResponse = AIConfirmActionResponse(result: AnyCodable("ok"))
+        XCTAssertEqual(confirmResponse.result?.value as? String, "ok")
+        XCTAssertNil(AIConfirmActionResponse().result)
+
+        let cancelResponse = AICancelActionResponse(ok: false)
+        XCTAssertFalse(cancelResponse.ok)
+        XCTAssertTrue(AICancelActionResponse().ok)
+
+        let listModels = AIListModelsResponse(ok: true, models: ["gpt-4", "gpt-5"], error: nil)
+        XCTAssertTrue(listModels.ok)
+        XCTAssertEqual(listModels.models, ["gpt-4", "gpt-5"])
+        XCTAssertNil(listModels.error)
+        let listModelsError = AIListModelsResponse(ok: false, error: "unavailable")
+        XCTAssertFalse(listModelsError.ok)
+        XCTAssertEqual(listModelsError.models, [])
+        XCTAssertEqual(listModelsError.error, "unavailable")
+
+        let toolStatus = AIToolStatusEntry(tool: "search_guide", status: "error", message: "boom")
+        XCTAssertEqual(toolStatus.id, "search_guide_error")
+        XCTAssertEqual(toolStatus.message, "boom")
+
+        let actionPreview = AIActionPreviewEntry(
+            actionId: "act_2",
+            tool: "schedule_recording",
+            preview: ["title": AnyCodable("NFL")],
+            resolution: .confirming
+        )
+        XCTAssertEqual(actionPreview.id, "act_2")
+        XCTAssertEqual(actionPreview.resolution.rawValue, "confirming")
+        XCTAssertEqual(AIActionPreviewEntry(actionId: "act_3", tool: "t", preview: [:]).resolution.rawValue, "pending")
+    }
 }

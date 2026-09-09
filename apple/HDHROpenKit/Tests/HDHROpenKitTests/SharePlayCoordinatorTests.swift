@@ -91,4 +91,85 @@ final class SharePlayCoordinatorTests: XCTestCase {
         XCTAssertFalse(contentChangeCalled)
         XCTAssertFalse(sessionEndedCalled)
     }
+
+    // MARK: - Extracted stream handlers
+
+    //
+    // `GroupSession<WatchProgramActivity>` has no public initializer, so it can't be
+    // constructed or faked directly in a unit test - but its nested `State` enum
+    // (`.waiting`/`.joined`/`.invalidated`) is a plain, freely constructible public
+    // enum, and `SyncPlayContent` is an app-owned type. Feeding hand-rolled
+    // `AsyncStream`s of those concrete types into the extracted handler methods lets
+    // this exercise the coordinator's real reaction logic without a live session.
+
+    func testHandleStateStreamInvalidatedTearsDownSessionAndFiresCallback() async {
+        let coordinator = SharePlayCoordinator()
+        var sessionEndedCalled = false
+        coordinator.onSessionEnded = { sessionEndedCalled = true }
+
+        let (stream, continuation) = AsyncStream<GroupSession<WatchProgramActivity>.State>.makeStream()
+        continuation.yield(.waiting)
+        continuation.yield(.invalidated(reason: CancellationError()))
+        continuation.finish()
+
+        await coordinator.handleStateStream(stream)
+
+        XCTAssertTrue(sessionEndedCalled)
+        XCTAssertFalse(coordinator.isSessionActive)
+        XCTAssertEqual(coordinator.participantCount, 0)
+    }
+
+    func testHandleStateStreamWaitingAndJoinedDoNotTearDownOrFireCallback() async {
+        let coordinator = SharePlayCoordinator()
+        var sessionEndedCalled = false
+        coordinator.onSessionEnded = { sessionEndedCalled = true }
+
+        let (stream, continuation) = AsyncStream<GroupSession<WatchProgramActivity>.State>.makeStream()
+        continuation.yield(.waiting)
+        continuation.yield(.joined)
+        continuation.finish()
+
+        await coordinator.handleStateStream(stream)
+
+        XCTAssertFalse(sessionEndedCalled)
+    }
+
+    func testHandleParticipantsStreamUpdatesCount() async {
+        let coordinator = SharePlayCoordinator()
+
+        let (stream, continuation) = AsyncStream<Set<Participant>>.makeStream()
+        continuation.yield(Set<Participant>())
+        continuation.finish()
+
+        await coordinator.handleParticipantsStream(stream)
+
+        XCTAssertEqual(coordinator.participantCount, 0)
+    }
+
+    func testHandleMessagesStreamForwardsContentToCallback() async {
+        let coordinator = SharePlayCoordinator()
+        var received: [SyncPlayContent] = []
+        coordinator.onRemoteContentChange = { received.append($0) }
+
+        let content = SyncPlayContent(type: "channel", recordingId: nil, channelNumber: "7.1", title: "News", durationSeconds: nil)
+        let (stream, continuation) = AsyncStream<SyncPlayContent>.makeStream()
+        continuation.yield(content)
+        continuation.finish()
+
+        await coordinator.handleMessagesStream(stream)
+
+        XCTAssertEqual(received.count, 1)
+        XCTAssertEqual(received.first?.channelNumber, "7.1")
+        XCTAssertEqual(received.first?.title, "News")
+    }
+
+    func testHandleMessagesStreamIsNoOpWithoutACallback() async {
+        let coordinator = SharePlayCoordinator()
+        let content = SyncPlayContent(type: "channel", recordingId: nil, channelNumber: "7.1", title: "News", durationSeconds: nil)
+        let (stream, continuation) = AsyncStream<SyncPlayContent>.makeStream()
+        continuation.yield(content)
+        continuation.finish()
+
+        await coordinator.handleMessagesStream(stream)
+    }
 }

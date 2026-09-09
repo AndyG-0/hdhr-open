@@ -14,6 +14,8 @@ public struct TVMultiPlayerView: View {
 
     @FocusState private var editFocus: EditBarFocus?
 
+    let inspection = Inspection<Self>()
+
     private enum EditBarFocus {
         case done, layout2up, layout3up, layoutQuad, addFeed, closeAll
     }
@@ -110,6 +112,7 @@ public struct TVMultiPlayerView: View {
             await multiPlayerViewModel.refreshTunerCapacity()
             multiPlayerViewModel.startTunerPolling()
         }
+        .onReceive(inspection.notice) { inspection.visit(self, $0) }
     }
 
     // MARK: - Edit Bar

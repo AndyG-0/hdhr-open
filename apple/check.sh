@@ -75,12 +75,13 @@ xcrun xccov view --report --json "$RESULTS_DIR/ios_test_results.xcresult" > "$RE
 xcrun xccov view --report --json "$RESULTS_DIR/tv_test_results.xcresult" > "$RESULTS_DIR/tv_coverage.json" \
     || fail "tvOS coverage export"
 
-echo "---- Combined coverage gate (80% threshold) ----"
+echo "---- Combined + per-file coverage gate ----"
 python3 "$SCRIPT_DIR/scripts/compute_coverage.py" \
     --kit-json "$RESULTS_DIR/kit_coverage.json" \
     --ios-json "$RESULTS_DIR/ios_coverage.json" \
     --tv-json "$RESULTS_DIR/tv_coverage.json" \
-    --threshold 80.0 \
+    --threshold 83.0 \
+    --min-file-coverage 40.0 \
     || fail "coverage threshold gate"
 
 echo "=========================================================="
