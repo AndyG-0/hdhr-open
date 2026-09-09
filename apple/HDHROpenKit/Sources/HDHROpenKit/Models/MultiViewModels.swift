@@ -37,16 +37,56 @@ public enum MultiViewLayout: String, CaseIterable, Codable, Sendable, Identifiab
         }
     }
 
-    /// Returns the ideal layout recommendation for the given number of active feeds.
-    public static func recommended(for slotCount: Int) -> MultiViewLayout {
-        switch slotCount {
-        case ...2:
-            .sideBySide
-        case 3:
-            .threeBox
-        default:
-            .quad
+    /// Returns layouts available for a given maximum feed limit (based on physical tuner capacity).
+    public static func availableLayouts(for maxFeeds: Int) -> [MultiViewLayout] {
+        if maxFeeds <= 2 {
+            return [.sideBySide]
+        } else if maxFeeds == 3 {
+            return [.sideBySide, .threeBox]
+        } else {
+            return [.sideBySide, .threeBox, .quad]
         }
+    }
+
+    /// Returns the ideal layout recommendation for the given number of active feeds and max capacity.
+    public static func recommended(for slotCount: Int, maxFeeds: Int = 4) -> MultiViewLayout {
+        let allowed = availableLayouts(for: maxFeeds)
+        if slotCount <= 2 || !allowed.contains(.threeBox) {
+            return .sideBySide
+        } else if slotCount == 3 || !allowed.contains(.quad) {
+            return .threeBox
+        } else {
+            return .quad
+        }
+    }
+}
+
+/// Result of evaluating real-time tuner capacity and sharing availability.
+public struct TunerAvailabilityResult: Sendable, Equatable {
+    public let available: Bool
+    public let isShared: Bool
+    public let totalTuners: Int
+    public let activeRecordingsCount: Int
+    public let activeStreamsCount: Int
+    public let sharableChannels: [String]
+    public let explanation: String?
+
+    public init(
+        available: Bool,
+        isShared: Bool,
+        totalTuners: Int,
+        activeRecordingsCount: Int,
+        activeStreamsCount: Int,
+        sharableChannels: [String],
+        explanation: String? = nil
+    ) {
+        self.available = available
+        self.isShared = isShared
+        self.totalTuners = totalTuners
+        self.activeRecordingsCount = activeRecordingsCount
+        self.activeStreamsCount = activeStreamsCount
+        self.sharableChannels = sharableChannels
+        self.explanation = explanation
     }
 }
 

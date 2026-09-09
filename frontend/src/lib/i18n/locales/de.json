@@ -291,7 +291,24 @@
 		"cast": "Übertragen",
 		"cast_stop": "Übertragung beenden",
 		"cast_connecting": "Verbinde…",
-		"cast_connected": "Wird übertragen"
+		"cast_connected": "Wird übertragen",
+		"keep_playing_label": "Beim Verlassen der Seite weiterspielen",
+		"multiview": "Multi-View",
+		"add_to_multiview": "Zu Multi-View hinzufügen"
+	},
+	"multiview": {
+		"title": "Multi-View-Wiedergabe",
+		"feeds_active": "{count} von {max} Feeds aktiv",
+		"layout_2up": "2er-Teilung",
+		"layout_3up": "3er-Hero",
+		"layout_quad": "4er-Raster",
+		"add_feed": "Feed hinzufügen",
+		"add_to_multiview": "Zu Multi-View hinzufügen",
+		"make_hero": "Zum Hauptbildschirm machen",
+		"listen": "Ton aktivieren",
+		"close_slot": "Feed schließen",
+		"close_all": "Multi-View schließen",
+		"tuners_exhausted": "Physische Tuner ausgelastet. Wiedergabe kann fehlschlagen."
 	},
 	"syncplay": {
 		"title": "SyncPlay Watch-Party",
@@ -307,6 +324,7 @@
 		"synced": "Synchronisiert",
 		"syncing": "Synchronisiere…",
 		"connected": "Verbunden",
+		"session_ended": "Sitzung beendet — bitte erneut beitreten",
 		"make_host": "Zum Host machen",
 		"leave": "Raum verlassen",
 		"join_with_code": "Mit Raumcode beitreten",

@@ -539,11 +539,31 @@ export function describeFetchError(error: unknown): FetchErrorKind {
 	return error instanceof TypeError ? 'network' : 'server';
 }
 
+export const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
+
+export interface RequestOptions {
+	timeoutMs?: number;
+	signal?: AbortSignal;
+}
+
+function createRequestSignal(options?: RequestOptions): AbortSignal {
+	const timeout = options?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+	const timeoutSignal = AbortSignal.timeout(timeout);
+	if (!options?.signal) {
+		return timeoutSignal;
+	}
+	if ('any' in AbortSignal && typeof AbortSignal.any === 'function') {
+		return AbortSignal.any([options.signal, timeoutSignal]);
+	}
+	return options.signal;
+}
+
 // `credentials: 'include'` on every request so the session cookie
 // (set by the backend as httponly, so JS can't attach it manually) round-trips
 // even when the frontend and backend are on different ports/origins.
-async function getJSON<T>(path: string): Promise<T> {
-	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, { credentials: 'include' });
+async function getJSON<T>(path: string, options?: RequestOptions): Promise<T> {
+	const signal = createRequestSignal(options);
+	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, { credentials: 'include', signal });
 	if (!response.ok) {
 		const message = await _errorMessage(path, response);
 		logger.warn(`Request to ${path} failed: ${response.status}`);
@@ -552,12 +572,14 @@ async function getJSON<T>(path: string): Promise<T> {
 	return response.json();
 }
 
-async function patchJSON<T>(path: string, body: Record<string, unknown>): Promise<T> {
+async function patchJSON<T>(path: string, body: Record<string, unknown>, options?: RequestOptions): Promise<T> {
+	const signal = createRequestSignal(options);
 	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, {
 		method: 'PATCH',
 		credentials: 'include',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
+		signal,
 	});
 	if (!response.ok) {
 		const message = await _errorMessage(path, response);
@@ -567,7 +589,8 @@ async function patchJSON<T>(path: string, body: Record<string, unknown>): Promis
 	return response.json();
 }
 
-async function putJSON<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+async function putJSON<T>(path: string, body?: Record<string, unknown>, options?: RequestOptions): Promise<T> {
+	const signal = createRequestSignal(options);
 	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, {
 		method: 'PUT',
 		credentials: 'include',
@@ -575,6 +598,7 @@ async function putJSON<T>(path: string, body?: Record<string, unknown>): Promise
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body),
 		}),
+		signal,
 	});
 	if (!response.ok) {
 		const message = await _errorMessage(path, response);
@@ -601,7 +625,8 @@ async function _errorMessage(path: string, response: Response): Promise<string> 
 	return `Request to ${path} failed: ${response.status}`;
 }
 
-async function postJSON<T>(path: string, body?: Record<string, unknown>): Promise<T> {
+async function postJSON<T>(path: string, body?: Record<string, unknown>, options?: RequestOptions): Promise<T> {
+	const signal = createRequestSignal(options);
 	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, {
 		method: 'POST',
 		credentials: 'include',
@@ -609,6 +634,7 @@ async function postJSON<T>(path: string, body?: Record<string, unknown>): Promis
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body),
 		}),
+		signal,
 	});
 	if (!response.ok) {
 		const message = await _errorMessage(path, response);
@@ -618,10 +644,12 @@ async function postJSON<T>(path: string, body?: Record<string, unknown>): Promis
 	return response.json();
 }
 
-async function deleteJSON<T>(path: string): Promise<T> {
+async function deleteJSON<T>(path: string, options?: RequestOptions): Promise<T> {
+	const signal = createRequestSignal(options);
 	const response = await fetch(`${env.PUBLIC_API_BASE_URL}${path}`, {
 		method: 'DELETE',
 		credentials: 'include',
+		signal,
 	});
 	if (!response.ok) {
 		const message = await _errorMessage(path, response);
@@ -641,7 +669,9 @@ async function deleteJSON<T>(path: string): Promise<T> {
 async function streamAIChat(
 	body: { messages: AIChatMessage[]; context?: AIChatContext },
 	callbacks: AIStreamCallbacks,
+	options?: RequestOptions,
 ): Promise<void> {
+	const signal = createRequestSignal(options);
 	let response: Response;
 	try {
 		response = await fetch(`${env.PUBLIC_API_BASE_URL}/api/ai/chat`, {
@@ -649,6 +679,7 @@ async function streamAIChat(
 			credentials: 'include',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(body),
+			signal,
 		});
 	} catch {
 		callbacks.onError?.('Could not reach the server.');
@@ -814,6 +845,7 @@ export const api = {
 			method: 'POST',
 			credentials: 'include',
 			keepalive: true,
+			signal: AbortSignal.timeout(5_000),
 		}).catch(() => {
 			// Best-effort: the idle-timeout reaper on the backend is the backstop.
 		});
@@ -994,6 +1026,7 @@ export const api = {
 			method: 'POST',
 			credentials: 'include',
 			keepalive: true,
+			signal: AbortSignal.timeout(5_000),
 		}).catch(() => {
 			// Best-effort: reap_stale_watches on the backend is the backstop.
 		});

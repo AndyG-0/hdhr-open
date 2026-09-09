@@ -13,6 +13,7 @@
 		loading: boolean;
 		pending: boolean;
 		onWatch?: () => void;
+		onAddToMultiView?: () => void;
 		onPopout?: () => void;
 		onRecordEpisode: () => void;
 		onRecordSeries: () => void;
@@ -32,6 +33,7 @@
 		loading,
 		pending,
 		onWatch,
+		onAddToMultiView,
 		onPopout,
 		onRecordEpisode,
 		onRecordSeries,
@@ -184,6 +186,11 @@
 			<button class="menu-item watch" onclick={() => { onWatch?.(); onClose(); }} role="menuitem">
 				▶ {$_('hdhomerun.detail.watch_button')}
 			</button>
+			{#if onAddToMultiView}
+				<button class="menu-item multiview" onclick={() => { onAddToMultiView?.(); onClose(); }} role="menuitem">
+					⊞ {$_('multiview.add_to_multiview', { default: 'Add to Multi-View' })}
+				</button>
+			{/if}
 			{#if onPopout}
 				<button class="menu-item popout" onclick={() => { onPopout?.(); onClose(); }} role="menuitem">
 					{$_('hdhomerun.detail.popout_button', { default: '↗ Popout' })}
@@ -338,6 +345,7 @@
 		line-height: 1.35;
 		color: var(--color-text-muted);
 		display: -webkit-box;
+		line-clamp: 3;
 		-webkit-line-clamp: 3;
 		-webkit-box-orient: vertical;
 		overflow: hidden;
@@ -380,6 +388,10 @@
 
 	.menu-item.watch {
 		color: #10b981;
+	}
+
+	.menu-item.multiview {
+		color: #38bdf8;
 	}
 
 	.menu-item.popout {

@@ -292,7 +292,23 @@
 		"cast_stop": "Stop Casting",
 		"cast_connecting": "Connecting…",
 		"cast_connected": "Casting",
-		"keep_playing_label": "Keep playing when I navigate away"
+		"keep_playing_label": "Keep playing when I navigate away",
+		"multiview": "Multi-View",
+		"add_to_multiview": "Add to Multi-View"
+	},
+	"multiview": {
+		"title": "Multi-View Playback",
+		"feeds_active": "{count} of {max} Feeds Active",
+		"layout_2up": "2-Up Split",
+		"layout_3up": "3-Up Hero",
+		"layout_quad": "Quad Grid",
+		"add_feed": "Add Feed",
+		"add_to_multiview": "Add to Multi-View",
+		"make_hero": "Make Primary (Hero)",
+		"listen": "Listen to Audio",
+		"close_slot": "Close Feed",
+		"close_all": "Close Multi-View",
+		"tuners_exhausted": "Physical tuners exhausted. Playback may fail or conflict with active recordings."
 	},
 	"syncplay": {
 		"title": "SyncPlay Watch Party",
@@ -308,6 +324,7 @@
 		"synced": "Synced",
 		"syncing": "Syncing…",
 		"connected": "Connected",
+		"session_ended": "Session ended — please rejoin",
 		"make_host": "Make Host",
 		"leave": "Leave Room",
 		"join_with_code": "Join with Room Code",

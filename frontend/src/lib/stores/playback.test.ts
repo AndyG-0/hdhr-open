@@ -22,7 +22,14 @@ vi.mock('$lib/cast/cast-loader', () => ({
 	setActiveCastSessionId,
 }));
 
-import { playback, startPlayback, stopPlayback, updateContext, type PlaybackMedia } from './playback';
+import {
+	playback,
+	startPlayback,
+	stopPlayback,
+	updateContext,
+	syncOwnedPlaybackContext,
+	type PlaybackMedia,
+} from './playback';
 
 const media = (overrides: Partial<PlaybackMedia> = {}): PlaybackMedia => ({
 	title: 'Channel 4.1',
@@ -141,5 +148,42 @@ describe('playback store', () => {
 
 		expect(endCastSession).not.toHaveBeenCalled();
 		expect(setActiveCastSessionId).not.toHaveBeenCalled();
+	});
+
+	it('syncOwnedPlaybackContext updates context when originPath matches', () => {
+		startPlayback(media(), '/recordings', context());
+
+		const updated = syncOwnedPlaybackContext('/recordings', () => ({
+			...context(),
+			recordingLoading: 'rec-123',
+		}));
+
+		expect(updated).toBe(true);
+		expect(get(playback).context?.recordingLoading).toBe('rec-123');
+	});
+
+	it('syncOwnedPlaybackContext ignores context updates when originPath does not match', () => {
+		startPlayback(media(), '/', context());
+
+		const updated = syncOwnedPlaybackContext('/recordings', () => ({
+			...context(),
+			recordingLoading: 'rec-456',
+		}));
+
+		expect(updated).toBe(false);
+		expect(get(playback).context?.recordingLoading).toBeNull();
+	});
+
+	it('syncOwnedPlaybackContext supports dynamic getter for pathname', () => {
+		startPlayback(media(), '/player', context());
+
+		let currentRoute = '/player';
+		const updated = syncOwnedPlaybackContext(() => currentRoute, () => ({
+			...context(),
+			recordingLoading: 'rec-789',
+		}));
+
+		expect(updated).toBe(true);
+		expect(get(playback).context?.recordingLoading).toBe('rec-789');
 	});
 });

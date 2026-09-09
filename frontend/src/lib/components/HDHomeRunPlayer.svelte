@@ -18,6 +18,8 @@
 	import { createCaptionController } from '$lib/caption-controller';
 	import { createMpegtsPlayer } from '$lib/mpegts-player';
 	import { createSyncPlayController, type SyncPlayStatus } from '$lib/syncplay-controller';
+	import { createAirPlayController } from '$lib/airplay-controller';
+	import { createRecordingActionsController } from '$lib/recording-actions';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import PlayerFooter from './player/PlayerFooter.svelte';
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
@@ -65,6 +67,7 @@
 		onCancelRule?: (ruleId: string) => Promise<void> | void;
 		onToggleFavorite?: (channelNumber: string) => Promise<void> | void;
 		onChannelChange?: (channel: HDHomeRunChannel) => void;
+		onToggleMultiView?: () => void;
 		allowPopout?: boolean;
 		onPopout?: () => void;
 		displayMode?: 'full' | 'mini';
@@ -100,6 +103,7 @@
 		onCancelRule,
 		onToggleFavorite,
 		onChannelChange,
+		onToggleMultiView,
 	}: Props = $props();
 
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
@@ -166,8 +170,6 @@
 	let captionPollHandle: ReturnType<typeof setInterval> | undefined;
 	let captionsPollInFlight = false;
 	let airplayAvailable = $state(false);
-	let airplaySessionId: string | null = null;
-	let airplayResumeFrom = 0;
 
 	// Load stored volume settings
 	if (typeof localStorage !== 'undefined') {
@@ -600,7 +602,9 @@
 			try {
 				localStorage.setItem('hdhr_player_volume', String(volume));
 				localStorage.setItem('hdhr_player_muted', String(muted));
-			} catch {}
+			} catch {
+				// ignore localStorage errors
+			}
 		}
 		resetAutoHideTimer();
 	}
@@ -613,7 +617,9 @@
 		if (typeof localStorage !== 'undefined') {
 			try {
 				localStorage.setItem('hdhr_player_muted', String(muted));
-			} catch {}
+			} catch {
+				// ignore localStorage errors
+			}
 		}
 		resetAutoHideTimer();
 	}
@@ -780,150 +786,43 @@
 		}
 	}
 
-	async function handleRecordEpisode(options?: RecordingRuleOptions) {
-		showRecordMenu = false;
-		showOptionsDialog = false;
-		internalRecordingLoading = true;
-		const effectiveOptions: RecordingRuleOptions = {
-			title: effectiveAiring?.title ?? channelName,
-			...options,
-		};
-		const targetChannel = effectiveOptions.channel !== undefined ? effectiveOptions.channel : channelNumber;
-		try {
-			if (isWatchSession && watchSessionId) {
-				await api.promoteWatch(watchSessionId, {
-					title: effectiveAiring?.title ?? channelName,
-					episode_title: effectiveAiring?.episode_title ?? undefined,
-				});
-				return;
-			}
-			if (onRecordEpisode) {
-				await onRecordEpisode(
-					effectiveAiring?.series_id,
-					targetChannel,
-					effectiveAiring?.start,
-					effectiveOptions,
-				);
-			} else {
-				const updatedRules = await api.addHDHomeRunRecordingRule({
-					series_id: effectiveAiring?.series_id || 'auto',
-					channel: targetChannel,
-					date_time: effectiveAiring?.start ?? undefined,
-					title: effectiveOptions.title,
-					start_padding: effectiveOptions.startPadding,
-					end_padding: effectiveOptions.endPadding,
-					recent_only: effectiveOptions.recentOnly,
-					max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
-					server: effectiveOptions.server,
-				});
-				if (Array.isArray(updatedRules)) {
-					recordingRules = updatedRules;
-				}
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
+	const recordingActionsController = createRecordingActionsController({
+		getEffectiveAiring: () => effectiveAiring,
+		getChannelName: () => channelName,
+		getChannelNumber: () => channelNumber,
+		getIsWatchSession: () => Boolean(isWatchSession),
+		getWatchSessionId: () => watchSessionId,
+		getCurrentRule: () => currentRule,
+		getRecordingRules: () => recordingRules,
+		setRecordingRules: (rules) => {
+			recordingRules = rules;
+		},
+		setErrorMessage: (msg) => {
+			errorMessage = msg;
+		},
+		setInternalRecordingLoading: (loading) => {
+			internalRecordingLoading = loading;
+		},
+		setShowRecordMenu: (show) => {
+			showRecordMenu = show;
+		},
+		setShowOptionsDialog: (show) => {
+			showOptionsDialog = show;
+		},
+		getOnRecordEpisode: () => onRecordEpisode,
+		getOnRecordSeries: () => onRecordSeries,
+		getOnCancelRule: () => onCancelRule,
+		getOnUpdateRule: () => onUpdateRule,
+		translate: (key) => get(_)(key),
+	});
 
-	async function handleRecordSeries(options?: RecordingRuleOptions) {
-		showRecordMenu = false;
-		showOptionsDialog = false;
-		internalRecordingLoading = true;
-		const effectiveOptions: RecordingRuleOptions = {
-			title: effectiveAiring?.title ?? channelName,
-			...options,
-		};
-		const seriesId = effectiveAiring?.series_id || 'auto';
-		const targetChannel = effectiveOptions.channel !== undefined ? effectiveOptions.channel : channelNumber;
-		try {
-			if (isWatchSession && watchSessionId) {
-				await api.promoteWatch(watchSessionId, {
-					title: effectiveAiring?.title ?? channelName,
-					episode_title: effectiveAiring?.episode_title ?? undefined,
-				});
-			}
-			if (onRecordSeries) {
-				await onRecordSeries(seriesId, targetChannel, effectiveOptions);
-			} else {
-				const updatedRules = await api.addHDHomeRunRecordingRule({
-					series_id: seriesId,
-					channel: targetChannel,
-					title: effectiveOptions.title,
-					title_match_mode: effectiveOptions.titleMatchMode,
-					keyword_query: effectiveOptions.keywordQuery,
-					start_padding: effectiveOptions.startPadding,
-					end_padding: effectiveOptions.endPadding,
-					recent_only: effectiveOptions.recentOnly,
-					max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
-					server: effectiveOptions.server,
-				});
-				if (Array.isArray(updatedRules)) {
-					recordingRules = updatedRules;
-				}
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
-
-	async function handleCancelRecording() {
-		if (!currentRule) return;
-		showRecordMenu = false;
-		internalRecordingLoading = true;
-		try {
-			if (onCancelRule) {
-				await onCancelRule(currentRule.RecordingRuleID);
-			} else {
-				await api.deleteHDHomeRunRecordingRule(currentRule.RecordingRuleID);
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
-
-	async function handleUpdateRule(ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) {
-		showRecordMenu = false;
-		showOptionsDialog = false;
-		internalRecordingLoading = true;
-		try {
-			if (onUpdateRule) {
-				await onUpdateRule(ruleId, mode, options);
-			} else {
-				await api.updateHDHomeRunRecordingRule(ruleId, {
-					channel: options.channel,
-					title: options.title,
-					title_match_mode: options.titleMatchMode,
-					keyword_query: options.keywordQuery,
-					start_padding: options.startPadding,
-					end_padding: options.endPadding,
-					recent_only: options.recentOnly,
-					max_episodes_to_keep: options.maxEpisodesToKeep,
-				});
-			}
-		} catch (err) {
-			errorMessage = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
-		} finally {
-			internalRecordingLoading = false;
-		}
-	}
-
-	function handleConfirmOptions(mode: 'episode' | 'series', options: RecordingRuleOptions) {
-		if (currentRule) {
-			handleUpdateRule(currentRule.RecordingRuleID, mode, options);
-			return;
-		}
-		if (mode === 'series') {
-			handleRecordSeries(options);
-		} else {
-			handleRecordEpisode(options);
-		}
-	}
+	const handleRecordEpisode = (options?: RecordingRuleOptions) => recordingActionsController.handleRecordEpisode(options);
+	const handleRecordSeries = (options?: RecordingRuleOptions) => recordingActionsController.handleRecordSeries(options);
+	const handleCancelRecording = () => recordingActionsController.handleCancelRecording();
+	const handleUpdateRule = (ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) =>
+		recordingActionsController.handleUpdateRule(ruleId, mode, options);
+	const handleConfirmOptions = (mode: 'episode' | 'series', options: RecordingRuleOptions) =>
+		recordingActionsController.handleConfirmOptions(mode, options);
 
 	function handlePopout() {
 		if (videoElement) {
@@ -995,10 +894,7 @@
 				if (autoHideTimer) clearTimeout(autoHideTimer);
 				if (centerFlashTimer) clearTimeout(centerFlashTimer);
 				mpegtsPlayer.teardownPlayer();
-				if (airplaySessionId) {
-					api.stopHlsSession(airplaySessionId);
-					airplaySessionId = null;
-				}
+				airplayController.destroy();
 				videoElement = null;
 				captionController.teardown();
 				captionCues = [];
@@ -1101,61 +997,6 @@
 		};
 	});
 
-	// AirPlay Setup
-	$effect(() => {
-		const video = videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null;
-		const hasAirplay =
-			typeof window !== 'undefined' &&
-			('WebKitPlaybackTargetAvailabilityEvent' in window ||
-				'WebKitPlaybackTargetAvailabilityEvent' in (globalThis as unknown as Record<string, unknown>));
-
-		if (!video || !hasAirplay) return;
-
-		// Swapping to the real for_cast HLS URL as soon as a route becomes
-		// available - not deferred until the route actually connects - is
-		// required, not just an optimization: confirmed against real
-		// Safari/Apple TV hardware, WebKit negotiates an AirPlay connection as
-		// audio-only (remote-control works, sound-waves "Now Playing" icon
-		// shows, but no picture ever reaches the TV) whenever the video's src
-		// was still the mpegts.js MSE blob: URL at the moment the route was
-		// picked - swapping the src afterwards doesn't upgrade an
-		// already-negotiated audio-only session to video. The video element
-		// has to already be on a directly-fetchable HTTP(S) URL *before* the
-		// picker ever opens, which - combined with webkitShowPlaybackTargetPicker()
-		// needing to fire with no await ahead of it (see showAirPlayPicker
-		// below) - means the swap can't be triggered by the click at all. So
-		// it happens here instead, the moment a nearby route is discovered:
-		// by the time the user actually clicks, the video is already playing
-		// from a URL an Apple TV can pull directly, whether they click at all
-		// or (per real hardware) Safari auto-reconnects a previously-picked
-		// route on its own.
-		const handleAvailabilityChange = (event: Event) => {
-			airplayAvailable = (event as unknown as { availability: string }).availability === 'available';
-			if (airplayAvailable) {
-				startAirPlayPlayback();
-			} else {
-				stopAirPlayPlayback();
-			}
-		};
-
-		video.addEventListener('webkitplaybacktargetavailabilitychanged', handleAvailabilityChange);
-		return () => {
-			video.removeEventListener('webkitplaybacktargetavailabilitychanged', handleAvailabilityChange);
-		};
-	});
-
-	// By the time this runs, the video is already on the for_cast HLS URL
-	// (swapped in reactively as soon as the route became available - see
-	// handleAvailabilityChange above), so all this needs to do is open the
-	// native picker. Must stay synchronous, with nothing awaited first -
-	// Safari only honors webkitShowPlaybackTargetPicker() while the click's
-	// transient user activation is still live, the same constraint Chrome's
-	// Cast picker has (see requestCastSession() in cast-loader.ts).
-	function showAirPlayPicker() {
-		(videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null)
-			?.webkitShowPlaybackTargetPicker?.();
-	}
-
 	async function buildCastContentUrl(): Promise<{ url: string; sessionId: string }> {
 		const session =
 			seekable && playUrl
@@ -1169,63 +1010,44 @@
 		return { url: session.playlist_url, sessionId: session.session_id };
 	}
 
-	// AirPlay DOES need to reuse the same for_cast/token session Google Cast
-	// uses (not a cookie-authenticated one): once a route actually connects,
-	// it's the Apple TV itself - a separate device on the LAN - that fetches
-	// the playlist/segments directly, exactly like a Chromecast receiver, and
-	// it has no way to send this browser's session cookie. A cookie-only
-	// session 404s/401s on the TV's own fetch (the "can't play" no-entry icon
-	// on real hardware).
-	//
-	// That token route's wildcard Access-Control-Allow-Origin is only a
-	// problem for *this* page's own <video> element, which - before/unless a
-	// route actually connects - may itself try to load the swapped src
-	// locally. With crossorigin="use-credentials" still set (needed for the
-	// normal cookie-authenticated src), that local fetch sends credentials,
-	// and wildcard-origin + credentialed-request is forbidden by the CORS
-	// spec (confirmed via a real Safari console error). So the crossorigin
-	// attribute is dropped for the duration of the swap - the token in the
-	// URL is this route's actual auth, cookies were never required for it -
-	// and restored once AirPlay ends and normal cookie-authenticated
-	// playback resumes below.
-	async function startAirPlayPlayback() {
-		if (!videoElement || airplaySessionId) return;
-		try {
-			airplayResumeFrom = seekable ? baseOffsetSeconds + videoCurrentTime : 0;
-			const { url, sessionId } = await buildCastContentUrl();
-			if (!videoElement || destroyed || !airplayAvailable) {
-				api.stopHlsSession(sessionId);
-				return;
-			}
-			airplaySessionId = sessionId;
-			mpegtsPlayer.teardownPlayer();
-			videoElement.removeAttribute('crossorigin');
-			videoElement.src = url;
-			videoElement.load();
-			safePlay();
-		} catch {
-			// ignore
-		}
-	}
-
-	function stopAirPlayPlayback() {
-		if (!airplaySessionId) return;
-		api.stopHlsSession(airplaySessionId);
-		airplaySessionId = null;
-		if (!videoElement || destroyed) return;
-		videoElement.setAttribute('crossorigin', 'use-credentials');
-		videoElement.removeAttribute('src');
-		videoElement.load();
-		if (seekable) {
-			const resumeAt = airplayResumeFrom + videoElement.currentTime;
-			baseOffsetSeconds = resumeAt;
-			videoCurrentTime = 0;
+	// AirPlay Controller
+	const airplayController = createAirPlayController({
+		getVideoElement: () =>
+			videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null,
+		getDestroyed: () => destroyed,
+		getSeekable: () => seekable,
+		getBaseOffsetSeconds: () => baseOffsetSeconds,
+		setBaseOffsetSeconds: (value) => {
+			baseOffsetSeconds = value;
+		},
+		getVideoCurrentTime: () => videoCurrentTime,
+		setVideoCurrentTime: (value) => {
+			videoCurrentTime = value;
+		},
+		getCurrentAudioIndex: () => currentAudioIndex,
+		getSrc: () => src,
+		buildStreamUrl,
+		buildCastContentUrl,
+		onAvailabilityChange: (available) => {
+			airplayAvailable = available;
+		},
+		teardownMpegtsPlayer: () => mpegtsPlayer.teardownPlayer(),
+		createMpegtsPlayerAt: (video, streamUrl) => mpegtsPlayer.createPlayerAt(video, streamUrl),
+		safePlay,
+		refreshCaptions: () => {
 			captionController.resetStretchCursor();
 			captionController.refreshCaptionCues();
-			mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(resumeAt, currentAudioIndex));
-		} else {
-			mpegtsPlayer.createPlayerAt(videoElement, src);
-		}
+		},
+	});
+
+	$effect(() => {
+		return airplayController.attachVideoElement(
+			videoElement as (HTMLVideoElement & { webkitShowPlaybackTargetPicker?: () => void }) | null,
+		);
+	});
+
+	function showAirPlayPicker() {
+		airplayController.showAirPlayPicker();
 	}
 </script>
 
@@ -1276,6 +1098,7 @@
 			onRecordSeries={handleRecordSeries}
 			onCancelRecording={handleCancelRecording}
 			onConfirmOptions={handleConfirmOptions}
+			{onToggleMultiView}
 			onPopout={allowPopout ? (onPopout ?? handlePopout) : undefined}
 			{onClose}
 		/>

@@ -104,18 +104,23 @@ public struct TVMultiPlayerView: View {
                 multiPlayerViewModel.closeAll()
             }
         }
+        .task {
+            await multiPlayerViewModel.refreshTunerCapacity()
+        }
     }
 
     // MARK: - Edit Bar
 
     private var editBar: some View {
-        HStack(spacing: 24) {
+        let allowedLayouts = MultiViewLayout.availableLayouts(for: multiPlayerViewModel.maxFeeds)
+
+        return HStack(spacing: 24) {
             // Feeds count & title
             VStack(alignment: .leading, spacing: 4) {
                 Text("Multi-View Playback")
                     .font(.title2.bold())
                     .foregroundColor(.white)
-                Text("\(multiPlayerViewModel.slots.count) of \(MultiPlayerViewModel.maxFeeds) Feeds Active")
+                Text("\(multiPlayerViewModel.slots.count) of \(multiPlayerViewModel.maxFeeds) Feeds Active")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -124,17 +129,19 @@ public struct TVMultiPlayerView: View {
 
             // Layout Picker Buttons
             HStack(spacing: 12) {
-                Button(action: {
-                    multiPlayerViewModel.layout = .sideBySide
-                    scheduleEditBarAutoHide()
-                }) {
-                    Label("2-Up", systemImage: "rectangle.split.2x1")
+                if allowedLayouts.contains(.sideBySide) {
+                    Button(action: {
+                        multiPlayerViewModel.layout = .sideBySide
+                        scheduleEditBarAutoHide()
+                    }) {
+                        Label("2-Up", systemImage: "rectangle.split.2x1")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(multiPlayerViewModel.layout == .sideBySide ? .blue : .gray.opacity(0.3))
+                    .focused($editFocus, equals: .layout2up)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(multiPlayerViewModel.layout == .sideBySide ? .blue : .gray.opacity(0.3))
-                .focused($editFocus, equals: .layout2up)
 
-                if multiPlayerViewModel.slots.count >= 3 || multiPlayerViewModel.canAddFeed {
+                if allowedLayouts.contains(.threeBox), multiPlayerViewModel.slots.count >= 3 || multiPlayerViewModel.canAddFeed {
                     Button(action: {
                         multiPlayerViewModel.layout = .threeBox
                         scheduleEditBarAutoHide()
@@ -146,7 +153,7 @@ public struct TVMultiPlayerView: View {
                     .focused($editFocus, equals: .layout3up)
                 }
 
-                if multiPlayerViewModel.slots.count >= 4 || multiPlayerViewModel.canAddFeed {
+                if allowedLayouts.contains(.quad), multiPlayerViewModel.slots.count >= 4 || multiPlayerViewModel.canAddFeed {
                     Button(action: {
                         multiPlayerViewModel.layout = .quad
                         scheduleEditBarAutoHide()

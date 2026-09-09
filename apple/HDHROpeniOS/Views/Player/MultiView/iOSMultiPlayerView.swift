@@ -31,12 +31,17 @@ public struct iOSMultiPlayerView: View {
         .sheet(isPresented: $showChannelSheet) {
             channelPickerSheet
         }
+        .task {
+            await multiPlayerViewModel.refreshTunerCapacity()
+        }
     }
 
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack(spacing: 16) {
+        let allowedLayouts = MultiViewLayout.availableLayouts(for: multiPlayerViewModel.maxFeeds)
+
+        return HStack(spacing: 16) {
             // Close / Exit Button
             Button(action: {
                 multiPlayerViewModel.closeAll()
@@ -58,7 +63,7 @@ public struct iOSMultiPlayerView: View {
                 Text("Multi-View")
                     .font(.headline)
                     .foregroundColor(.white)
-                Text("\(multiPlayerViewModel.slots.count) of \(MultiPlayerViewModel.maxFeeds) Feeds Active")
+                Text("\(multiPlayerViewModel.slots.count) of \(multiPlayerViewModel.maxFeeds) Feeds Active")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -67,22 +72,28 @@ public struct iOSMultiPlayerView: View {
 
             // Layout Picker Menu
             Menu {
-                Button {
-                    multiPlayerViewModel.layout = .sideBySide
-                } label: {
-                    Label("Side by Side (2)", systemImage: "rectangle.split.2x1")
+                if allowedLayouts.contains(.sideBySide) {
+                    Button {
+                        multiPlayerViewModel.layout = .sideBySide
+                    } label: {
+                        Label("Side by Side (2)", systemImage: "rectangle.split.2x1")
+                    }
                 }
 
-                Button {
-                    multiPlayerViewModel.layout = .threeBox
-                } label: {
-                    Label("Three-Box (3)", systemImage: "rectangle.split.3x1")
+                if allowedLayouts.contains(.threeBox) {
+                    Button {
+                        multiPlayerViewModel.layout = .threeBox
+                    } label: {
+                        Label("Three-Box (3)", systemImage: "rectangle.split.3x1")
+                    }
                 }
 
-                Button {
-                    multiPlayerViewModel.layout = .quad
-                } label: {
-                    Label("Quad Grid (4)", systemImage: "rectangle.split.2x2")
+                if allowedLayouts.contains(.quad) {
+                    Button {
+                        multiPlayerViewModel.layout = .quad
+                    } label: {
+                        Label("Quad Grid (4)", systemImage: "rectangle.split.2x2")
+                    }
                 }
             } label: {
                 Image(systemName: "square.grid.2x2")
@@ -309,12 +320,24 @@ public struct iOSMultiPlayerView: View {
 
             // Loading / Error
             if case let .failed(msg) = slot.playerEngine.state {
-                Text(msg)
-                    .font(.caption2)
-                    .foregroundColor(.yellow)
-                    .padding(6)
-                    .background(Color.black.opacity(0.8))
-                    .cornerRadius(6)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.yellow)
+                            .font(.caption)
+                        Text("Tuner Unavailable")
+                            .font(.caption.bold())
+                            .foregroundColor(.yellow)
+                    }
+                    Text(msg)
+                        .font(.caption2)
+                        .foregroundColor(.white)
+                        .lineLimit(4)
+                }
+                .padding(8)
+                .background(Color.black.opacity(0.85))
+                .cornerRadius(8)
+                .padding(.horizontal, 8)
             } else if slot.playerEngine.state == .loading || slot.playerEngine.state == .buffering {
                 ProgressView()
                     .tint(.white)

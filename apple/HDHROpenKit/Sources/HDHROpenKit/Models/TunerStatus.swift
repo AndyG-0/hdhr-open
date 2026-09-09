@@ -15,7 +15,7 @@ public struct TunerClientInfo: Codable, Sendable {
     public let name: String
     public let ip: String?
     public let hostname: String?
-    public let details: String
+    public let details: String?
     public let recordingId: String?
     public let scheduledId: String?
     public let isRecording: Bool
@@ -31,6 +31,41 @@ public struct TunerClientInfo: Codable, Sendable {
         case scheduledId = "scheduled_id"
         case isRecording = "is_recording"
         case viewers
+    }
+
+    public init(
+        type: String,
+        name: String,
+        ip: String? = nil,
+        hostname: String? = nil,
+        details: String? = nil,
+        recordingId: String? = nil,
+        scheduledId: String? = nil,
+        isRecording: Bool = false,
+        viewers: [TunerViewerInfo] = []
+    ) {
+        self.type = type
+        self.name = name
+        self.ip = ip
+        self.hostname = hostname
+        self.details = details
+        self.recordingId = recordingId
+        self.scheduledId = scheduledId
+        self.isRecording = isRecording
+        self.viewers = viewers
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        name = try container.decode(String.self, forKey: .name)
+        ip = try container.decodeIfPresent(String.self, forKey: .ip)
+        hostname = try container.decodeIfPresent(String.self, forKey: .hostname)
+        details = try container.decodeIfPresent(String.self, forKey: .details)
+        recordingId = try container.decodeIfPresent(String.self, forKey: .recordingId)
+        scheduledId = try container.decodeIfPresent(String.self, forKey: .scheduledId)
+        isRecording = try container.decodeIfPresent(Bool.self, forKey: .isRecording) ?? false
+        viewers = try container.decodeIfPresent([TunerViewerInfo].self, forKey: .viewers) ?? []
     }
 }
 

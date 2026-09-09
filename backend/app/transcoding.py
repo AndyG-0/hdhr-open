@@ -49,9 +49,11 @@ HLS_FLAGS = "delete_segments+append_list+independent_segments"
 # otherwise AVPlayer's seekable range is stuck to whatever small window of
 # segments happens to exist on disk, and scrubbing past it silently no-ops.
 # ffmpeg still appends segments/rewrites the playlist incrementally (without
-# `#EXT-X-ENDLIST`) as it works through the file, so playback can start well
-# before the whole thing has transcoded.
 HLS_FLAGS_VOD = "independent_segments"
+# For an active capture / watch session: segments are appended incrementally
+# without deleting older segments, so live pause (even for hours) and rewind
+# work without 404 segment loss.
+HLS_FLAGS_ACTIVE_CAPTURE = "append_list+independent_segments"
 
 DEFAULT_PRESET = "software"
 DEFAULT_HWACCEL_DEVICE = "/dev/dri/renderD128"
@@ -304,6 +306,7 @@ def build_ffmpeg_args(
     hls_playlist_path: Path | None = None,
     hls_segment_pattern: str | None = None,
     hls_vod: bool = False,
+    hls_keep_segments: bool = False,
     hls_base_url: str | None = None,
 ) -> list[str]:
     """Full ffmpeg arg list (excluding the "ffmpeg" program name itself).
@@ -373,6 +376,21 @@ def build_ffmpeg_args(
                 "0",
                 "-hls_flags",
                 HLS_FLAGS_VOD,
+                *(["-hls_base_url", hls_base_url] if hls_base_url else []),
+                "-hls_segment_filename",
+                hls_segment_pattern,
+                str(hls_playlist_path),
+            ]
+        elif hls_keep_segments:
+            output_framing = [
+                "-f",
+                "hls",
+                "-hls_time",
+                str(HLS_SEGMENT_SECONDS),
+                "-hls_list_size",
+                "0",
+                "-hls_flags",
+                HLS_FLAGS_ACTIVE_CAPTURE,
                 *(["-hls_base_url", hls_base_url] if hls_base_url else []),
                 "-hls_segment_filename",
                 hls_segment_pattern,

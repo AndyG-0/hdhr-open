@@ -7,8 +7,12 @@ public final class MultiPlayerViewModel: ObservableObject {
     @Published public var activeSlotIndex = 0
     @Published public var layout: MultiViewLayout = .sideBySide
     @Published public private(set) var isAllocatingSlot = false
+    @Published public private(set) var totalTuners: Int = 2
+    @Published public private(set) var maxFeeds: Int = 2
+    @Published public private(set) var tunerWarning: String?
 
     public static let maxFeeds = 4
+    public static let maxMultiViewFeeds = 4
 
     private let apiClient: APIClient
     private let watchSessionManager: WatchSessionManager
@@ -20,7 +24,7 @@ public final class MultiPlayerViewModel: ObservableObject {
     }
 
     public var canAddFeed: Bool {
-        slots.count < Self.maxFeeds
+        slots.count < maxFeeds
     }
 
     public var activeSlot: MultiViewSlot? {
@@ -29,6 +33,124 @@ public final class MultiPlayerViewModel: ObservableObject {
 
     public var isMultiViewActive: Bool {
         !slots.isEmpty
+    }
+
+    // MARK: - Tuner Capacity & Availability
+
+    /// Loads and refreshes total physical tuner count and adapts maxFeeds and layouts accordingly.
+    @discardableResult
+    public func refreshTunerCapacity() async -> Int {
+        do {
+            let info = try await apiClient.getTunerInfo()
+            if let count = info.tunerCount, count > 0 {
+                totalTuners = count
+                let newMaxFeeds = min(Self.maxMultiViewFeeds, max(1, count))
+                maxFeeds = newMaxFeeds
+                let allowed = MultiViewLayout.availableLayouts(for: newMaxFeeds)
+                if !allowed.contains(layout) {
+                    layout = .sideBySide
+                }
+                return newMaxFeeds
+            }
+        } catch {
+            Log.player.warning("Multi-view: failed to fetch tuner info: \(error.localizedDescription)")
+        }
+        return maxFeeds
+    }
+
+    /// Evaluates real-time physical tuner availability for a target channel, accounting for tuner sharing on active recordings or streams.
+    public func evaluateTunerAvailability(
+        targetChannelNumber: String? = nil,
+        excludeSlotId: UUID? = nil
+    ) async -> TunerAvailabilityResult {
+        var detectedTotalTuners = totalTuners
+        var tuners: [HDHomeRunTuner] = []
+
+        if let info = try? await apiClient.getTunerInfo(), let count = info.tunerCount, count > 0 {
+            detectedTotalTuners = count
+            totalTuners = count
+            maxFeeds = min(Self.maxMultiViewFeeds, max(1, count))
+        }
+
+        if let status = try? await apiClient.getTunerStatus() {
+            tuners = status
+        }
+
+        var activeRecordings: [(channel: String, title: String)] = []
+        var activeStreams: [(channel: String, viewer: String)] = []
+        var sharableSet = Set<String>()
+
+        if !tuners.isEmpty {
+            detectedTotalTuners = max(detectedTotalTuners, tuners.count)
+            for t in tuners where t.inUse {
+                let ch = t.channelNumber ?? t.channelName ?? "Unknown"
+                if let chNum = t.channelNumber {
+                    sharableSet.insert(chNum)
+                }
+                if t.client?.isRecording == true || t.client?.type == "scheduled_recording" || t.client?.recordingId != nil {
+                    let title = t.client?.name ?? t.channelName ?? "Recording on \(ch)"
+                    activeRecordings.append((channel: ch, title: title))
+                } else {
+                    let viewer = t.client?.name ?? "Live TV Viewer"
+                    activeStreams.append((channel: ch, viewer: viewer))
+                }
+            }
+        }
+
+        // Include channels currently running in other multi-view slots (excluding the slot being added/replaced)
+        for slot in slots where slot.id != excludeSlotId {
+            if case .failed = slot.playerEngine.state {
+                continue
+            }
+            sharableSet.insert(slot.channel.channelNumber)
+        }
+
+        let inUseCount = tuners.filter(\.inUse).count
+        let freeTuners = max(0, detectedTotalTuners - inUseCount)
+        let sharableChannels = Array(sharableSet)
+        let isTargetShared = targetChannelNumber.map { sharableSet.contains($0) } ?? false
+
+        if isTargetShared || freeTuners > 0 {
+            return TunerAvailabilityResult(
+                available: true,
+                isShared: isTargetShared,
+                totalTuners: detectedTotalTuners,
+                activeRecordingsCount: activeRecordings.count,
+                activeStreamsCount: activeStreams.count,
+                sharableChannels: sharableChannels
+            )
+        }
+
+        var explanation = "All \(detectedTotalTuners) tuners are currently in use."
+        var breakdownParts: [String] = []
+        if !activeRecordings.isEmpty {
+            let recDesc = activeRecordings.map { "\($0.title) (Ch \($0.channel))" }.joined(separator: ", ")
+            breakdownParts.append("\(activeRecordings.count) recording: \(recDesc)")
+        }
+        if !activeStreams.isEmpty {
+            let streamDesc = activeStreams.map { "Ch \($0.channel) (\($0.viewer))" }.joined(separator: ", ")
+            breakdownParts.append("\(activeStreams.count) streaming: \(streamDesc)")
+        }
+        if !breakdownParts.isEmpty {
+            explanation += " Currently: \(breakdownParts.joined(separator: "; "))."
+        }
+
+        if !activeRecordings.isEmpty {
+            let recChannels = activeRecordings.map { "Ch \($0.channel)" }.joined(separator: ", ")
+            explanation += " You can watch \(recChannels) without consuming another tuner, or close an active feed."
+        } else {
+            explanation += " Close an active feed to free up a tuner."
+        }
+
+        return TunerAvailabilityResult(
+            available: false,
+            isShared: false,
+            totalTuners: detectedTotalTuners,
+            activeRecordingsCount: activeRecordings.count,
+            activeStreamsCount: activeStreams.count,
+            sharableChannels: sharableChannels,
+            explanation: explanation
+        )
     }
 
     // MARK: - Feed Lifecycle
@@ -42,12 +164,9 @@ public final class MultiPlayerViewModel: ObservableObject {
 
     /// Synchronously reserves a slot for `channel`, showing a `.loading` tile immediately,
     /// before any network negotiation happens. Pair with `finishAddFeed` to complete the feed.
-    ///
-    /// This split exists so `slots` becomes non-empty (and `TVMultiPlayerView` mounts) on the
-    /// same run loop turn as the call, instead of only after the stream negotiation resolves.
     @discardableResult
     public func beginAddFeed(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry? = nil) throws -> UUID {
-        guard slots.count < Self.maxFeeds else {
+        guard slots.count < maxFeeds else {
             throw MultiViewError.maxSlotsReached
         }
 
@@ -82,7 +201,7 @@ public final class MultiPlayerViewModel: ObservableObject {
 
         // Auto-adapt layout if current layout cannot accommodate the slot count
         if slots.count > layout.maxSlots {
-            layout = MultiViewLayout.recommended(for: slots.count)
+            layout = MultiViewLayout.recommended(for: slots.count, maxFeeds: maxFeeds)
         }
 
         updateAudioRouting()
@@ -103,15 +222,27 @@ public final class MultiPlayerViewModel: ObservableObject {
         let playerEngine = slots[index].playerEngine
         let isMuted = slots[index].isMuted
 
-        // 1. Check physical tuner status from backend
-        var tunerWarning: String?
-        if let tuners = try? await apiClient.getTunerStatus(), !tuners.isEmpty {
-            let availableTuners = tuners.filter { !$0.inUse }
-            if availableTuners.isEmpty {
-                tunerWarning = "Physical tuners exhausted. Playback may fail or conflict with active recordings."
-                Log.player.warning("Multi-view: physical tuners exhausted when allocating feed for channel \(channel.channelNumber)")
+        // Evaluate physical tuner availability & sharing
+        let tunerAvail = await evaluateTunerAvailability(targetChannelNumber: channel.channelNumber, excludeSlotId: slotId)
+        if !tunerAvail.available {
+            let explanation = tunerAvail.explanation ?? "Physical tuners exhausted."
+            playerEngine.setFailed(explanation)
+            tunerWarning = explanation
+            if let finalIndex = slots.firstIndex(where: { $0.id == slotId }) {
+                slots[finalIndex] = MultiViewSlot(
+                    id: slotId,
+                    channel: channel,
+                    airing: airing,
+                    playerEngine: playerEngine,
+                    isMuted: isMuted,
+                    warningMessage: explanation,
+                    playbackMode: .serverTranscodedHls
+                )
             }
+            throw MultiViewError.tunerUnavailable(explanation)
         }
+
+        let tunerWarningMessage: String? = tunerAvail.isShared ? nil : (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
 
         let baseURL = await apiClient.baseURL
         let authHeaders = await hlsAuthHeaders()
@@ -120,7 +251,7 @@ public final class MultiPlayerViewModel: ObservableObject {
         var hlsSessionId: String?
         let playbackMode: PlaybackMode? = .serverTranscodedHls
 
-        // 2. Stream negotiation: try watch session first, fallback to direct HLS
+        // Stream negotiation: try watch session first, fallback to direct HLS
         var streamStarted = false
         do {
             if let rec = try await watchSessionManager.startSession(channelNumber: channel.channelNumber),
@@ -171,7 +302,7 @@ public final class MultiPlayerViewModel: ObservableObject {
             watchRecording: watchRec,
             hlsSessionId: hlsSessionId,
             isMuted: isMuted,
-            warningMessage: tunerWarning,
+            warningMessage: tunerWarningMessage,
             playbackMode: playbackMode
         )
     }
@@ -199,7 +330,7 @@ public final class MultiPlayerViewModel: ObservableObject {
         if slots.count <= 2, layout != .sideBySide {
             layout = .sideBySide
         } else if slots.count == 3, layout == .quad {
-            layout = .threeBox
+            layout = MultiViewLayout.recommended(for: slots.count, maxFeeds: maxFeeds)
         }
 
         updateAudioRouting()
@@ -220,13 +351,25 @@ public final class MultiPlayerViewModel: ObservableObject {
         playerEngine.setMuted(wasMuted)
         playerEngine.setLoading()
 
-        // Check tuners
-        var tunerWarning: String?
-        if let tuners = try? await apiClient.getTunerStatus(), !tuners.isEmpty {
-            if tuners.allSatisfy(\.inUse) {
-                tunerWarning = "Physical tuners exhausted. Playback may fail or conflict with active recordings."
-            }
+        // Check tuner availability
+        let tunerAvail = await evaluateTunerAvailability(targetChannelNumber: channel.channelNumber, excludeSlotId: oldSlot.id)
+        if !tunerAvail.available {
+            let explanation = tunerAvail.explanation ?? "Physical tuners exhausted."
+            playerEngine.setFailed(explanation)
+            tunerWarning = explanation
+            slots[index] = MultiViewSlot(
+                id: oldSlot.id,
+                channel: channel,
+                airing: airing ?? channel.now,
+                playerEngine: playerEngine,
+                isMuted: wasMuted,
+                warningMessage: explanation,
+                playbackMode: .serverTranscodedHls
+            )
+            throw MultiViewError.tunerUnavailable(explanation)
         }
+
+        let tunerWarningMessage: String? = tunerAvail.isShared ? nil : (tunerAvail.totalTuners == tunerAvail.activeRecordingsCount + tunerAvail.activeStreamsCount ? "Physical tuners at capacity." : nil)
 
         let baseURL = await apiClient.baseURL
         let authHeaders = await hlsAuthHeaders()
@@ -275,7 +418,7 @@ public final class MultiPlayerViewModel: ObservableObject {
             watchRecording: watchRec,
             hlsSessionId: hlsSessionId,
             isMuted: wasMuted,
-            warningMessage: tunerWarning,
+            warningMessage: tunerWarningMessage,
             playbackMode: .serverTranscodedHls
         )
 

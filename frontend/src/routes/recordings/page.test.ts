@@ -782,5 +782,32 @@ describe('recordings +page.svelte', () => {
 		expect(await screen.findByText('Local Evening News')).toBeInTheDocument();
 		expect(screen.getByText('Built-in (Fallback)')).toBeInTheDocument();
 	});
+
+	it('clears stale action errors when a new action is initiated', async () => {
+		listRecordings.mockResolvedValue([
+			{
+				recording_id: 'rec-1',
+				title: 'Test Show',
+				start: nowSeconds() - 3600,
+				record_end: nowSeconds() - 1800,
+				is_dvr_file: false,
+			},
+		]);
+		deleteRecording.mockRejectedValueOnce(new Error('Delete failed'));
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		expect(await screen.findByText('Test Show')).toBeInTheDocument();
+
+		const deleteBtn = screen.getByRole('button', { name: 'Delete' });
+		await fireEvent.click(deleteBtn);
+
+		expect(await screen.findByText('Delete failed')).toBeInTheDocument();
+
+		deleteRecording.mockResolvedValueOnce(undefined);
+		await fireEvent.click(deleteBtn);
+
+		await vi.waitFor(() => expect(screen.queryByText('Delete failed')).not.toBeInTheDocument());
+	});
 });
 

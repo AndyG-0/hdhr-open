@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app import hwaccel
-from app.api import dvr as dvr_api
+from app.api import dvr_streaming
 from app.api import streaming as streaming_api
 from app.auth import get_current_user
 from app.dvr.builtin import watch
@@ -373,7 +373,7 @@ def test_stream_channel_hls_releases_fallback_capture_when_data_never_arrives(cl
     release_mock = AsyncMock()
     monkeypatch.setattr(watch, "release_fallback_capture", release_mock)
     monkeypatch.setattr(streaming_api, "_LIVE_CAPTURE_READY_TIMEOUT_SECONDS", 0.05)
-    monkeypatch.setattr(dvr_api, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(dvr_streaming, "_LIVE_CAPTURE_READY_POLL_SECONDS", 0.01)
 
     fake_session = MagicMock()
     fake_session.session_id = "sess_stalled_fallback"

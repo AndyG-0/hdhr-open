@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/dynamic/public', () => ({ env: { PUBLIC_API_BASE_URL: 'http://api.test' } }));
 
-const { api } = await import('./api');
+const { api, DEFAULT_FETCH_TIMEOUT_MS } = await import('./api');
+const defaultSignal = expect.any(AbortSignal);
 
 describe('api', () => {
 	beforeEach(() => {
@@ -17,7 +18,8 @@ describe('api', () => {
 
 		const result = await api.themes();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/theme', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/theme', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual({ themes: [], default: 'dark' });
 	});
 
@@ -27,7 +29,8 @@ describe('api', () => {
 
 		const result = await api.settings();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/settings', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/settings', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(settings);
 	});
 
@@ -42,6 +45,7 @@ describe('api', () => {
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(partial),
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 	});
 
@@ -57,7 +61,8 @@ describe('api', () => {
 
 		const result = await api.getHDHomeRunGuide();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(channels);
 	});
 
@@ -68,6 +73,7 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide?start=1000&end=2000', {
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 	});
 
@@ -77,7 +83,8 @@ describe('api', () => {
 
 		const result = await api.getHDHomeRunChannels();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(body);
 	});
 
@@ -100,6 +107,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/dvr/recording-rules', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ series_id: 's1' }),
 		});
@@ -119,6 +127,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/dvr/recording-rules', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ title: 'College Football', title_match_mode: 'exact', keyword_query: 'Ohio State' }),
 		});
@@ -134,6 +143,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/dvr/recording-rules/r1', {
 			method: 'DELETE',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 	});
 
@@ -143,7 +153,8 @@ describe('api', () => {
 
 		const result = await api.listNetworkIntegrations();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(rows);
 	});
 
@@ -156,6 +167,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings/hdhomerun', {
 			method: 'PATCH',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ tuner_host: 'hdhr.local' }),
 		});
@@ -171,6 +183,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings/hdhomerun/test-tuner-connection', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ tuner_host: 'hdhr.local' }),
 		});
@@ -186,6 +199,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings/hdhomerun/test-dvr-connection', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ dvr_host: 'dvr.local' }),
 		});
@@ -198,7 +212,8 @@ describe('api', () => {
 
 		const result = await api.listUsers();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(profiles);
 	});
 
@@ -211,6 +226,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Alice' }),
 		});
@@ -226,6 +242,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Alice', avatar: '🐱', pin: '1234' }),
 		});
@@ -240,6 +257,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/u1/login', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({}),
 		});
@@ -255,6 +273,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/u1/login', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ pin: '1234' }),
 		});
@@ -268,6 +287,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/logout', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 	});
 
@@ -277,7 +297,8 @@ describe('api', () => {
 
 		const result = await api.currentUser();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(me);
 	});
 
@@ -290,6 +311,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me', {
 			method: 'PATCH',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Alicia' }),
 		});
@@ -304,6 +326,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me', {
 			method: 'DELETE',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 	});
 
@@ -313,7 +336,8 @@ describe('api', () => {
 
 		const result = await api.getPreferences();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me/preferences', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me/preferences', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(prefs);
 	});
 
@@ -326,6 +350,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/users/me/preferences', {
 			method: 'PATCH',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ theme: 'sepia' }),
 		});
@@ -338,7 +363,8 @@ describe('api', () => {
 
 		const result = await api.setupStatus();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/setup/status', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/setup/status', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(status);
 	});
 
@@ -350,7 +376,8 @@ describe('api', () => {
 
 		const result = await api.listHouseholdUsers();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(members);
 	});
 
@@ -363,6 +390,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users/u1/role', {
 			method: 'PATCH',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ role: 'admin' }),
 		});
@@ -378,6 +406,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Bob', avatar: '🦊', pin: '1234', role: 'member' }),
 		});
@@ -393,6 +422,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users/u2', {
 			method: 'PATCH',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ name: 'Bobby', pin: '', role: 'admin' }),
 		});
@@ -407,6 +437,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/admin/users/u1', {
 			method: 'DELETE',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 	});
 
@@ -428,7 +459,8 @@ describe('api', () => {
 
 		const result = await api.getChannelSettings();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels/settings', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels/settings', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(channels);
 	});
 
@@ -442,6 +474,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/channels/ch1', {
 			method: 'PATCH',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(payload),
 		});
@@ -454,7 +487,8 @@ describe('api', () => {
 
 		const result = await api.getXmltvFeedChannels();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv-feed-channels', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv-feed-channels', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(feedChannels);
 	});
 
@@ -468,6 +502,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings/schedules-direct/test-connection', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify(payload),
 		});
@@ -482,6 +517,7 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/network-settings/schedules-direct/lineups', {
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 		expect(result).toEqual(lineups);
 	});
@@ -494,7 +530,8 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith(
 			'http://api.test/api/network-settings/schedules-direct/headends?postal_code=90210&country=USA',
-			{ credentials: 'include' }
+			{ credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal }
 		);
 		expect(result).toEqual(headends);
 	});
@@ -506,7 +543,8 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith(
 			'http://api.test/api/network-settings/schedules-direct/lineups/USA-OTA-90210',
-			{ method: 'POST', credentials: 'include' }
+			{ method: 'POST', credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal }
 		);
 		expect(result).toEqual({ code: 0 });
 	});
@@ -518,7 +556,8 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith(
 			'http://api.test/api/network-settings/schedules-direct/lineups/USA-OTA-90210',
-			{ method: 'DELETE', credentials: 'include' }
+			{ method: 'DELETE', credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal }
 		);
 		expect(result).toEqual({ code: 0 });
 	});
@@ -531,6 +570,7 @@ describe('api', () => {
 
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/schedules-direct-stations', {
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 		expect(result).toEqual(stations);
 	});
@@ -553,7 +593,8 @@ describe('api', () => {
 
 		const result = await api.getXmltvStats();
 
-		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv/stats', { credentials: 'include' });
+		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv/stats', { credentials: 'include',
+			signal: defaultSignal, signal: defaultSignal });
 		expect(result).toEqual(stats);
 	});
 
@@ -582,6 +623,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/xmltv/reload', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 		expect(result).toEqual(response);
 	});
@@ -594,6 +636,7 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/guide/refresh', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 		expect(result).toEqual({ status: 'ok', message: 'Started' });
 	});
@@ -607,8 +650,27 @@ describe('api', () => {
 		expect(fetch).toHaveBeenCalledWith('http://api.test/api/tuner/0/terminate', {
 			method: 'POST',
 			credentials: 'include',
+			signal: defaultSignal,
 		});
 		expect(result).toEqual(response);
+	});
+
+	it('exports DEFAULT_FETCH_TIMEOUT_MS configured to 30000ms', () => {
+		expect(DEFAULT_FETCH_TIMEOUT_MS).toBe(30_000);
+	});
+
+	it('rejects when request signal aborts due to timeout', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockImplementation((_url, init?: RequestInit) => {
+				if (init?.signal) {
+					return Promise.reject(new DOMException('The operation was aborted due to timeout', 'TimeoutError'));
+				}
+				return Promise.resolve({ ok: true, json: async () => ({}) });
+			}),
+		);
+
+		await expect(api.settings()).rejects.toThrow('The operation was aborted due to timeout');
 	});
 });
 

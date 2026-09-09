@@ -291,7 +291,24 @@
 		"cast": "Transmitir",
 		"cast_stop": "Detener transmisión",
 		"cast_connecting": "Conectando…",
-		"cast_connected": "Transmitiendo"
+		"cast_connected": "Transmitiendo",
+		"keep_playing_label": "Seguir reproduciendo al salir de la página",
+		"multiview": "Multi-View",
+		"add_to_multiview": "Agregar a Multi-View"
+	},
+	"multiview": {
+		"title": "Reproducción Multi-View",
+		"feeds_active": "{count} de {max} transmisiones activas",
+		"layout_2up": "División de 2",
+		"layout_3up": "Principal de 3",
+		"layout_quad": "Cuadrícula de 4",
+		"add_feed": "Agregar transmisión",
+		"add_to_multiview": "Agregar a Multi-View",
+		"make_hero": "Hacer principal",
+		"listen": "Escuchar audio",
+		"close_slot": "Cerrar transmisión",
+		"close_all": "Cerrar Multi-View",
+		"tuners_exhausted": "Sintonizadores físicos agotados. La reproducción puede fallar."
 	},
 	"syncplay": {
 		"title": "Fiesta de visualización SyncPlay",
@@ -307,6 +324,7 @@
 		"synced": "Sincronizado",
 		"syncing": "Sincronizando…",
 		"connected": "Conectado",
+		"session_ended": "Sesión finalizada — vuelve a unirte",
 		"make_host": "Hacer anfitrión",
 		"leave": "Salir de la sala",
 		"join_with_code": "Unirse con código",

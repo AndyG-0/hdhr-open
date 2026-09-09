@@ -12,7 +12,21 @@
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
 	import { page } from '$app/state';
-	import { playback, startPlayback, stopPlayback, updateContext, type PlaybackMedia } from '$lib/stores/playback';
+	import {
+		playback,
+		startPlayback,
+		stopPlayback,
+		updateContext,
+		useOwnedPlaybackContext,
+		type PlaybackMedia,
+	} from '$lib/stores/playback';
+	import {
+		buildEpisodeRulePayload,
+		buildSeriesRulePayload,
+		buildUpdateRulePayload,
+		findNewFallbackRule,
+	} from '$lib/recording-rule-actions';
+	import { multiview, addFeed } from '$lib/stores/multiview';
 
 	let channels = $state<HDHomeRunChannel[]>([]);
 	let guideAvailable = $state(false);
@@ -151,27 +165,18 @@
 			onCancelRule: cancelRecordingRule,
 			onToggleFavorite: toggleFavorite,
 			onChannelChange: watchChannel,
+			onToggleMultiView: () => {
+				const current = get(playback);
+				if (current.media?.channel) {
+					const activeChannel = current.media.channel;
+					stopPlayback();
+					addFeed(activeChannel);
+				}
+			},
 		};
 	}
 
-	// Keeps the persistent player's context (callbacks/data) fresh whenever
-	// this page's own state changes, but only while this page is the one that
-	// started playback - otherwise a background page's stale closures would
-	// clobber the context another page just published.
-	$effect(() => {
-		void channels;
-		void favoriteChannels;
-		void displayedRecordingRules;
-		void pendingRuleIds;
-		void officialDvrActive;
-		void recordingLoading;
-		// Reads the store via get(), not $playback, so publishing a context
-		// update below doesn't re-trigger this same effect (an infinite loop).
-		const current = get(playback);
-		if (current.media && current.originPath === page.url.pathname) {
-			updateContext(buildPlaybackContext());
-		}
-	});
+	useOwnedPlaybackContext(() => page.url.pathname, buildPlaybackContext);
 
 	async function watchChannel(channel: HDHomeRunChannel) {
 		if (!channel.playback_url) {
@@ -228,12 +233,27 @@
 			channel,
 			airing: currentAiring,
 		};
-		startPlayback(media, page.url.pathname, buildPlaybackContext());
+			startPlayback(media, page.url.pathname, buildPlaybackContext());
 	}
 
 	function popoutChannel(channel: HDHomeRunChannel) {
 		stopPlayback();
 		openPopoutPlayer({ channel: channel.channel_number, title: `${channel.channel_number} ${channel.name}` });
+	}
+
+	async function addToMultiView(channel: HDHomeRunChannel) {
+		const currentPlayback = get(playback);
+		if (currentPlayback.media?.channel) {
+			const activeChannel = currentPlayback.media.channel;
+			stopPlayback();
+			await addFeed(activeChannel);
+			await addFeed(channel);
+			return;
+		}
+		if (currentPlayback.media) {
+			stopPlayback();
+		}
+		await addFeed(channel);
 	}
 
 	async function applyRuleMutation(mutate: () => Promise<HDHomeRunRecordingRule[]>) {
@@ -243,7 +263,7 @@
 		recordingRules = knownRules;
 		const newlyCreated = knownRules.filter((r) => !previousIds.has(r.RecordingRuleID));
 
-		const fallbackRule = newlyCreated.find((r) => r.fallback_reason || r.FallbackReason);
+		const fallbackRule = findNewFallbackRule(previousIds, knownRules);
 		if (fallbackRule) {
 			fallbackNotice = get(_)('hdhomerun.detail.fallback_notification', {
 				values: { title: fallbackRule.Title || '' },
@@ -267,23 +287,12 @@
 		startTime?: number | null,
 		options?: RecordingRuleOptions,
 	) {
+		error = null;
 		const targetId = seriesId || channelNumber || 'now';
-		const effectiveChannel = options?.channel !== undefined ? options.channel : channelNumber;
 		recordingLoading = targetId;
 		try {
-			await applyRuleMutation(() =>
-				api.addHDHomeRunRecordingRule({
-					series_id: seriesId || 'auto',
-					channel: effectiveChannel,
-					date_time: startTime ?? undefined,
-					title: options?.title,
-					start_padding: options?.startPadding,
-					end_padding: options?.endPadding,
-					recent_only: options?.recentOnly,
-					max_episodes_to_keep: options?.maxEpisodesToKeep,
-					server: options?.server,
-				}),
-			);
+			const payload = buildEpisodeRulePayload(seriesId, channelNumber, startTime, options);
+			await applyRuleMutation(() => api.addHDHomeRunRecordingRule(payload));
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -292,24 +301,12 @@
 	}
 
 	async function recordShowSeries(seriesId: string, channelNumber?: string, options?: RecordingRuleOptions) {
+		error = null;
 		const targetId = seriesId || channelNumber || options?.title || 'series';
-		const effectiveChannel = options?.channel !== undefined ? options.channel : channelNumber;
 		recordingLoading = targetId;
 		try {
-			await applyRuleMutation(() =>
-				api.addHDHomeRunRecordingRule({
-					series_id: seriesId || 'auto',
-					channel: effectiveChannel,
-					title: options?.title,
-					title_match_mode: options?.titleMatchMode,
-					keyword_query: options?.keywordQuery,
-					start_padding: options?.startPadding,
-					end_padding: options?.endPadding,
-					recent_only: options?.recentOnly,
-					max_episodes_to_keep: options?.maxEpisodesToKeep,
-					server: options?.server,
-				}),
-			);
+			const payload = buildSeriesRulePayload(seriesId, channelNumber, options);
+			await applyRuleMutation(() => api.addHDHomeRunRecordingRule(payload));
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -322,21 +319,11 @@
 		mode: 'episode' | 'series',
 		options: RecordingRuleOptions,
 	) {
+		error = null;
 		recordingLoading = ruleId;
 		try {
-			await applyRuleMutation(() =>
-				api.updateHDHomeRunRecordingRule(ruleId, {
-					channel: options.channel,
-					title: options.title,
-					title_match_mode: options.titleMatchMode,
-					keyword_query: options.keywordQuery,
-					start_padding: options.startPadding,
-					end_padding: options.endPadding,
-					recent_only: options.recentOnly,
-					max_episodes_to_keep: options.maxEpisodesToKeep,
-					server: options.server,
-				}),
-			);
+			const payload = buildUpdateRulePayload(options);
+			await applyRuleMutation(() => api.updateHDHomeRunRecordingRule(ruleId, payload));
 		} catch (err) {
 			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
 		} finally {
@@ -345,6 +332,7 @@
 	}
 
 	async function cancelRecordingRule(ruleId: string) {
+		error = null;
 		recordingLoading = ruleId;
 		try {
 			pendingRules = pendingRules.filter((p) => p.rule.RecordingRuleID !== ruleId);
@@ -399,8 +387,9 @@
 			{favoriteChannels}
 			{savingFavorite}
 			{recordingLoading}
-			{officialDvrActive}
+			officialDvrActive={officialDvrActive}
 			onWatch={watchChannel}
+			onAddToMultiView={addToMultiView}
 			onPopout={popoutChannel}
 			onRecordEpisode={recordShowEpisode}
 			onRecordSeries={recordShowSeries}

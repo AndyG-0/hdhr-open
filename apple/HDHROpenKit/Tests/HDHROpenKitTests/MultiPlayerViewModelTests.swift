@@ -26,6 +26,141 @@ final class MultiPlayerViewModelTests: XCTestCase {
         MockURLProtocol.handlers["/api/hls/hls_\(sessId)/stop"] = (Data("{}".utf8), 200)
     }
 
+    private func setupMockTunerInfo(count: Int) {
+        MockURLProtocol.handlers["/api/tuner/info"] = (
+            Data("{\"friendly_name\":\"HDHomeRun CONNECT\",\"model_number\":\"HDHR4-2US\",\"tuner_count\":\(count)}".utf8),
+            200
+        )
+    }
+
+    // MARK: - Tuner Capacity & Limits
+
+    func test2TunerLimitEnforcesMax2FeedsAndSideBySideLayoutOnly() async throws {
+        setupMockTunerInfo(count: 2)
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        setupMockFeed(channelNumber: "5.1", sessId: "sess2")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
+
+        XCTAssertEqual(vm.totalTuners, 2)
+        XCTAssertEqual(vm.maxFeeds, 2)
+        XCTAssertEqual(MultiViewLayout.availableLayouts(for: vm.maxFeeds), [.sideBySide])
+
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
+
+        XCTAssertEqual(vm.slots.count, 2)
+        XCTAssertFalse(vm.canAddFeed)
+
+        do {
+            try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "7.1", name: "ABC"))
+            XCTFail("Expected adding 3rd feed on 2-tuner setup to throw maxSlotsReached")
+        } catch let error as MultiViewError {
+            XCTAssertEqual(error, .maxSlotsReached)
+        }
+    }
+
+    func test4TunerAllowsUpTo4FeedsAndFullLayouts() async throws {
+        setupMockTunerInfo(count: 4)
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+        setupMockFeed(channelNumber: "5.1", sessId: "sess2")
+        setupMockFeed(channelNumber: "7.1", sessId: "sess3")
+        setupMockFeed(channelNumber: "9.1", sessId: "sess4")
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
+
+        XCTAssertEqual(vm.totalTuners, 4)
+        XCTAssertEqual(vm.maxFeeds, 4)
+        XCTAssertEqual(MultiViewLayout.availableLayouts(for: vm.maxFeeds), [.sideBySide, .threeBox, .quad])
+
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        XCTAssertEqual(vm.layout, .sideBySide)
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
+        XCTAssertEqual(vm.layout, .sideBySide)
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "7.1", name: "ABC"))
+        XCTAssertEqual(vm.layout, .threeBox)
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "9.1", name: "FOX"))
+        XCTAssertEqual(vm.layout, .quad)
+
+        XCTAssertEqual(vm.slots.count, 4)
+        XCTAssertFalse(vm.canAddFeed)
+    }
+
+    func testTunerSharingAllowsChannelActiveOnRecordingEvenWhenAllTunersInUse() async throws {
+        setupMockTunerInfo(count: 2)
+        setupMockFeed(channelNumber: "4.1", sessId: "sess1")
+
+        // Tuner 0 is recording Ch 4.1 "Evening News", Tuner 1 is in use for live TV Ch 5.1
+        let tunerJson = """
+        [
+            {
+                "index": 0,
+                "in_use": true,
+                "channel_number": "4.1",
+                "channel_name": "NBC",
+                "client": {
+                    "type": "scheduled_recording",
+                    "name": "Evening News",
+                    "is_recording": true,
+                    "recording_id": "rec_news_123",
+                    "viewers": []
+                }
+            },
+            {
+                "index": 1,
+                "in_use": true,
+                "channel_number": "5.1",
+                "channel_name": "CBS",
+                "client": {
+                    "type": "live",
+                    "name": "Living Room Apple TV",
+                    "is_recording": false,
+                    "viewers": []
+                }
+            }
+        ]
+        """
+        MockURLProtocol.handlers["/api/tuner/status"] = (Data(tunerJson.utf8), 200)
+
+        let client = makeAPIClient()
+        let watchManager = WatchSessionManager(apiClient: client)
+        let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
+
+        // 1. Tuning Ch 4.1 (active recording) must succeed via tuner sharing!
+        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        XCTAssertEqual(vm.slots.count, 1)
+        XCTAssertEqual(vm.slots[0].channel.channelNumber, "4.1")
+
+        // 2. Tuning a distinct channel Ch 7.1 must fail with tuner exhaustion explanation
+        do {
+            try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "7.1", name: "ABC"))
+            XCTFail("Expected adding distinct channel Ch 7.1 to fail with tunerUnavailable")
+        } catch let error as MultiViewError {
+            if case let .tunerUnavailable(msg) = error {
+                XCTAssertTrue(msg.contains("All 2 tuners are currently in use"))
+                XCTAssertTrue(msg.contains("1 recording: Evening News (Ch 4.1)"))
+                XCTAssertTrue(msg.contains("1 streaming: Ch 5.1 (Living Room Apple TV)"))
+                XCTAssertTrue(msg.contains("You can watch Ch 4.1 without consuming another tuner"))
+            } else {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testAvailableLayoutsHelper() {
+        XCTAssertEqual(MultiViewLayout.availableLayouts(for: 1), [.sideBySide])
+        XCTAssertEqual(MultiViewLayout.availableLayouts(for: 2), [.sideBySide])
+        XCTAssertEqual(MultiViewLayout.availableLayouts(for: 3), [.sideBySide, .threeBox])
+        XCTAssertEqual(MultiViewLayout.availableLayouts(for: 4), [.sideBySide, .threeBox, .quad])
+    }
+
     // MARK: - Slot Creation & Audio Routing
 
     func testAddFirstFeedSetsActiveSlotAndUnmuted() async throws {
@@ -71,6 +206,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
     }
 
     func testAddFeedBeyondMaxLimitThrowsMaxSlotsReached() async throws {
+        setupMockTunerInfo(count: 4)
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
         setupMockFeed(channelNumber: "7.1", sessId: "sess3")
@@ -79,6 +215,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
         let client = makeAPIClient()
         let watchManager = WatchSessionManager(apiClient: client)
         let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
 
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
@@ -101,6 +238,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
     // MARK: - Auto Layout Transitions
 
     func testAutoLayoutTransitions() async throws {
+        setupMockTunerInfo(count: 4)
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
         setupMockFeed(channelNumber: "7.1", sessId: "sess3")
@@ -109,6 +247,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
         let client = makeAPIClient()
         let watchManager = WatchSessionManager(apiClient: client)
         let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
 
         // 1-2 feeds: sideBySide
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
@@ -136,6 +275,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
     // MARK: - Audio Routing & Focus Engine
 
     func testSetAudioSlotSwitchesFocusAndMutesOthers() async throws {
+        setupMockTunerInfo(count: 4)
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
         setupMockFeed(channelNumber: "7.1", sessId: "sess3")
@@ -143,6 +283,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
         let client = makeAPIClient()
         let watchManager = WatchSessionManager(apiClient: client)
         let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
 
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
@@ -168,6 +309,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
     // MARK: - Tile Swapping
 
     func testSwapSlotsReordersAndPreservesAudioFocus() async throws {
+        setupMockTunerInfo(count: 4)
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
         setupMockFeed(channelNumber: "7.1", sessId: "sess3")
@@ -175,6 +317,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
         let client = makeAPIClient()
         let watchManager = WatchSessionManager(apiClient: client)
         let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
 
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
@@ -225,6 +368,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
     }
 
     func testRemoveSlotBeforeActiveAudioSlotShiftsIndex() async throws {
+        setupMockTunerInfo(count: 4)
         setupMockFeed(channelNumber: "4.1", sessId: "sess1")
         setupMockFeed(channelNumber: "5.1", sessId: "sess2")
         setupMockFeed(channelNumber: "7.1", sessId: "sess3")
@@ -232,6 +376,7 @@ final class MultiPlayerViewModelTests: XCTestCase {
         let client = makeAPIClient()
         let watchManager = WatchSessionManager(apiClient: client)
         let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
+        await vm.refreshTunerCapacity()
 
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
         try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
@@ -269,11 +414,26 @@ final class MultiPlayerViewModelTests: XCTestCase {
         let watchManager = WatchSessionManager(apiClient: client)
         let vm = MultiPlayerViewModel(apiClient: client, watchSessionManager: watchManager)
 
-        try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+        do {
+            try await vm.addFeed(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
+            XCTFail("Expected addFeed to throw tunerUnavailable error")
+        } catch let error as MultiViewError {
+            if case let .tunerUnavailable(msg) = error {
+                XCTAssertTrue(msg.contains("All 2 tuners are currently in use"))
+                XCTAssertTrue(msg.contains("Close an active feed"))
+            } else {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
 
         XCTAssertEqual(vm.slots.count, 1)
         XCTAssertNotNil(vm.slots[0].warningMessage)
-        XCTAssertTrue(vm.slots[0].warningMessage?.contains("Physical tuners exhausted") == true)
+        XCTAssertTrue(vm.slots[0].warningMessage?.contains("All 2 tuners are currently in use") == true)
+        if case let .failed(msg) = vm.slots[0].playerEngine.state {
+            XCTAssertTrue(msg.contains("All 2 tuners are currently in use"))
+        } else {
+            XCTFail("Expected playerEngine.state to be .failed")
+        }
     }
 
     func testFallbackToDirectHLSWhenWatchSessionFails() async throws {

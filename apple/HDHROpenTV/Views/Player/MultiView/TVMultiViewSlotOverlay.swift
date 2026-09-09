@@ -81,18 +81,20 @@ public struct TVMultiViewSlotOverlay: View {
 
                 // Center spinner or error
                 if case let .failed(msg) = slot.playerEngine.state {
-                    HStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 14) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.title2)
                             .foregroundColor(.yellow)
                         Text(msg)
                             .font(.callout)
                             .foregroundColor(.white)
-                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(6)
                     }
-                    .padding(12)
-                    .background(Color.black.opacity(0.85))
-                    .cornerRadius(10)
+                    .padding(16)
+                    .background(Color.black.opacity(0.88))
+                    .cornerRadius(12)
+                    .padding(.horizontal, 24)
                     .frame(maxWidth: .infinity)
                 } else if slot.playerEngine.state == .loading || slot.playerEngine.state == .buffering {
                     ProgressView()

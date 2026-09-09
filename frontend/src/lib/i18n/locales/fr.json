@@ -291,7 +291,24 @@
 		"cast": "Diffuser",
 		"cast_stop": "Arrêter la diffusion",
 		"cast_connecting": "Connexion…",
-		"cast_connected": "Diffusion en cours"
+		"cast_connected": "Diffusion en cours",
+		"keep_playing_label": "Continuer la lecture en quittant la page",
+		"multiview": "Multi-View",
+		"add_to_multiview": "Ajouter à Multi-View"
+	},
+	"multiview": {
+		"title": "Lecture Multi-View",
+		"feeds_active": "{count} sur {max} flux actifs",
+		"layout_2up": "Division 2 flux",
+		"layout_3up": "Principal 3 flux",
+		"layout_quad": "Grille 4 flux",
+		"add_feed": "Ajouter un flux",
+		"add_to_multiview": "Ajouter à Multi-View",
+		"make_hero": "Définir comme principal",
+		"listen": "Écouter l'audio",
+		"close_slot": "Fermer le flux",
+		"close_all": "Fermer Multi-View",
+		"tuners_exhausted": "Tuners physiques épuisés. La lecture peut échouer."
 	},
 	"syncplay": {
 		"title": "Soirée vidéo SyncPlay",
@@ -307,6 +324,7 @@
 		"synced": "Synchronisé",
 		"syncing": "Synchronisation…",
 		"connected": "Connecté",
+		"session_ended": "Session terminée — veuillez rejoindre à nouveau",
 		"make_host": "Désigner comme hôte",
 		"leave": "Quitter le salon",
 		"join_with_code": "Rejoindre avec un code",

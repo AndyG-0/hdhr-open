@@ -22,7 +22,14 @@
 			| 'syncplay'
 			| 'airplay'
 			| 'info'
-			| 'channels';
+			| 'channels'
+			| 'multiview'
+			| 'grid-2'
+			| 'grid-3'
+			| 'grid-4'
+			| 'star'
+			| 'plus'
+			| 'close';
 		size?: number | string;
 		class?: string;
 	}
@@ -107,6 +114,20 @@
 		<path
 			d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12zM10 8v6l5-3z"
 		/>
+	{:else if name === 'multiview'}
+		<path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zm-9 9h7v7H4v-7zm9 0h7v7h-7v-7z" />
+	{:else if name === 'grid-2'}
+		<path d="M4 5h7v14H4V5zm9 0h7v14h-7V5z" />
+	{:else if name === 'grid-3'}
+		<path d="M4 5h9v14H4V5zm11 0h5v6h-5V5zm0 8h5v6h-5v-6z" />
+	{:else if name === 'grid-4'}
+		<path d="M4 5h7v6H4V5zm9 0h7v6h-7V5zm-9 8h7v6H4v-6zm9 0h7v6h-7v-6z" />
+	{:else if name === 'star'}
+		<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+	{:else if name === 'plus'}
+		<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
+	{:else if name === 'close'}
+		<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
 	{/if}
 </svg>
 

@@ -24,6 +24,7 @@
 		recordingLoading: string | null;
 		officialDvrActive: boolean;
 		onWatch: (channel: HDHomeRunChannel) => void;
+		onAddToMultiView?: (channel: HDHomeRunChannel) => void;
 		onPopout?: (channel: HDHomeRunChannel) => void;
 		onRecordEpisode: (
 			seriesId: string | null | undefined,
@@ -47,6 +48,7 @@
 		recordingLoading,
 		officialDvrActive,
 		onWatch,
+		onAddToMultiView,
 		onPopout,
 		onRecordEpisode,
 		onRecordSeries,
@@ -249,7 +251,20 @@
 	}
 
 	let searchQuery = $state('');
+	let debouncedSearchQuery = $state('');
 	let highlightedCellKey = $state<string | null>(null);
+
+	$effect(() => {
+		const q = searchQuery;
+		if (!q.trim()) {
+			debouncedSearchQuery = '';
+			return;
+		}
+		const timer = setTimeout(() => {
+			debouncedSearchQuery = q;
+		}, 150);
+		return () => clearTimeout(timer);
+	});
 
 	interface SearchResultItem {
 		channel: HDHomeRunChannel;
@@ -270,7 +285,7 @@
 	}
 
 	const searchResults = $derived.by(() => {
-		const q = searchQuery.trim().toLowerCase();
+		const q = debouncedSearchQuery.trim().toLowerCase();
 		if (!q) return [];
 		const results: SearchResultItem[] = [];
 		const seenKeys = new Set<string>();
@@ -306,7 +321,7 @@
 	});
 
 	const matchingChannelNumbers = $derived.by(() => {
-		const q = searchQuery.trim();
+		const q = debouncedSearchQuery.trim();
 		if (!q) return null;
 		return new Set(searchResults.map((r) => r.channel.channel_number));
 	});
@@ -460,7 +475,7 @@
 	</div>
 </div>
 
-{#if searchQuery.trim()}
+{#if debouncedSearchQuery.trim()}
 	<div class="search-results-panel">
 		<div class="search-results-header">
 			<span class="search-results-title">
@@ -529,7 +544,7 @@
 			</div>
 		{:else}
 			<p class="search-empty">
-				{$_('hdhomerun.detail.search_no_results', { values: { query: searchQuery } })}
+				{$_('hdhomerun.detail.search_no_results', { values: { query: debouncedSearchQuery } })}
 			</p>
 		{/if}
 	</div>
@@ -598,15 +613,15 @@
 				<div class="now-line"></div>
 				{#each cells as cell (cell.airing.start ?? cell.airing.title)}
 					{@const existingRule = findExistingRule(cell.airing, channel)}
-					{@const isMatch = searchQuery.trim()
-						? isAiringMatch(cell.airing, channel, searchQuery.trim().toLowerCase())
+					{@const isMatch = debouncedSearchQuery.trim()
+						? isAiringMatch(cell.airing, channel, debouncedSearchQuery.trim().toLowerCase())
 						: false}
 					{@const cellKey = `${channel.channel_number}:${cell.airing.start ?? cell.airing.title}`}
 					<div
 						class="airing-cell"
 						class:live={isLive(cell.airing)}
 						class:search-match={isMatch}
-						class:search-dimmed={searchQuery.trim() && !isMatch}
+						class:search-dimmed={debouncedSearchQuery.trim() && !isMatch}
 						class:cell-flash={highlightedCellKey === cellKey}
 						style={`left: ${cell.left}px; width: ${cell.width}px;`}
 						role="button"
@@ -653,6 +668,7 @@
 		loading={isLoadingFor(menuState.airing, menuState.channel, findExistingRule(menuState.airing, menuState.channel))}
 		pending={pendingRuleIds.has(findExistingRule(menuState.airing, menuState.channel)?.RecordingRuleID ?? '')}
 		onWatch={() => onWatch(menuState!.channel)}
+		onAddToMultiView={onAddToMultiView ? () => onAddToMultiView?.(menuState!.channel) : undefined}
 		onPopout={onPopout ? () => onPopout?.(menuState!.channel) : undefined}
 		onRecordEpisode={() => {
 			if (!menuState) return;

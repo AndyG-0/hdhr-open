@@ -16,7 +16,9 @@
 	import { loadOnceWhen } from '$lib/load-once.svelte';
 	import AIAssistantDrawer from '$lib/components/ai/AIAssistantDrawer.svelte';
 	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
+	import MultiViewPlayer from '$lib/components/player/multiview/MultiViewPlayer.svelte';
 	import { playback, keepPlayingOnNavigate, stopPlayback } from '$lib/stores/playback';
+	import { multiview, closeAll } from '$lib/stores/multiview';
 
 	let { children } = $props();
 
@@ -157,10 +159,19 @@
 				onCancelRule={$playback.context?.onCancelRule}
 				onToggleFavorite={$playback.context?.onToggleFavorite}
 				onChannelChange={$playback.context?.onChannelChange}
+				onToggleMultiView={$playback.context?.onToggleMultiView}
 				allowPopout={displayMode === 'full'}
 				displayMode={displayMode}
 				onExpand={() => goto($playback.originPath ?? '/')}
 				onClose={stopPlayback}
+			/>
+		{/if}
+
+		{#if $multiview.active && page.url.pathname !== '/player'}
+			<MultiViewPlayer
+				channels={$playback.context?.channels ?? []}
+				favoriteChannels={$playback.context?.favoriteChannels ?? new Set()}
+				onClose={closeAll}
 			/>
 		{/if}
 

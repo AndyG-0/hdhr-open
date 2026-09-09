@@ -13,6 +13,8 @@
 		type RecordingRuleOptions,
 	} from '$lib/api';
 	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
+	import MultiViewPlayer from '$lib/components/player/multiview/MultiViewPlayer.svelte';
+	import { multiview, addFeed, closeAll } from '$lib/stores/multiview';
 
 	const WATCH_HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -55,12 +57,22 @@
 
 	function handleClose() {
 		stopWatchSession();
+		closeAll();
 		if (typeof window !== 'undefined') {
 			if (window.opener) {
 				window.close();
 				return;
 			}
 			goto('/');
+		}
+	}
+
+	function handleToggleMultiView() {
+		if (playingMedia?.channel) {
+			const chan = playingMedia.channel;
+			stopWatchSession();
+			playingMedia = null;
+			addFeed(chan);
 		}
 	}
 
@@ -109,12 +121,40 @@
 				recordingRules = [];
 			}
 
-			const channelParam = page.url.searchParams.get('channel');
+			const isMultiView = page.url.searchParams.get('multiview') === '1' || page.url.searchParams.get('multiview') === 'true';
+			const channelParam = page.url.searchParams.get('channel') || page.url.searchParams.get('channels');
 			const recordingParam = page.url.searchParams.get('recording');
 			const playUrlParam = page.url.searchParams.get('play_url');
 			const titleParam = page.url.searchParams.get('title');
 
-			if (channelParam) {
+			if (isMultiView) {
+				let channelList: HDHomeRunChannel[] = [];
+				try {
+					const res = await api.getHDHomeRunChannels();
+					channels = res.channels;
+					channelList = res.channels;
+				} catch {
+					channelList = [];
+				}
+				if (channelParam) {
+					const chNums = channelParam.split(',').map((s) => s.trim()).filter(Boolean);
+					for (const num of chNums) {
+						const found = channelList.find((c) => c.channel_number === num) ?? {
+							channel_number: num,
+							name: num,
+							is_hd: true,
+							is_drm: false,
+							stream_url: '',
+							playback_url: `/auto/v${num}`,
+							now: null,
+							next: null,
+						};
+						await addFeed(found);
+					}
+				} else if (channelList.length > 0) {
+					await addFeed(channelList[0]);
+				}
+			} else if (channelParam) {
 				await loadChannel(channelParam);
 			} else if (recordingParam) {
 				await loadRecording(recordingParam, titleParam);
@@ -339,7 +379,7 @@
 </script>
 
 <svelte:head>
-	<title>{playingMedia?.title ?? 'HDHR Popout Player'}</title>
+	<title>{$multiview.active ? 'Multi-View Player' : (playingMedia?.title ?? 'HDHR Popout Player')}</title>
 </svelte:head>
 
 <div class="popout-player-container">
@@ -354,6 +394,12 @@
 				{$_('player.close', { default: 'Close' })}
 			</button>
 		</div>
+	{:else if $multiview.active}
+		<MultiViewPlayer
+			{channels}
+			{favoriteChannels}
+			onClose={handleClose}
+		/>
 	{:else if playingMedia}
 		<HDHomeRunPlayer
 			src={playingMedia.url}
@@ -377,6 +423,7 @@
 			onUpdateRule={updateRule}
 			onCancelRule={cancelRule}
 			onToggleFavorite={toggleFavorite}
+			onToggleMultiView={handleToggleMultiView}
 			onClose={handleClose}
 		/>
 	{/if}

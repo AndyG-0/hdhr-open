@@ -35,6 +35,7 @@
 		onRecordSeries?: (options?: RecordingRuleOptions) => Promise<void> | void;
 		onCancelRecording?: () => Promise<void> | void;
 		onConfirmOptions?: (mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
+		onToggleMultiView?: () => void;
 		onPopout?: () => void;
 		onClose: () => void;
 	}
@@ -64,6 +65,7 @@
 		onRecordSeries = () => {},
 		onCancelRecording = () => {},
 		onConfirmOptions = () => {},
+		onToggleMultiView,
 		onPopout,
 		onClose,
 	}: Props = $props();
@@ -136,6 +138,21 @@
 				buildContentUrl={buildCastContentUrl}
 				onCastingChange={(casting) => onCastingChange?.(casting)}
 			/>
+		{/if}
+
+		{#if onToggleMultiView}
+			<button
+				type="button"
+				class="header-btn multiview-btn"
+				onclick={(e) => {
+					e.stopPropagation();
+					onToggleMultiView();
+				}}
+				aria-label={$_('multiview.title', { default: 'Multi-View' })}
+				title={$_('multiview.title', { default: 'Multi-View' })}
+			>
+				<PlayerIcon name="multiview" size={22} />
+			</button>
 		{/if}
 
 		{#if onPopout}

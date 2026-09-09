@@ -103,6 +103,8 @@ async def build_ffmpeg_failure_detail(
     detail = f"Could not start {context}: {cause}"
     if reason:
         detail += f". ffmpeg said: {reason[-reason_chars:]}"
+        if "503" in reason or "All Tuners In Use" in reason or "Resource temporarily unavailable" in reason:
+            detail += " (All hardware tuners appear to be in use on the HDHomeRun device)."
 
     if probe_hook is None:
         return detail

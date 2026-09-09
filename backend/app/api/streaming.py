@@ -30,7 +30,8 @@ from fastapi.responses import StreamingResponse
 
 from app import hls_streaming, hwaccel, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
-from app.api.dvr import _LIVE_CAPTURE_READY_TIMEOUT_SECONDS, _format_builtin_recording, _wait_for_live_capture_data
+from app.api.dvr import _format_builtin_recording
+from app.api.dvr_streaming import _LIVE_CAPTURE_READY_TIMEOUT_SECONDS, _wait_for_live_capture_data
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_admin, get_current_user
 from app.dvr.builtin import watch
@@ -161,7 +162,10 @@ async def _proxy_raw_stream(raw_url: str, channel_number: str, request: Request)
     if resp.status_code >= 400:
         await resp.aclose()
         await client.aclose()
-        detail = f"Tuner rejected stream request (HTTP {resp.status_code})"
+        if resp.status_code == 503:
+            detail = "All hardware tuners on the HDHomeRun device are currently in use by other streams or recordings."
+        else:
+            detail = f"Tuner rejected stream request (HTTP {resp.status_code})"
         record_stream_failure(cache_key, 502, detail)
         raise HTTPException(status_code=502, detail=detail)
 
@@ -431,6 +435,7 @@ async def stream_channel_hls(
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
+            hls_keep_segments=active_capture is not None,
             hls_base_url=hls_streaming.cast_base_url(session_id, cast_token) if cast_token else None,
         )
     except transcoding.InvalidCustomFfmpegArgsError as exc:

@@ -1,4 +1,4 @@
-import { api, type SyncPlayContent, type SyncPlayParticipant, type SyncPlayPlaybackState, type SyncPlayRoom } from '$lib/api';
+import { api, type SyncPlayContent, type SyncPlayParticipant, type SyncPlayRoom } from '$lib/api';
 import { logger } from '$lib/logger';
 
 export type SyncPlayStatus = 'disconnected' | 'connecting' | 'connected' | 'in_sync' | 'syncing' | 'ended';
@@ -51,6 +51,38 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 	let progressTimer: ReturnType<typeof setInterval> | undefined;
 	let isApplyingRemoteAction = false;
 	let destroyed = false;
+	let currentRoomCode: string | null = null;
+	let currentUserName: string | undefined = undefined;
+	let reconnectAttempt = 0;
+	let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+	let isIntentionalDisconnect = false;
+	const MAX_RECONNECT_ATTEMPTS = 5;
+
+	function stopReconnect() {
+		if (reconnectTimer !== undefined) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = undefined;
+		}
+		reconnectAttempt = 0;
+	}
+
+	function scheduleReconnect() {
+		if (destroyed || isIntentionalDisconnect || !currentRoomCode) return;
+		if (reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+			logger.warn(`SyncPlay reconnect failed after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+			return;
+		}
+		const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 16000);
+		reconnectAttempt++;
+		logger.info(`SyncPlay scheduling reconnect attempt ${reconnectAttempt} in ${delay}ms`);
+		reconnectTimer = setTimeout(() => {
+			reconnectTimer = undefined;
+			if (destroyed || isIntentionalDisconnect || !currentRoomCode) return;
+			connectWebSocket(currentRoomCode, currentUserName).catch((err) => {
+				logger.warn('SyncPlay reconnect attempt failed', err);
+			});
+		}, delay);
+	}
 
 	function getAuthoritativePosition(): number {
 		if (!room) return 0;
@@ -103,6 +135,10 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 	}
 
 	function connectWebSocket(roomCode: string, userName?: string): Promise<void> {
+		currentRoomCode = roomCode;
+		currentUserName = userName;
+		isIntentionalDisconnect = false;
+
 		return new Promise((resolve, reject) => {
 			if (ws) {
 				ws.close();
@@ -124,6 +160,7 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 
 			ws.onopen = () => {
 				status = 'connected';
+				reconnectAttempt = 0;
 				startTimers();
 			};
 
@@ -149,11 +186,17 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 			};
 
 			ws.onclose = (event: CloseEvent) => {
-				// 4004: the room the server had for us is gone (server restart, or the
-				// room was reaped) — surface as a clear "session ended" state rather
-				// than a generic disconnect, so the UI can prompt the user to rejoin.
-				status = event.code === 4004 ? 'ended' : 'disconnected';
 				stopTimers();
+				if (event.code === 4004) {
+					status = 'ended';
+					stopReconnect();
+				} else if (isIntentionalDisconnect || destroyed) {
+					status = 'disconnected';
+					stopReconnect();
+				} else {
+					status = 'disconnected';
+					scheduleReconnect();
+				}
 				if (!resolved) {
 					resolved = true;
 					reject(new Error('WebSocket closed'));
@@ -309,6 +352,9 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 		},
 
 		leaveRoom: () => {
+			isIntentionalDisconnect = true;
+			stopReconnect();
+			currentRoomCode = null;
 			if (ws && ws.readyState === WebSocket.OPEN) {
 				sendJson({ type: 'leave' });
 				ws.close();
@@ -384,7 +430,7 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 			const authPos = getAuthoritativePosition();
 			const drift = localPos - authPos;
 
-			let appliedRate = 1.0;
+			let appliedRate: number;
 			let didSeek = false;
 
 			if (Math.abs(drift) > DRIFT_MAX_MICRO_SECONDS) {
@@ -414,6 +460,9 @@ export function createSyncPlayController(callbacks: SyncPlayControllerCallbacks)
 		destroy: () => {
 			if (destroyed) return;
 			destroyed = true;
+			isIntentionalDisconnect = true;
+			stopReconnect();
+			currentRoomCode = null;
 			stopTimers();
 			if (ws) {
 				ws.close();

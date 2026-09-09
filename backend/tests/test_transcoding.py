@@ -337,3 +337,25 @@ def test_build_ffmpeg_args_hls_non_vod_mode_keeps_live_style_flags():
     assert "-hls_playlist_type" not in args
     assert args[args.index("-hls_list_size") + 1] == str(transcoding.HLS_LIST_SIZE)
     assert args[args.index("-hls_flags") + 1] == transcoding.HLS_FLAGS
+
+
+def test_build_ffmpeg_args_hls_keep_segments_mode_omits_delete_segments():
+    # Active capture / watch session: segments must not be deleted so pausing
+    # (even for hours) and scrubbing back work without 404 segment loss.
+    args = transcoding.build_ffmpeg_args(
+        {},
+        "url",
+        output_format="hls",
+        hls_playlist_path=Path("/tmp/hls-session/stream.m3u8"),
+        hls_segment_pattern="/tmp/hls-session/segment%05d.ts",
+        hls_keep_segments=True,
+    )
+
+    assert "-hls_playlist_type" not in args
+    assert "-hls_list_size" in args
+    assert args[args.index("-hls_list_size") + 1] == "0"
+    assert "-hls_flags" in args
+    flags = args[args.index("-hls_flags") + 1]
+    assert "delete_segments" not in flags
+    assert flags == transcoding.HLS_FLAGS_ACTIVE_CAPTURE
+

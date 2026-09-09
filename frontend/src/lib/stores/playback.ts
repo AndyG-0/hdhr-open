@@ -56,6 +56,7 @@ export interface PlaybackContext {
 	onCancelRule?: (ruleId: string) => Promise<void> | void;
 	onToggleFavorite?: (channelNumber: string) => Promise<void> | void;
 	onChannelChange?: (channel: HDHomeRunChannel) => void;
+	onToggleMultiView?: () => void;
 }
 
 interface PlaybackState {
@@ -111,6 +112,25 @@ export function updateContext(partial: Partial<PlaybackContext>): void {
 		return { ...state, context: { ...state.context, ...partial } };
 	});
 }
+
+/**
+ * Synchronizes page-owned playback context to the global playback store if
+ * the current originPath matches the specified pathname.
+ */
+export function syncOwnedPlaybackContext(
+	pathname: string | (() => string),
+	buildContext: () => PlaybackContext,
+): boolean {
+	const current = get(playback);
+	const targetPath = typeof pathname === 'function' ? pathname() : pathname;
+	if (current.media && current.originPath === targetPath) {
+		updateContext(buildContext());
+		return true;
+	}
+	return false;
+}
+
+export { useOwnedPlaybackContext } from './use-owned-playback-context.svelte';
 
 export function stopPlayback(): void {
 	stopCurrent();
