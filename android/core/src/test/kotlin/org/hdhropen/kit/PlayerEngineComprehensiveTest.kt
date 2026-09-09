@@ -215,4 +215,147 @@ class PlayerEngineComprehensiveTest {
         listener.onSessionStartFailed(mockSession, 1)
         listener.onSessionResumeFailed(mockSession, 1)
     }
+
+    @Test
+    fun testLoadMediaWithInitialDuration() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/stream.m3u8",
+            isLive = false,
+            isSeekable = true,
+            initialDuration = 3600.0
+        )
+        assertEquals(3600.0, engine.duration.value, 0.001)
+        assertTrue(engine.isSeekable.value)
+        assertFalse(engine.isLive.value)
+    }
+
+    @Test
+    fun testLiveDurationTrackingAndSeek() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/live.m3u8",
+            isLive = true,
+            isSeekable = true,
+            initialDuration = 60.0
+        )
+        assertEquals(60.0, engine.duration.value, 0.001)
+
+        // As live capture elapses on the server, duration expands
+        engine.setDuration(120.0)
+        assertEquals(120.0, engine.duration.value, 0.001)
+
+        // Can seek to the live edge at 120s
+        engine.seek(120.0)
+        assertEquals(120.0, engine.currentTime.value, 0.001)
+
+        // Seeking backward within live buffer keeps duration at 120.0
+        engine.seek(30.0)
+        assertEquals(30.0, engine.currentTime.value, 0.001)
+        assertEquals(120.0, engine.duration.value, 0.001)
+
+        // Can scrub back forward to later times within the buffered window (e.g. 90s)
+        engine.seek(90.0)
+        assertEquals(90.0, engine.currentTime.value, 0.001)
+        assertEquals(120.0, engine.duration.value, 0.001)
+    }
+
+    @Test
+    fun testStateReadyDoesNotShrinkKnownDuration() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/vod.m3u8",
+            isLive = false,
+            isSeekable = true,
+            initialDuration = 3600.0
+        )
+        assertEquals(3600.0, engine.duration.value, 0.001)
+
+        val createListenerMethod = PlayerEngine::class.java.getDeclaredMethod("createPlayerListener").apply {
+            isAccessible = true
+        }
+        val listener = createListenerMethod.invoke(engine) as Player.Listener
+
+        // Invoking STATE_READY when activePlayer is null (dur = 0L) does not reset duration
+        listener.onPlaybackStateChanged(Player.STATE_READY)
+        assertEquals(3600.0, engine.duration.value, 0.001)
+    }
+
+    @Test
+    fun testLoadMediaWithInitialTimeOffsetSetsOffset() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/stream.m3u8",
+            isSeekable = true,
+            initialDuration = 3600.0,
+            initialTimeOffset = 900.0
+        )
+        assertEquals(3600.0, engine.duration.value, 0.001)
+        assertEquals(900.0, engine.timeOffset, 0.001)
+        assertEquals(900.0, engine.currentTime.value, 0.001)
+    }
+
+    @Test
+    fun testResetClearsTimeOffsetAndDuration() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/stream.m3u8",
+            isSeekable = true,
+            initialDuration = 3600.0,
+            initialTimeOffset = 900.0
+        )
+        engine.reset()
+        assertEquals(0.0, engine.duration.value, 0.001)
+        assertEquals(0.0, engine.timeOffset, 0.001)
+        assertEquals(0.0, engine.currentTime.value, 0.001)
+    }
+
+    @Test
+    fun testPrepareForServerSeekSetsCurrentTimeAndBuffers() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/stream.m3u8",
+            isSeekable = true,
+            initialDuration = 3600.0
+        )
+        engine.prepareForServerSeek(1200.0)
+        assertEquals(1200.0, engine.currentTime.value, 0.001)
+        assertEquals(PlaybackState.Buffering, engine.state.value)
+    }
+
+    @Test
+    fun testIsPositionInSeekableRangeReturnsFalseWhenNoRanges() {
+        val engine = PlayerEngine()
+        assertFalse(engine.isPositionInSeekableRange(100.0))
+    }
+
+    @Test
+    fun testIsPositionInSeekableRangeReturnsFalseForPositionBeforeTimeOffset() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/stream.m3u8",
+            isSeekable = true,
+            initialDuration = 3600.0,
+            initialTimeOffset = 600.0
+        )
+        // Seeking to 300s when session starts at 600s is before the session start
+        assertFalse(engine.isPositionInSeekableRange(300.0))
+    }
+
+    @Test
+    fun testLiveSeekDoesNotExpandDurationPastLiveEdge() {
+        val engine = PlayerEngine()
+        engine.loadMedia(
+            url = "http://example.com/live.m3u8",
+            isLive = true,
+            isSeekable = true,
+            initialDuration = 60.0
+        )
+        assertEquals(60.0, engine.duration.value, 0.001)
+
+        // Scrubbing past the live edge must clamp to 60.0 and NOT expand duration
+        engine.seek(150.0)
+        assertEquals(60.0, engine.currentTime.value, 0.001)
+        assertEquals(60.0, engine.duration.value, 0.001)
+    }
 }

@@ -3,7 +3,9 @@ package org.hdhropen.kit.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,6 +98,30 @@ class PlayerViewModel(
 
     private val _activeHLSSessionId = MutableStateFlow<String?>(null)
     val activeHLSSessionId: StateFlow<String?> = _activeHLSSessionId.asStateFlow()
+
+    private var hlsHeartbeatJob: Job? = null
+    private var serverSeekJob: Job? = null
+
+    private fun startHLSHeartbeat(sessionId: String) {
+        hlsHeartbeatJob?.cancel()
+        hlsHeartbeatJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(15_000)
+                if (!isActive) break
+                try {
+                    apiClient.heartbeatHLSSession(sessionId)
+                    Log.player.debug("Heartbeat sent for HLS session $sessionId")
+                } catch (e: Exception) {
+                    Log.player.warning("HLS heartbeat failed for $sessionId: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    private fun stopHLSHeartbeat() {
+        hlsHeartbeatJob?.cancel()
+        hlsHeartbeatJob = null
+    }
 
     private val _playbackMode = MutableStateFlow<PlaybackMode?>(null)
     val playbackMode: StateFlow<PlaybackMode?> = _playbackMode.asStateFlow()
@@ -270,6 +296,7 @@ class PlayerViewModel(
                     _activeRecording.value = watchRec
                     _isWatchSession.value = true
                     _activeHLSSessionId.value = hlsSession.sessionId
+                    startHLSHeartbeat(hlsSession.sessionId)
                     _playbackMode.value = PlaybackMode.ServerTranscodedHls
                     playerEngine.loadMedia(
                         url = playlistURL,
@@ -295,6 +322,7 @@ class PlayerViewModel(
                 _isWatchSession.value = false
                 _activeRecording.value = if (rec.recordingId != null) rec else null
                 _activeHLSSessionId.value = sessionId
+                startHLSHeartbeat(sessionId)
                 _playbackMode.value = PlaybackMode.ServerTranscodedHls
                 playerEngine.loadMedia(
                     url = playlistURL,
@@ -337,6 +365,11 @@ class PlayerViewModel(
             val baseURL = apiClient.baseURL
             val playUrl = recording.playUrl ?: return@launch
 
+            val initialDur = recording.durationSeconds?.takeIf { it > 0 }
+                ?: if (recording.start != null && recording.recordEnd != null && recording.recordEnd > recording.start) {
+                    recording.recordEnd - recording.start
+                } else null
+
             try {
                 val hlsSession = apiClient.createRecordingHLSSession(
                     url = playUrl,
@@ -346,11 +379,13 @@ class PlayerViewModel(
                 )
                 val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
                 _activeHLSSessionId.value = hlsSession.sessionId
+                startHLSHeartbeat(hlsSession.sessionId)
                 _playbackMode.value = PlaybackMode.ServerTranscodedHls
                 playerEngine.loadMedia(
                     url = playlistURL,
                     isLive = recording.isInProgress,
                     isSeekable = true,
+                    initialDuration = initialDur,
                     headers = hlsAuthHeaders(),
                     title = recording.title,
                     artworkUrl = recording.imageUrl
@@ -496,6 +531,7 @@ class PlayerViewModel(
 
                 val playlistURL = StreamURLBuilder.resolve(baseURL, playlistUrl)
                 _activeHLSSessionId.value = sessionId
+                startHLSHeartbeat(sessionId)
                 // loadMedia() calls reset() internally, which wipes the audio
                 // track list/video specs - restore them with the selected track atomically.
                 playerEngine.loadMedia(
@@ -628,10 +664,89 @@ class PlayerViewModel(
     /** Seek/skip wrappers that delegate to playerEngine, broadcast via SyncPlay
      * if connected, and immediately re-run live-cue alignment against the new position. */
     fun seek(seconds: Double) {
-        playerEngine.seek(seconds)
+        val dur = if (playerEngine.duration.value > 0) playerEngine.duration.value else seconds
+        val clamped = seconds.coerceIn(0.0, dur)
+        val recording = _activeRecording.value
+        val playUrl = recording?.playUrl
+        if (recording != null && !playUrl.isNullOrEmpty() && !playerEngine.isPositionInSeekableRange(clamped)) {
+            seekRecordingViaServer(recording, playUrl, clamped)
+        } else {
+            playerEngine.seek(clamped)
+        }
         resyncCaptionsAfterSeek()
         if (syncPlayClient.isConnected.value) {
-            syncPlayClient.sendSeek(seconds)
+            syncPlayClient.sendSeek(clamped)
+        }
+    }
+
+    private fun seekRecordingViaServer(recording: HDHomeRunRecording, playUrl: String, targetSeconds: Double) {
+        serverSeekJob?.cancel()
+
+        val previousSessionId = _activeHLSSessionId.value
+        val previousAudioTracks = playerEngine.availableAudioTracks.value
+        val previousTrack = playerEngine.currentAudioTrack.value
+        val previousVideoSpecs = playerEngine.videoSpecs.value
+        val previousTranscodeInfo = playerEngine.transcodeInfo.value
+        val totalDuration = if (playerEngine.duration.value > 0) playerEngine.duration.value else (recording.durationSeconds ?: 0.0)
+        val isLive = recording.isInProgress
+        val isSeekable = playerEngine.isSeekable.value
+
+        // Update position and pause playback without seeking the out-of-range old item
+        playerEngine.prepareForServerSeek(targetSeconds)
+
+        serverSeekJob = viewModelScope.launch {
+            val baseURL = apiClient.baseURL
+            try {
+                val hlsSession = apiClient.createRecordingHLSSession(
+                    url = playUrl,
+                    recordingId = recording.recordingId,
+                    start = targetSeconds,
+                    audioIndex = previousTrack?.index,
+                    provider = recording.provider,
+                    forCast = playerEngine.isCasting.value
+                )
+                if (!isActive) {
+                    viewModelScope.launch(NonCancellable) {
+                        try {
+                            apiClient.stopHLSSession(hlsSession.sessionId)
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                    }
+                    return@launch
+                }
+                val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
+                _activeHLSSessionId.value = hlsSession.sessionId
+                startHLSHeartbeat(hlsSession.sessionId)
+
+                playerEngine.loadMedia(
+                    url = playlistURL,
+                    isLive = isLive,
+                    isSeekable = isSeekable,
+                    initialDuration = totalDuration,
+                    initialTimeOffset = targetSeconds,
+                    headers = hlsAuthHeaders(),
+                    title = recording.title,
+                    artworkUrl = recording.imageUrl
+                )
+                playerEngine.setAudioTracks(previousAudioTracks, selectedTrack = previousTrack)
+                playerEngine.setVideoSpecs(previousVideoSpecs)
+                playerEngine.setTranscodeInfo(previousTranscodeInfo)
+
+                if (previousSessionId != null) {
+                    viewModelScope.launch(NonCancellable) {
+                        try {
+                            apiClient.stopHLSSession(previousSessionId)
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (isActive) {
+                    Log.player.error("Server seek failed: ${e.localizedMessage}")
+                }
+            }
         }
     }
 
@@ -817,8 +932,18 @@ class PlayerViewModel(
                 delay(CAPTION_POLL_INTERVAL_MS)
                 val current = _activeRecording.value ?: break
                 val wasInProgress = current.isInProgress
+                if (!wasInProgress) {
+                    fetchCaptionsOnce(current)
+                    break
+                }
+                val start = current.start
+                if (start != null) {
+                    val elapsed = (System.currentTimeMillis() / 1000.0) - start
+                    if (elapsed > playerEngine.duration.value) {
+                        playerEngine.setDuration(elapsed)
+                    }
+                }
                 fetchCaptionsOnce(current)
-                if (!wasInProgress) break
             }
         }
     }
@@ -829,6 +954,9 @@ class PlayerViewModel(
     }
 
     fun closePlayer() {
+        serverSeekJob?.cancel()
+        serverSeekJob = null
+        stopHLSHeartbeat()
         playerEngine.reset()
         watchSessionManager.stopWatch()
         stopCaptionPolling()

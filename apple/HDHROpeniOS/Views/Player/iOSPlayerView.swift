@@ -9,8 +9,13 @@ public struct iOSPlayerView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
+    private let isRegularSizeClassOverride: Bool?
+
     private var isRegularSizeClass: Bool {
-        horizontalSizeClass == .regular ||
+        if let override = isRegularSizeClassOverride {
+            return override
+        }
+        return horizontalSizeClass == .regular ||
             (horizontalSizeClass == nil && (UIDevice.current.userInterfaceIdiom == .pad || UIDevice.current.userInterfaceIdiom == .mac))
     }
 
@@ -20,7 +25,9 @@ public struct iOSPlayerView: View {
     @State private var showRecordingOptionsSheet = false
     @State private var loadingQuip: String = LoadingQuips.random()
 
-    public init() {}
+    public init(isRegularSizeClassOverride: Bool? = nil) {
+        self.isRegularSizeClassOverride = isRegularSizeClassOverride
+    }
 
     public var body: some View {
         ZStack {
@@ -266,6 +273,13 @@ public struct iOSPlayerView: View {
                             isSeekable: playerViewModel.playerEngine.isSeekable,
                             thumbnailCues: playerViewModel.thumbnailCues,
                             spriteURL: playerViewModel.thumbnailSpriteURL,
+                            onScrubbingChanged: { isScrubbing in
+                                if isScrubbing {
+                                    controlsTimer?.cancel()
+                                } else {
+                                    resetTimer()
+                                }
+                            },
                             onSeek: { target in
                                 playerViewModel.seek(to: target)
                             }
@@ -368,6 +382,9 @@ public struct iOSPlayerView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 24)
+                    .onTapGesture {
+                        resetTimer()
+                    }
                 }
                 .background(
                     LinearGradient(

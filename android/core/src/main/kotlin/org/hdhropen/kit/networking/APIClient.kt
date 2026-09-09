@@ -292,6 +292,10 @@ class APIClient(
         return request(APIEndpoints.hlsRecordingSession(), method = "POST", body = json.encodeToString(body))
     }
 
+    suspend fun heartbeatHLSSession(sessionId: String) {
+        requestRaw(APIEndpoints.heartbeatHLSSession(sessionId), method = "POST")
+    }
+
     suspend fun stopHLSSession(sessionId: String) {
         requestRaw(APIEndpoints.stopHLSSession(sessionId), method = "POST")
     }

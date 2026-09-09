@@ -312,6 +312,9 @@ class APIClientTest {
         val hls = client.createRecordingHLSSession(url = "http://example.com/stream.ts", recordingId = "rec-1")
         assertEquals("hls-1", hls.sessionId)
 
+        server.enqueue(MockResponse().setResponseCode(204).setBody(""))
+        client.heartbeatHLSSession("hls-1")
+
         server.enqueue(MockResponse().setResponseCode(200).setBody(""))
         client.stopHLSSession("hls-1")
 

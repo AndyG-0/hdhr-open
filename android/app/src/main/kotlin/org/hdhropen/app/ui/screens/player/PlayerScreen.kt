@@ -166,9 +166,11 @@ fun PlayerScreen(
         }
     }
 
-    // Auto-hide controls timer
-    LaunchedEffect(showControls, state) {
-        if (showControls && state == PlaybackState.Playing) {
+    var isUserScrubbing by remember { mutableStateOf(false) }
+
+    // Auto-hide controls timer (paused while actively scrubbing)
+    LaunchedEffect(showControls, state, isUserScrubbing) {
+        if (showControls && state == PlaybackState.Playing && !isUserScrubbing) {
             delay(5000)
             showControls = false
         }
@@ -545,7 +547,8 @@ fun PlayerScreen(
                         isLive = isLive,
                         isSeekable = isSeekable,
                         thumbnailCues = thumbnailCues,
-                        onSeek = { target -> playerViewModel.seek(target) }
+                        onSeek = { target -> playerViewModel.seek(target) },
+                        onScrubbingStateChange = { isUserScrubbing = it }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))

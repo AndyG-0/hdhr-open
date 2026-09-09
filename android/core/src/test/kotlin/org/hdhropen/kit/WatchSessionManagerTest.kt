@@ -1,11 +1,14 @@
 package org.hdhropen.kit
 
 import io.mockk.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.hdhropen.kit.models.HDHomeRunRecording
 import org.hdhropen.kit.networking.APIClient
 import org.hdhropen.kit.networking.APIError
@@ -25,6 +28,7 @@ class WatchSessionManagerTest {
 
     @Before
     fun setUp() {
+        Dispatchers.setMain(testDispatcher)
         apiClient = mockk(relaxed = true)
         manager = WatchSessionManager(apiClient, testScope)
     }
@@ -32,6 +36,7 @@ class WatchSessionManagerTest {
     @After
     fun tearDown() {
         manager.stopWatch()
+        Dispatchers.resetMain()
     }
 
     @Test

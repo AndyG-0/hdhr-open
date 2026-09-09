@@ -67,6 +67,7 @@ object APIEndpoints {
         return "/api/streaming/hls/$channelNumber$query"
     }
     fun hlsRecordingSession(): String = "/api/dvr/recording-stream-hls"
+    fun heartbeatHLSSession(sessionId: String): String = "/api/hls/$sessionId/heartbeat"
     fun stopHLSSession(sessionId: String): String = "/api/hls/$sessionId/stop"
 
     fun startWatch(channelNumber: String): String = "/api/watch/$channelNumber/start"

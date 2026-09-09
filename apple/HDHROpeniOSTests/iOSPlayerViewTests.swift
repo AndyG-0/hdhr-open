@@ -19,7 +19,8 @@ final class iOSPlayerViewTests: XCTestCase {
         _ playerViewModel: PlayerViewModel,
         _ guideViewModel: GuideViewModel,
         _ recordingsViewModel: RecordingsViewModel,
-        _ multiPlayerViewModel: MultiPlayerViewModel? = nil
+        _ multiPlayerViewModel: MultiPlayerViewModel? = nil,
+        isRegularSizeClass: Bool? = nil
     ) -> some View {
         let multiVM = multiPlayerViewModel ?? MultiPlayerViewModel(
             apiClient: APIClient(baseURL: URL(string: "http://localhost:8000")!, session: MockURLProtocol.makeSession()),
@@ -28,7 +29,7 @@ final class iOSPlayerViewTests: XCTestCase {
                 session: MockURLProtocol.makeSession()
             ))
         )
-        return iOSPlayerView()
+        return iOSPlayerView(isRegularSizeClassOverride: isRegularSizeClass)
             .environmentObject(playerViewModel)
             .environmentObject(guideViewModel)
             .environmentObject(recordingsViewModel)
@@ -111,8 +112,7 @@ final class iOSPlayerViewTests: XCTestCase {
         let (playerViewModel, guideViewModel, recordingsViewModel) = makeEnvironmentObjects()
         await playerViewModel.playChannel(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC"))
 
-        let view = makeView(playerViewModel, guideViewModel, recordingsViewModel)
-            .environment(\.horizontalSizeClass, .regular)
+        let view = makeView(playerViewModel, guideViewModel, recordingsViewModel, isRegularSizeClass: true)
 
         XCTAssertNoThrow(try view.inspect().find(where: { v in
             if let img = try? v.image() {

@@ -137,3 +137,37 @@ def test_get_playlist_for_cast_on_session_without_cast_token_is_404(unauthentica
 def test_get_playlist_for_cast_unknown_session_is_404(unauthenticated_client):
     response = unauthenticated_client.get("/api/hls/does-not-exist/tok/playlist.m3u8")
     assert response.status_code == 404
+
+
+def test_heartbeat_requires_auth(unauthenticated_client, tmp_path):
+    _register_session(tmp_path)
+    response = unauthenticated_client.post("/api/hls/sess1/heartbeat")
+    assert response.status_code == 401
+
+
+def test_heartbeat_authenticated_touches_session(client, tmp_path):
+    session = _register_session(tmp_path)
+    original_last_req = session.last_request_at = 100.0
+    response = client.post("/api/hls/sess1/heartbeat")
+    assert response.status_code == 204
+    assert session.last_request_at > original_last_req
+
+
+def test_heartbeat_unknown_session_is_404(client):
+    response = client.post("/api/hls/does-not-exist/heartbeat")
+    assert response.status_code == 404
+
+
+def test_heartbeat_for_cast_with_correct_token_touches_session(unauthenticated_client, tmp_path):
+    session = _register_session(tmp_path, cast_token="tok-correct")
+    original_last_req = session.last_request_at = 100.0
+    response = unauthenticated_client.post("/api/hls/sess1/tok-correct/heartbeat")
+    assert response.status_code == 204
+    assert session.last_request_at > original_last_req
+
+
+def test_heartbeat_for_cast_with_wrong_token_is_404(unauthenticated_client, tmp_path):
+    _register_session(tmp_path, cast_token="tok-correct")
+    response = unauthenticated_client.post("/api/hls/sess1/tok-wrong/heartbeat")
+    assert response.status_code == 404
+

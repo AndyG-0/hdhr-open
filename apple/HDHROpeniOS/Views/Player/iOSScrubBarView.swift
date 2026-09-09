@@ -8,6 +8,7 @@ public struct iOSScrubBarView: View {
     let isSeekable: Bool
     let thumbnailCues: [ThumbnailCue]
     let spriteURL: URL?
+    let onScrubbingChanged: ((Bool) -> Void)?
     let onSeek: (Double) -> Void
 
     @State private var isDragging = false
@@ -20,6 +21,7 @@ public struct iOSScrubBarView: View {
         isSeekable: Bool,
         thumbnailCues: [ThumbnailCue] = [],
         spriteURL: URL? = nil,
+        onScrubbingChanged: ((Bool) -> Void)? = nil,
         onSeek: @escaping (Double) -> Void
     ) {
         self.currentTime = currentTime
@@ -28,6 +30,7 @@ public struct iOSScrubBarView: View {
         self.isSeekable = isSeekable
         self.thumbnailCues = thumbnailCues
         self.spriteURL = spriteURL
+        self.onScrubbingChanged = onScrubbingChanged
         self.onSeek = onSeek
     }
 
@@ -48,10 +51,11 @@ public struct iOSScrubBarView: View {
 
     public var body: some View {
         VStack(spacing: 6) {
-            // Drag Thumbnail Preview
-            if isDragging, let cue = thumbnailCues.first(where: { $0.contains(time: activeTime) }) {
+            // Drag Thumbnail / Time Preview
+            if isDragging {
                 VStack(spacing: 4) {
-                    if let url = spriteURL {
+                    if let cue = thumbnailCues.first(where: { $0.contains(time: activeTime) }),
+                       let url = spriteURL {
                         AsyncImage(url: url) { image in
                             image
                                 .resizable()
@@ -80,7 +84,17 @@ public struct iOSScrubBarView: View {
 
             // Slider Track
             GeometryReader { geo in
+                let knobDiameter: CGFloat = isDragging ? 18 : 14
+                let knobX = min(
+                    max(0, geo.size.width * CGFloat(currentProgress) - knobDiameter / 2),
+                    max(0, geo.size.width - knobDiameter)
+                )
+
                 ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(height: 44)
+
                     Capsule()
                         .fill(Color.white.opacity(0.3))
                         .frame(height: 6)
@@ -88,13 +102,26 @@ public struct iOSScrubBarView: View {
                     Capsule()
                         .fill(isLive ? Color.red : Color.blue)
                         .frame(width: max(0, geo.size.width * CGFloat(currentProgress)), height: 6)
+
+                    if isSeekable && duration > 0 {
+                        Circle()
+                            .fill(Color.white)
+                            .shadow(color: Color.black.opacity(0.4), radius: 3, x: 0, y: 1)
+                            .frame(width: knobDiameter, height: knobDiameter)
+                            .offset(x: knobX)
+                            .animation(.interactiveSpring(response: 0.2, dampingFraction: 0.8), value: isDragging)
+                    }
                 }
+                .frame(height: 44)
                 .contentShape(Rectangle())
-                .gesture(
+                .highPriorityGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard isSeekable, duration > 0 else { return }
-                            isDragging = true
+                            if !isDragging {
+                                isDragging = true
+                                onScrubbingChanged?(true)
+                            }
                             let progress = max(0.0, min(1.0, value.location.x / geo.size.width))
                             dragProgress = progress
                         }
@@ -102,11 +129,12 @@ public struct iOSScrubBarView: View {
                             guard isSeekable, duration > 0 else { return }
                             let progress = max(0.0, min(1.0, value.location.x / geo.size.width))
                             isDragging = false
+                            onScrubbingChanged?(false)
                             onSeek(progress * duration)
                         }
                 )
             }
-            .frame(height: 16)
+            .frame(height: 44)
 
             // Timestamps
             HStack {

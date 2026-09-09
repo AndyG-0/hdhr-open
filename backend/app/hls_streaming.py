@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # No playlist/segment request this long => assume the player is gone (closed
 # app, crashed, lost network) and reap. Generous relative to how often a
 # healthy HLS player actually re-fetches the playlist near the live edge.
-HLS_IDLE_TIMEOUT_SECONDS = 30
+HLS_IDLE_TIMEOUT_SECONDS = 300
 # Safety cap on a single session's lifetime, independent of the idle reaper -
 # belt and suspenders against a runaway ffmpeg if the reaper never runs for
 # some reason. Mirrors app.dvr.builtin.watch.WATCH_MAX_DURATION_SECONDS.

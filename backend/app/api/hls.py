@@ -83,9 +83,20 @@ async def get_segment(session_id: str, name: str):
     return _segment_response(await _get_session_or_404(session_id), name)
 
 
+@router.post("/{session_id}/heartbeat", dependencies=[Depends(get_current_user)])
+async def heartbeat(session_id: str):
+    await _get_session_or_404(session_id)
+    return Response(status_code=204)
+
+
 @router.post("/{session_id}/stop", dependencies=[Depends(get_current_user)])
 async def stop_session(session_id: str):
     await hls_streaming.teardown_session(session_id)
+    return Response(status_code=204)
+
+
+@router.post("/{session_id}/{cast_token}/heartbeat")
+async def heartbeat_for_cast(session: hls_streaming.HLSSession = Depends(verify_cast_token)):
     return Response(status_code=204)
 
 

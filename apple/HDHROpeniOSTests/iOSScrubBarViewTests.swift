@@ -46,4 +46,47 @@ final class iOSScrubBarViewTests: XCTestCase {
 
         XCTAssertThrowsError(try view.inspect().find(ViewType.AsyncImage.self))
     }
+
+    func testSliderTrackHas44PointTouchTargetHeight() throws {
+        let view = iOSScrubBarView(currentTime: 10, duration: 100, isLive: false, isSeekable: true, onSeek: { _ in })
+        let geo = try view.inspect().find(ViewType.GeometryReader.self)
+        let frameHeight = try geo.fixedHeight()
+        XCTAssertEqual(frameHeight, 44)
+    }
+
+    func testDraggableThumbKnobPresentWhenSeekableAndHasDuration() throws {
+        let seekableView = iOSScrubBarView(currentTime: 10, duration: 100, isLive: false, isSeekable: true, onSeek: { _ in })
+        let nonSeekableView = iOSScrubBarView(currentTime: 10, duration: 100, isLive: false, isSeekable: false, onSeek: { _ in })
+
+        let seekableShapes = try seekableView.inspect().findAll(ViewType.Shape.self).count
+        let nonSeekableShapes = try nonSeekableView.inspect().findAll(ViewType.Shape.self).count
+
+        // Draggable thumb knob adds an additional shape to the slider track
+        XCTAssertEqual(seekableShapes - nonSeekableShapes, 1)
+    }
+
+    func testThumbKnobAbsentWhenZeroDuration() throws {
+        let zeroDurationSeekableView = iOSScrubBarView(currentTime: 10, duration: 0, isLive: false, isSeekable: true, onSeek: { _ in })
+        let zeroDurationNonSeekableView = iOSScrubBarView(currentTime: 10, duration: 0, isLive: false, isSeekable: false, onSeek: { _ in })
+
+        let seekableShapes = try zeroDurationSeekableView.inspect().findAll(ViewType.Shape.self).count
+        let nonSeekableShapes = try zeroDurationNonSeekableView.inspect().findAll(ViewType.Shape.self).count
+
+        // When duration is 0, thumb knob is omitted (shape count matches non-seekable)
+        XCTAssertEqual(seekableShapes, nonSeekableShapes)
+    }
+
+    func testAcceptsOnScrubbingChangedCallback() throws {
+        var scrubbingChangedCalled = false
+        let view = iOSScrubBarView(
+            currentTime: 10,
+            duration: 100,
+            isLive: false,
+            isSeekable: true,
+            onScrubbingChanged: { _ in scrubbingChangedCalled = true },
+            onSeek: { _ in }
+        )
+        XCTAssertNotNil(view)
+        XCTAssertFalse(scrubbingChangedCalled)
+    }
 }

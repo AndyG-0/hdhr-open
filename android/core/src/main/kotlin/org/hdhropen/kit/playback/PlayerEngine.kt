@@ -177,6 +177,9 @@ class PlayerEngine(
     private val _currentTime = MutableStateFlow(0.0)
     val currentTime: StateFlow<Double> = _currentTime.asStateFlow()
 
+    var timeOffset: Double = 0.0
+        private set
+
     private val _duration = MutableStateFlow(0.0)
     val duration: StateFlow<Double> = _duration.asStateFlow()
 
@@ -301,13 +304,28 @@ class PlayerEngine(
                 }
                 Player.STATE_READY -> {
                     val dur = activePlayer?.duration ?: 0L
-                    if (dur > 0) {
-                        _duration.value = dur / 1000.0
+                    if (dur > 0 && dur != androidx.media3.common.C.TIME_UNSET) {
+                        val durSec = timeOffset + (dur / 1000.0)
+                        if (_duration.value <= 0.0 || durSec > _duration.value) {
+                            _duration.value = durSec
+                        }
                     }
                     _state.value = if (activePlayer?.playWhenReady == true) PlaybackState.Playing else PlaybackState.Paused
                 }
                 Player.STATE_ENDED -> {
                     _state.value = PlaybackState.Paused
+                }
+            }
+        }
+
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            activePlayer?.let { player ->
+                val dur = player.duration
+                if (dur > 0 && dur != androidx.media3.common.C.TIME_UNSET) {
+                    val durSec = timeOffset + (dur / 1000.0)
+                    if (_duration.value <= 0.0 || durSec > _duration.value) {
+                        _duration.value = durSec
+                    }
                 }
             }
         }
@@ -357,6 +375,8 @@ class PlayerEngine(
         isLive: Boolean = false,
         isSeekable: Boolean = true,
         initialStart: Double? = null,
+        initialDuration: Double? = null,
+        initialTimeOffset: Double = 0.0,
         headers: Map<String, String> = emptyMap(),
         title: String? = null,
         artworkUrl: String? = null
@@ -364,6 +384,11 @@ class PlayerEngine(
         reset()
         _isLive.value = isLive
         _isSeekable.value = isSeekable
+        timeOffset = initialTimeOffset
+        if (initialDuration != null && initialDuration > 0) {
+            _duration.value = initialDuration
+        }
+        _currentTime.value = initialTimeOffset + (initialStart ?: 0.0)
         _state.value = PlaybackState.Loading
 
         // The player-null early-returns below must happen before Uri.parse()
@@ -450,8 +475,40 @@ class PlayerEngine(
         if (!_isSeekable.value) return
         val dur = if (_duration.value > 0) _duration.value else seconds
         val target = seconds.coerceIn(0.0, dur)
-        activePlayer?.seekTo((target * 1000).toLong())
+        val relativeSeconds = (target - timeOffset).coerceAtLeast(0.0)
+        activePlayer?.seekTo((relativeSeconds * 1000).toLong())
         _currentTime.value = target
+    }
+
+    fun isPositionInSeekableRange(seconds: Double): Boolean {
+        if (!_isSeekable.value) return false
+        val player = activePlayer ?: return false
+        val relativeSeconds = seconds - timeOffset
+        if (relativeSeconds < 0.0) return false
+
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return false
+        val window = androidx.media3.common.Timeline.Window()
+        timeline.getWindow(player.currentMediaItemIndex, window)
+        if (!window.isSeekable) return false
+
+        val durMs = if (window.durationMs > 0 && window.durationMs != androidx.media3.common.C.TIME_UNSET) {
+            window.durationMs
+        } else {
+            player.duration.takeIf { it > 0 && it != androidx.media3.common.C.TIME_UNSET } ?: 0L
+        }
+        if (durMs <= 0) return false
+        val end = durMs / 1000.0
+        val effectiveEnd = (end - 0.5).coerceAtLeast(0.0)
+        return relativeSeconds <= effectiveEnd
+    }
+
+    fun prepareForServerSeek(targetSeconds: Double) {
+        val dur = if (_duration.value > 0) _duration.value else targetSeconds
+        val clamped = targetSeconds.coerceIn(0.0, dur)
+        _currentTime.value = clamped
+        activePlayer?.pause()
+        _state.value = PlaybackState.Buffering
     }
 
     fun skipForward(seconds: Double = 10.0) {
@@ -514,6 +571,7 @@ class PlayerEngine(
 
         _state.value = PlaybackState.Idle
         _currentTime.value = 0.0
+        timeOffset = 0.0
         _duration.value = 0.0
         _isLive.value = false
         _isSeekable.value = false
@@ -532,7 +590,18 @@ class PlayerEngine(
                 activePlayer?.let { player ->
                     val posMs = player.currentPosition
                     if (posMs >= 0) {
-                        _currentTime.value = posMs / 1000.0
+                        val currentSec = timeOffset + (posMs / 1000.0)
+                        _currentTime.value = currentSec
+                        if (_isLive.value && currentSec > _duration.value) {
+                            _duration.value = currentSec
+                        }
+                    }
+                    val durMs = player.duration
+                    if (durMs > 0 && durMs != androidx.media3.common.C.TIME_UNSET) {
+                        val durSec = timeOffset + (durMs / 1000.0)
+                        if (_duration.value <= 0.0 || durSec > _duration.value) {
+                            _duration.value = durSec
+                        }
                     }
                 }
             }

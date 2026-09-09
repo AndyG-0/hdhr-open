@@ -344,3 +344,40 @@ def test_register_adds_both_jobs():
     job_ids = [call.kwargs["id"] for call in scheduler.add_job.call_args_list]
     assert "hls_streaming_reap_idle_sessions" in job_ids
     assert "hls_streaming_sweep_orphaned_session_dirs" in job_ids
+
+
+# --- touch & reap_idle_sessions ---------------------------------------
+
+
+async def test_touch_updates_last_request_at(monkeypatch):
+    session = await _make_session(monkeypatch)
+    session.last_request_at = 100.0
+
+    updated = await hls_streaming.touch(session.session_id)
+    assert updated is session
+    assert session.last_request_at > 100.0
+
+
+async def test_touch_unknown_session_returns_none():
+    assert await hls_streaming.touch("unknown") is None
+
+
+async def test_reap_idle_sessions_reaps_stale_sessions(monkeypatch):
+    session = await _make_session(monkeypatch)
+    session.last_request_at = time.time() - hls_streaming.HLS_IDLE_TIMEOUT_SECONDS - 10
+
+    await hls_streaming.reap_idle_sessions()
+
+    assert session.session_id not in hls_streaming._sessions
+    assert not session.tmp_dir.exists()
+
+
+async def test_reap_idle_sessions_keeps_fresh_sessions(monkeypatch):
+    session = await _make_session(monkeypatch)
+    session.last_request_at = time.time()
+
+    await hls_streaming.reap_idle_sessions()
+
+    assert session.session_id in hls_streaming._sessions
+    assert session.tmp_dir.exists()
+

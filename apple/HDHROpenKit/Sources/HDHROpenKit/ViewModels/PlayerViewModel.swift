@@ -315,7 +315,13 @@ public final class PlayerViewModel: ObservableObject {
             Log.player.info("Recording HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
             activeHLSSessionId = hlsSession.sessionId
             playbackMode = .serverTranscodedHls
-            await playerEngine.loadMedia(url: playlistURL, isLive: recording.isInProgress, isSeekable: true, headers: hlsAuthHeaders())
+            await playerEngine.loadMedia(
+                url: playlistURL,
+                isLive: recording.isInProgress,
+                isSeekable: true,
+                initialDuration: recording.durationSeconds,
+                headers: hlsAuthHeaders()
+            )
             loadRecordingMetadata(recording: recording)
         } catch {
             Log.player.error("Recording HLS stream failed: \(error.localizedDescription)")
@@ -562,11 +568,83 @@ public final class PlayerViewModel: ObservableObject {
         }
     }
 
+    private var serverSeekTask: Task<Void, Never>?
+
     public func seek(to seconds: Double) {
-        playerEngine.seek(to: seconds)
+        let clamped = max(0, min(seconds, playerEngine.duration > 0 ? playerEngine.duration : seconds))
+        if let recording = activeRecording, let playUrl = recording.playUrl, !playUrl.isEmpty,
+           !playerEngine.isPositionInSeekableRange(clamped)
+        {
+            seekRecordingViaServer(recording: recording, playUrl: playUrl, targetSeconds: clamped)
+        } else {
+            playerEngine.seek(to: clamped)
+        }
         resyncCaptionsAfterSeek()
         if syncPlayClient.isConnected {
-            syncPlayClient.sendSeek(position: seconds)
+            syncPlayClient.sendSeek(position: clamped)
+        }
+    }
+
+    private func seekRecordingViaServer(recording: HDHomeRunRecording, playUrl: String, targetSeconds: Double) {
+        serverSeekTask?.cancel()
+
+        let previousSessionId = activeHLSSessionId
+        let previousAudioTracks = playerEngine.availableAudioTracks
+        let previousTrack = playerEngine.currentAudioTrack
+        let previousVideoSpecs = playerEngine.videoSpecs
+        let previousTranscodeInfo = playerEngine.transcodeInfo
+        let totalDuration = playerEngine.duration > 0 ? playerEngine.duration : (recording.durationSeconds ?? 0)
+        let isLive = recording.isInProgress
+        let isSeekable = playerEngine.isSeekable
+
+        // Update position and pause playback without seeking the out-of-range old item
+        playerEngine.prepareForServerSeek(to: targetSeconds)
+
+        serverSeekTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let baseURL = await apiClient.baseURL
+            do {
+                let hlsSession = try await apiClient.createRecordingHLSSession(
+                    url: playUrl,
+                    recordingId: recording.recordingId,
+                    start: targetSeconds,
+                    audioIndex: previousTrack?.index
+                )
+                if Task.isCancelled {
+                    let apiClient = apiClient
+                    runWithBackgroundGrace(name: "StopCancelledHLSSession") {
+                        try? await apiClient.stopHLSSession(sessionId: hlsSession.sessionId)
+                    }
+                    return
+                }
+                guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
+                    return
+                }
+                activeHLSSessionId = hlsSession.sessionId
+                await playerEngine.loadMedia(
+                    url: playlistURL,
+                    isLive: isLive,
+                    isSeekable: isSeekable,
+                    initialDuration: totalDuration,
+                    initialTimeOffset: targetSeconds,
+                    headers: hlsAuthHeaders()
+                )
+                playerEngine.setAudioTracks(previousAudioTracks, selectedTrack: previousTrack)
+                playerEngine.setVideoSpecs(previousVideoSpecs)
+                playerEngine.setTranscodeInfo(previousTranscodeInfo)
+
+                if let previousSessionId {
+                    let apiClient = apiClient
+                    runWithBackgroundGrace(name: "StopHLSSession") {
+                        try? await apiClient.stopHLSSession(sessionId: previousSessionId)
+                    }
+                }
+            } catch {
+                if !Task.isCancelled {
+                    Log.player.error("Server seek failed: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
@@ -670,6 +748,8 @@ public final class PlayerViewModel: ObservableObject {
     }
 
     public func closePlayer() {
+        serverSeekTask?.cancel()
+        serverSeekTask = nil
         playerEngine.reset()
         captionPollTask?.cancel()
         captionPollTask = nil

@@ -1,10 +1,11 @@
 package org.hdhropen.app.ui.player
 
-import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithText
 import org.hdhropen.app.ui.screens.player.ScrubBar
 import org.hdhropen.app.ui.theme.HDHROpenTheme
+import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,5 +54,107 @@ class ScrubBarTest {
         }
 
         composeTestRule.onNodeWithText("LIVE").assertIsDisplayed()
+    }
+
+    @Test
+    fun testScrubBarTapToSeek() {
+        var seekTarget: Double? = null
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                ScrubBar(
+                    currentTime = 0.0,
+                    duration = 3600.0,
+                    isLive = false,
+                    isSeekable = true,
+                    thumbnailCues = emptyList(),
+                    onSeek = { seekTarget = it }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("ScrubBarTrack").performTouchInput {
+            click(percentOffset(0.5f, 0.5f))
+        }
+
+        assertNotNull(seekTarget)
+        assertEquals(1800.0, seekTarget!!, 50.0)
+    }
+
+    @Test
+    fun testScrubBarDragToSeekAndScrubbingState() {
+        var seekTarget: Double? = null
+        val scrubbingStates = mutableListOf<Boolean>()
+
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                ScrubBar(
+                    currentTime = 300.0,
+                    duration = 3600.0,
+                    isLive = false,
+                    isSeekable = true,
+                    thumbnailCues = emptyList(),
+                    onSeek = { seekTarget = it },
+                    onScrubbingStateChange = { scrubbingStates.add(it) }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("ScrubBarTrack").performTouchInput {
+            down(percentOffset(0.25f, 0.5f))
+            moveTo(percentOffset(0.75f, 0.5f))
+            up()
+        }
+
+        assertNotNull(seekTarget)
+        assertEquals(2700.0, seekTarget!!, 50.0)
+        assertEquals(listOf(true, false), scrubbingStates)
+    }
+
+    @Test
+    fun testScrubBarNoSeekWhenNotSeekable() {
+        var seekTarget: Double? = null
+
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                ScrubBar(
+                    currentTime = 50.0,
+                    duration = 3600.0,
+                    isLive = false,
+                    isSeekable = false,
+                    thumbnailCues = emptyList(),
+                    onSeek = { seekTarget = it }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("ScrubBarTrack").performTouchInput {
+            click(percentOffset(0.5f, 0.5f))
+        }
+
+        assertNull(seekTarget)
+    }
+
+    @Test
+    fun testScrubBarNoSeekWhenZeroDuration() {
+        var seekTarget: Double? = null
+
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                ScrubBar(
+                    currentTime = 0.0,
+                    duration = 0.0,
+                    isLive = true,
+                    isSeekable = true,
+                    thumbnailCues = emptyList(),
+                    onSeek = { seekTarget = it }
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("ScrubBarTrack").performTouchInput {
+            click(percentOffset(0.5f, 0.5f))
+        }
+
+        assertNull(seekTarget)
     }
 }

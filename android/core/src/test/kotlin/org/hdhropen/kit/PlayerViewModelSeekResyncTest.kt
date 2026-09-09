@@ -1,11 +1,16 @@
 package org.hdhropen.kit
 
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import org.hdhropen.kit.models.HDHomeRunRecording
+import org.hdhropen.kit.models.*
 import org.hdhropen.kit.networking.APIClient
+import org.hdhropen.kit.networking.HLSSessionResponse
 import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.CaptionController
 import org.hdhropen.kit.playback.CaptionCue
@@ -23,6 +28,8 @@ import org.junit.Test
  * re-run alignment synchronously instead. */
 class PlayerViewModelSeekResyncTest {
 
+    private var activeVm: PlayerViewModel? = null
+
     @Before
     fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -30,15 +37,19 @@ class PlayerViewModelSeekResyncTest {
 
     @After
     fun tearDown() {
+        activeVm?.closePlayer()
+        activeVm = null
         Dispatchers.resetMain()
     }
 
     private fun newViewModel(): PlayerViewModel {
-        val client = APIClient("http://localhost:8000")
+        val client = mockk<APIClient>(relaxed = true)
         val watchSessionManager = WatchSessionManager(client)
         val playerEngine = PlayerEngine()
         val captionController = CaptionController()
-        return PlayerViewModel(client, watchSessionManager, playerEngine, captionController)
+        val vm = PlayerViewModel(client, watchSessionManager, playerEngine, captionController)
+        activeVm = vm
+        return vm
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -220,5 +231,77 @@ class PlayerViewModelSeekResyncTest {
         vm.skipBackward(10.0)
         assertEquals(20.0, vm.playerEngine.currentTime.value, 0.001)
         assertEquals(1, vm.captionController.cues.value.size)
+    }
+
+    @Test
+    fun `seek on recording outside seekable range prepares server seek and creates HLS session`() = runTest {
+        val client = mockk<APIClient>(relaxed = true)
+        val hlsSessionResponse = HLSSessionResponse(sessionId = "new-hls-sess", playlistUrl = "/api/hls/new-hls-sess/playlist.m3u8")
+        coEvery {
+            client.createRecordingHLSSession(
+                url = any(),
+                recordingId = any(),
+                start = any(),
+                audioIndex = any(),
+                provider = any(),
+                forCast = any()
+            )
+        } returns hlsSessionResponse
+
+        val watchSessionManager = WatchSessionManager(client)
+        val playerEngine = PlayerEngine()
+        val captionController = CaptionController()
+        val vm = PlayerViewModel(client, watchSessionManager, playerEngine, captionController)
+        activeVm = vm
+
+        val recording = HDHomeRunRecording(
+            recordingId = "rec-vod",
+            title = "Movie",
+            playUrl = "http://example.com/recording.ts",
+            durationSeconds = 3600.0
+        )
+        setActiveRecording(vm, recording)
+        playerEngine.loadMedia(url = "http://example.com/stream.m3u8", isSeekable = true, initialDuration = 3600.0)
+
+        // Seeking to 1200s (unbuffered/outside seekable range)
+        vm.seek(1200.0)
+
+        assertEquals(1200.0, vm.playerEngine.currentTime.value, 0.001)
+        coVerify {
+            client.createRecordingHLSSession(
+                url = "http://example.com/recording.ts",
+                recordingId = "rec-vod",
+                start = 1200.0,
+                audioIndex = any(),
+                provider = any(),
+                forCast = any()
+            )
+        }
+        assertEquals("new-hls-sess", vm.activeHLSSessionId.value)
+        assertEquals(1200.0, vm.playerEngine.timeOffset, 0.001)
+    }
+
+    @Test
+    fun `seek on channel stream clamps to duration and does not invoke server seek`() = runTest {
+        val client = mockk<APIClient>(relaxed = true)
+        val watchSessionManager = WatchSessionManager(client)
+        val playerEngine = PlayerEngine()
+        val captionController = CaptionController()
+        val vm = PlayerViewModel(client, watchSessionManager, playerEngine, captionController)
+        activeVm = vm
+
+        val channel = HDHomeRunChannel(channelNumber = "5.1", name = "Live Channel")
+        val channelField = PlayerViewModel::class.java.getDeclaredField("_activeChannel").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        (channelField.get(vm) as kotlinx.coroutines.flow.MutableStateFlow<HDHomeRunChannel?>).value = channel
+
+        playerEngine.loadMedia(url = "http://example.com/channel.m3u8", isLive = true, isSeekable = true, initialDuration = 60.0)
+
+        // Scrubbing past live duration 60.0 clamps to 60.0 and does not call createRecordingHLSSession
+        vm.seek(150.0)
+        assertEquals(60.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(60.0, vm.playerEngine.duration.value, 0.001)
+
+        coVerify(exactly = 0) { client.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) }
     }
 }

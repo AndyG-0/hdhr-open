@@ -76,6 +76,7 @@ class APIEndpointsTest {
         )
 
         assertEquals("/api/dvr/recording-stream-hls", APIEndpoints.hlsRecordingSession())
+        assertEquals("/api/hls/sess_123/heartbeat", APIEndpoints.heartbeatHLSSession("sess_123"))
         assertEquals("/api/hls/sess_123/stop", APIEndpoints.stopHLSSession("sess_123"))
 
         assertEquals("/api/watch/5.1/start", APIEndpoints.startWatch("5.1"))

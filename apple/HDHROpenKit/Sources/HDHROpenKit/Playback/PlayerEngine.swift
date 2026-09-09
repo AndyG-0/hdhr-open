@@ -19,6 +19,7 @@ public enum PlaybackState: Equatable, Sendable {
 public final class PlayerEngine: NSObject, ObservableObject {
     @Published public private(set) var state: PlaybackState = .idle
     @Published public private(set) var currentTime = 0.0
+    @Published public private(set) var timeOffset = 0.0
     @Published public private(set) var duration = 0.0
     @Published public private(set) var isLive = false
     @Published public private(set) var isSeekable = false
@@ -136,11 +137,18 @@ public final class PlayerEngine: NSObject, ObservableObject {
         isLive: Bool = false,
         isSeekable: Bool = true,
         initialStart: Double? = nil,
+        initialDuration: Double? = nil,
+        initialTimeOffset: Double = 0.0,
         headers: [String: String] = [:]
     ) {
         reset()
         self.isLive = isLive
         self.isSeekable = isSeekable
+        self.timeOffset = initialTimeOffset
+        if let initDur = initialDuration, initDur > 0 {
+            self.duration = initDur
+        }
+        self.currentTime = initialTimeOffset + (initialStart ?? 0.0)
         state = .loading
 
         Log.player.info("Loading media: \(url.absoluteString, privacy: .public) isLive=\(isLive) isSeekable=\(isSeekable)")
@@ -180,6 +188,18 @@ public final class PlayerEngine: NSObject, ObservableObject {
     }
 
     public func play() {
+        // If this is a live stream and playback was paused long enough that
+        // the current position has fallen behind the seekable window:
+        if isLive, let ranges = avPlayer?.currentItem?.seekableTimeRanges, let lastRange = ranges.last?.timeRangeValue {
+            let liveEdge = lastRange.start.seconds + lastRange.duration.seconds
+            let currentRel = currentTime - timeOffset
+            let earliestValid = ranges.first?.timeRangeValue.start.seconds ?? 0
+            if currentRel < earliestValid {
+                Log.player.info("Live stream fell behind rolling buffer, seeking to live edge (\(liveEdge)s)")
+                let target = CMTime(seconds: max(0, liveEdge - 1.0), preferredTimescale: 600)
+                avPlayer?.seek(to: target, toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+            }
+        }
         avPlayer?.play()
         if state == .paused {
             state = .playing
@@ -213,12 +233,34 @@ public final class PlayerEngine: NSObject, ObservableObject {
         // dependents that read `currentTime` right after calling `seek`
         // (e.g. caption resync) see the new position immediately.
         currentTime = clamped
-        let targetTime = CMTime(seconds: clamped, preferredTimescale: 600)
-        avPlayer?.seek(to: targetTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
-            Task { @MainActor in
-                self?.currentTime = clamped
+        let relativeSeconds = max(0, clamped - timeOffset)
+        let targetTime = CMTime(seconds: relativeSeconds, preferredTimescale: 600)
+        let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
+        avPlayer?.seek(to: targetTime, toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] finished in
+            if finished {
+                Task { @MainActor in
+                    self?.currentTime = clamped
+                }
             }
         }
+    }
+
+    /// Whether the given absolute target position falls within AVPlayer's
+    /// currently buffered seekable ranges (accounting for timeOffset).
+    public func isPositionInSeekableRange(_ seconds: Double) -> Bool {
+        guard isSeekable, let ranges = avPlayer?.currentItem?.seekableTimeRanges, !ranges.isEmpty else { return false }
+        let relativeSeconds = seconds - timeOffset
+        guard relativeSeconds >= 0 else { return false }
+        for value in ranges {
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let end = start + range.duration.seconds
+            let effectiveEnd = max(start, end - 0.5)
+            if relativeSeconds >= start && relativeSeconds <= effectiveEnd {
+                return true
+            }
+        }
+        return false
     }
 
     public func skipForward(seconds: Double = 10.0) {
@@ -277,6 +319,19 @@ public final class PlayerEngine: NSObject, ObservableObject {
         state = .loading
     }
 
+    /// Prepares engine state for an asynchronous server-side seek without
+    /// attempting an out-of-range seek on the current AVPlayerItem.
+    /// Locks `currentTime` to the target position so UI dependents (scrub bar,
+    /// time labels, caption resync) update immediately, pauses playback on the
+    /// current item so it does not snap back to 0:00 or advance from the wrong
+    /// frame, and enters buffering state while the new stream session is started.
+    public func prepareForServerSeek(to targetSeconds: Double) {
+        let clamped = max(0, min(targetSeconds, duration > 0 ? duration : targetSeconds))
+        currentTime = clamped
+        avPlayer?.pause()
+        state = .buffering
+    }
+
     public func reset() {
         if let token = timeObserverToken {
             avPlayer?.removeTimeObserver(token)
@@ -296,6 +351,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
 
         state = .idle
         currentTime = 0.0
+        timeOffset = 0.0
         duration = 0.0
         isLive = false
         isSeekable = false
@@ -343,7 +399,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
             let secs = time.seconds
             if secs.isFinite, !secs.isNaN {
                 Task { @MainActor in
-                    self.currentTime = secs
+                    self.currentTime = self.timeOffset + secs
                 }
             }
         }
@@ -358,7 +414,10 @@ public final class PlayerEngine: NSObject, ObservableObject {
                 case .readyToPlay:
                     state = .playing
                     if let dur = avPlayer?.currentItem?.duration.seconds, dur.isFinite, !dur.isNaN, dur > 0 {
-                        duration = dur
+                        let total = timeOffset + dur
+                        if duration == 0 || total > duration {
+                            duration = total
+                        }
                     }
                 case .failed:
                     let msg = item.error?.localizedDescription ?? "Playback failed."

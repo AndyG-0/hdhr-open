@@ -2,8 +2,8 @@ package org.hdhropen.app.ui.screens.player
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,7 +31,8 @@ fun ScrubBar(
     isSeekable: Boolean,
     thumbnailCues: List<ThumbnailCue>,
     onSeek: (Double) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onScrubbingStateChange: ((Boolean) -> Unit)? = null
 ) {
     var isDragging by remember { mutableStateOf(false) }
     var dragPositionRatio by remember { mutableFloatStateOf(0f) }
@@ -50,8 +52,8 @@ fun ScrubBar(
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
-        // Thumbnail Preview Bubble if dragging
-        if (isDragging && activeThumbnail != null) {
+        // Thumbnail / Time Preview Bubble if dragging
+        if (isDragging) {
             Box(
                 modifier = Modifier
                     .padding(bottom = 8.dp)
@@ -71,32 +73,36 @@ fun ScrubBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(24.dp)
+                .height(32.dp)
+                .testTag("ScrubBarTrack")
                 .pointerInput(isSeekable, duration) {
-                    if (!isSeekable) return@pointerInput
-                    detectTapGestures { offset ->
-                        val ratio = (offset.x / size.width).coerceIn(0f, 1f)
-                        val target = ratio.toDouble() * duration
-                        onSeek(target)
-                    }
-                }
-                .pointerInput(isSeekable, duration) {
-                    if (!isSeekable) return@pointerInput
-                    detectDragGestures(
-                        onDragStart = { offset ->
-                            isDragging = true
-                            dragPositionRatio = (offset.x / size.width).coerceIn(0f, 1f)
-                        },
-                        onDragEnd = {
-                            val target = dragPositionRatio.toDouble() * duration
-                            onSeek(target)
+                    if (!isSeekable || duration <= 0.0) return@pointerInput
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        isDragging = true
+                        onScrubbingStateChange?.invoke(true)
+                        var currentRatio = (down.position.x / size.width).coerceIn(0f, 1f)
+                        dragPositionRatio = currentRatio
+
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                change.consume()
+                                if (!change.pressed) {
+                                    val target = currentRatio.toDouble() * duration
+                                    onSeek(target)
+                                    break
+                                }
+                                currentRatio = (change.position.x / size.width).coerceIn(0f, 1f)
+                                dragPositionRatio = currentRatio
+                            }
+                        } finally {
                             isDragging = false
-                        },
-                        onDragCancel = { isDragging = false },
-                        onDrag = { change, _ ->
-                            dragPositionRatio = (change.position.x / size.width).coerceIn(0f, 1f)
+                            onScrubbingStateChange?.invoke(false)
                         }
-                    )
+                    }
                 },
             contentAlignment = Alignment.CenterStart
         ) {
