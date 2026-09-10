@@ -4,7 +4,9 @@ name: Android Release
 # never fire on an ordinary push/PR. Requires ANDROID_KEYSTORE_BASE64,
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD
 # repo secrets (a base64-encoded release keystore + its passwords) - none of
-# which exist yet as of this workflow being added. See BUILD-1 in TODO.md.
+# which have not been provisioned yet - no release keystore has been
+# generated for this project. Generate one and add it as these four repo
+# secrets before running this workflow.
 on:
   workflow_dispatch:
     inputs:

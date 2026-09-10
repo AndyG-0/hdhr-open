@@ -109,7 +109,8 @@ def enforce_rule_retention_sync(rule_id: str, max_episodes: int) -> int:
 
     deleted_count = 0
     for r in matching[:excess]:
-        if delete_local_recording_sync(r["id"], reason=f"per-rule retention limit ({max_episodes} episodes) for rule '{rule_title}'"):
+        reason = f"per-rule retention limit ({max_episodes} episodes) for rule '{rule_title}'"
+        if delete_local_recording_sync(r["id"], reason=reason):
             deleted_count += 1
 
     logger.info("Enforced retention for rule %s ('%s'): deleted %d old episodes", rule_id, rule_title, deleted_count)

@@ -170,7 +170,13 @@ async def start_watch(
     await capture_pipeline.add_viewer(capture.recording_id, session_id)
     async with _lock:
         _sessions[session_id] = _WatchSession(
-            session_id, capture.recording_id, channel_number, now, user_id=user_id, user_name=user_name, client_ip=client_ip
+            session_id,
+            capture.recording_id,
+            channel_number,
+            now,
+            user_id=user_id,
+            user_name=user_name,
+            client_ip=client_ip,
         )
     return {"recording_id": capture.recording_id, "session_id": session_id}
 
@@ -344,7 +350,9 @@ async def finalize_capture_release(recording_id: str, channel_number: str) -> No
     DVREngine.tick() (safety-cap end_ts reached)."""
     await capture_pipeline.stop_capture(recording_id)
     await tuner_allocator.release_channel(channel_number)
-    await delete_local_recording(recording_id, reason="discarded ephemeral watch-buffer capture (never promoted to a saved recording)")
+    await delete_local_recording(
+        recording_id, reason="discarded ephemeral watch-buffer capture (never promoted to a saved recording)"
+    )
     async with _lock:
         for sid in [sid for sid, s in _sessions.items() if s.recording_id == recording_id]:
             _sessions.pop(sid, None)

@@ -372,7 +372,9 @@ def test_parse_messages_reconstructs_tool_history():
     )
 
     assert [m.role for m in messages] == ["user", "assistant", "tool", "user"]
-    assert messages[1].tool_calls == [ToolCallRequest(id="call_1", name="search_guide", arguments={"query": "football"})]
+    assert messages[1].tool_calls == [
+        ToolCallRequest(id="call_1", name="search_guide", arguments={"query": "football"})
+    ]
     assert messages[2].tool_result.tool_call_id == "call_1"
     assert messages[2].tool_result.content == {"results": [{"title": "Alabama at Georgia"}], "total_matches": 1}
 

@@ -60,13 +60,17 @@ class DVREngine:
             rec_id = r["id"]
             if r.get("is_temporary"):
                 if _capture_file_is_still_growing(r.get("file_path")):
-                    logger.info("Startup recovery: leaving live-watch capture [%s] alone - still actively writing", rec_id)
+                    logger.info(
+                        "Startup recovery: leaving live-watch capture [%s] alone - still actively writing", rec_id
+                    )
                     continue
                 # A live-watch auto-capture that was never promoted before the
                 # process died - discard it like any other unpromoted watch
                 # session rather than finalizing it as a permanent recording.
                 logger.info("Startup recovery: discarding orphaned live-watch capture [%s]", rec_id)
-                await delete_local_recording(rec_id, reason="startup recovery: orphaned live-watch capture from a prior process crash")
+                await delete_local_recording(
+                    rec_id, reason="startup recovery: orphaned live-watch capture from a prior process crash"
+                )
                 continue
             file_path = r.get("file_path")
             file_size = 0
@@ -150,7 +154,14 @@ class DVREngine:
                 # a second tuner/ffmpeg for the same channel.
                 recording_id = uuid.uuid4().hex
 
-                async def _create_capture() -> ActiveCapture | None:
+                async def _create_capture(
+                    sched=sched,
+                    recording_id=recording_id,
+                    ch_num=ch_num,
+                    ch_name=ch_name,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                ) -> ActiveCapture | None:
                     allocated = await tuner_allocator.acquire_tuner(recording_id, ch_num, settings)
                     if not allocated:
                         logger.warning(

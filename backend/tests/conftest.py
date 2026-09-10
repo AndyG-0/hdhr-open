@@ -50,6 +50,20 @@ def _isolate_hls_session_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(hls_streaming, "HLS_SESSION_DIR", session_dir)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_recordings_dir(tmp_path, monkeypatch):
+    """app.api.dvr_streaming constrains a client-supplied recording `url` to
+    resolve inside RECORDINGS_DIR before treating it as a local file path
+    (see _resolve_target_media_url) - tests that build a fake recording file
+    under tmp_path need RECORDINGS_DIR pointed there too, or that
+    containment check would reject them the same way it rejects a real
+    attacker-supplied path outside the real recordings directory. dvr_streaming
+    reads config.RECORDINGS_DIR as a module attribute at call time (not a
+    bound import), so patching it here is enough - no per-module patching
+    needed the way HLS_SESSION_DIR above requires."""
+    monkeypatch.setattr(config, "RECORDINGS_DIR", tmp_path)
+
+
 @pytest.fixture
 def tmp_db(tmp_path, monkeypatch):
     """Point app.storage.db at an isolated sqlite file for this test.

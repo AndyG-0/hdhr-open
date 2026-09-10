@@ -239,9 +239,23 @@ def run_ccextractor_pipeline(recording: Path, duration: int) -> list[FlushedCue]
     blocks are the CEA-608 track and are what we compare, matching the
     ffmpeg path above.
     """
-    escaped = str(recording).replace("\\", "\\\\").replace("'", "'\\''")
     feeder = subprocess.Popen(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-re", "-i", str(recording), "-t", str(duration), "-c", "copy", "-f", "mpegts", "-"],
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-re",
+            "-i",
+            str(recording),
+            "-t",
+            str(duration),
+            "-c",
+            "copy",
+            "-f",
+            "mpegts",
+            "-",
+        ],
         stdout=subprocess.PIPE,
     )
     start_wall = time.monotonic()

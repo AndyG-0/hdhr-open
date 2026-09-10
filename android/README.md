@@ -161,9 +161,8 @@ present.
 workflow that builds a signed release APK and publishes it to a GitHub
 Release, given a version name input. It needs four repository secrets that
 don't exist yet - **do not add these without deliberately generating and
-backing up a real release keystore first**; see [BUILD-1 in
-`TODO.md`](../TODO.md) for why this is treated as a separate, explicit step
-rather than something to wire up casually:
+backing up a real release keystore first**; this is a separate, explicit
+step, not something to wire up casually:
 - `ANDROID_KEYSTORE_BASE64` - `base64 -i your-release-key.jks | pbcopy` (macOS)
   output of the keystore file
 - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`

@@ -287,7 +287,11 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest, response: R
                     return await list_recording_rules()
                 except hdhomerun_client.HDHomeRunError as exc:
                     logger.info("Official DVR rejected rule creation (%s); falling back to Built-in DVR", exc)
-                    fallback_reason = "guide_series_id_missing" if ("SeriesID" in str(exc) or not series_id or series_id == "auto") else str(exc)
+                    fallback_reason = (
+                        "guide_series_id_missing"
+                        if ("SeriesID" in str(exc) or not series_id or series_id == "auto")
+                        else str(exc)
+                    )
                     continue
             elif preferred_server == "hdhomerun":
                 raise HTTPException(status_code=400, detail="HDHomeRun DVR is not configured")
@@ -464,7 +468,9 @@ async def update_recording_rule(rule_id: str, payload: RecordingRuleUpdateReques
         if "max_episodes_to_keep" in set_fields:
             update_fields["max_episodes_to_keep"] = payload.max_episodes_to_keep
         if payload.title_match_mode is not None:
-            update_fields["title_match_mode"] = payload.title_match_mode if payload.title_match_mode == "contains" else "exact"
+            update_fields["title_match_mode"] = (
+                payload.title_match_mode if payload.title_match_mode == "contains" else "exact"
+            )
         if "keyword_query" in set_fields:
             update_fields["keyword_query"] = payload.keyword_query
         if payload.title is not None:

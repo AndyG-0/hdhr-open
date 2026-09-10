@@ -170,7 +170,12 @@ class OpenAIClient(BaseAIClient):
                             if retriable and tools and "reasoning_effort" in detail:
                                 body["reasoning_effort"] = "none"
                                 continue
-                            if retriable and "temperature" in body and "'temperature'" in detail and "does not support" in detail:
+                            if (
+                                retriable
+                                and "temperature" in body
+                                and "'temperature'" in detail
+                                and "does not support" in detail
+                            ):
                                 del body["temperature"]
                                 continue
                             yield StreamEvent(type="error", text=f"HTTP {resp.status_code}: {detail}")

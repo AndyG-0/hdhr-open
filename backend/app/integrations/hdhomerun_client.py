@@ -28,6 +28,7 @@ import struct
 import time
 import zlib
 from typing import Any
+from urllib.parse import urlsplit
 
 import asyncssh
 import httpx
@@ -125,6 +126,22 @@ def resolve_recording_url(settings: dict[str, Any], url: str) -> str:
         dvr_host = _normalize_host(settings.get("dvr_host") or settings.get("tuner_host", ""))
         port = settings.get("dvr_port") or 59090
         return f"http://{dvr_host}:{port}/{url}"
+    # A fully-qualified URL only ever legitimately points at one of the
+    # devices this deployment is configured for (the tuner or the DVR
+    # host) - it reaches an outbound fetch (recording-stream proxy) or an
+    # ffmpeg/ffprobe input with no other check downstream. Since `url` is
+    # client-supplied at request time (not re-derived server-side from
+    # list_recordings()), trusting an arbitrary http(s) URL here would be
+    # an SSRF: any authenticated household member could point the backend
+    # at an internal/LAN service of their choosing.
+    allowed_hosts = {
+        _normalize_host(settings.get("tuner_host", "")),
+        _normalize_host(settings.get("dvr_host", "") or settings.get("tuner_host", "")),
+    }
+    allowed_hosts.discard("")
+    requested_host = _normalize_host(urlsplit(url).hostname or "")
+    if not requested_host or requested_host not in allowed_hosts:
+        raise HDHomeRunError(f"Refusing to resolve recording URL with untrusted host: {requested_host or url}")
     return url
 
 
@@ -267,7 +284,9 @@ async def set_tuner_variable(
                     logger.warning("HDHomeRun command (%s = %s) rejected by %s: %s", variable, value, host, err_msg)
                     return False
                 val_msg = tlvs.get(HDHOMERUN_TAG_GETSET_VALUE, b"").decode("ascii", errors="replace").rstrip("\x00")
-                logger.info("Successfully set HDHomeRun variable %s = %s on %s (reply: %s)", variable, value, host, val_msg)
+                logger.info(
+                    "Successfully set HDHomeRun variable %s = %s on %s (reply: %s)", variable, value, host, val_msg
+                )
                 return True
         finally:
             writer.close()
@@ -362,7 +381,12 @@ def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[s
     else:
         audio_str = None
 
-    is_new = bool(entry.get("First") or entry.get("New") or entry.get("IsNew") or entry.get("OriginalAirdate") == entry.get("Airdate"))
+    is_new = bool(
+        entry.get("First")
+        or entry.get("New")
+        or entry.get("IsNew")
+        or entry.get("OriginalAirdate") == entry.get("Airdate")
+    )
     has_cc = bool(entry.get("CC") or entry.get("ClosedCaption") or True)
 
     return {
@@ -808,7 +832,11 @@ async def add_recording_rule(settings: dict[str, Any], rule_data: dict[str, Any]
             response = await client.post(_RULES_URL, data=post_data)
         if response.status_code >= 400:
             err_msg = _extract_http_error(response, "Add recording rule")
-            logger.warning("HDHomeRun rules API error: %s (params: %s)", err_msg, {k: v for k, v in post_data.items() if k != "DeviceAuth"})
+            logger.warning(
+                "HDHomeRun rules API error: %s (params: %s)",
+                err_msg,
+                {k: v for k, v in post_data.items() if k != "DeviceAuth"},
+            )
             raise HDHomeRunError(err_msg)
         rules = response.json()
     except (httpx.HTTPError, ValueError) as exc:
@@ -850,7 +878,9 @@ async def delete_recording_rule(settings: dict[str, Any], rule_id: str) -> list[
     return rules
 
 
-async def update_recording_rule(settings: dict[str, Any], rule_id: str, rule_data: dict[str, Any]) -> list[dict[str, Any]]:
+async def update_recording_rule(
+    settings: dict[str, Any], rule_id: str, rule_data: dict[str, Any]
+) -> list[dict[str, Any]]:
     if not is_tuner_configured(settings):
         raise HDHomeRunError("Tuner is not configured")
 

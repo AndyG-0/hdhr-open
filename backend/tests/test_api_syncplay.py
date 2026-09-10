@@ -198,8 +198,7 @@ def test_syncplay_host_election_on_disconnect(tmp_db):
         _login(peer_client, "PeerBob")
 
         with client.websocket_connect(f"/api/syncplay/ws/{room_code}") as ws_host:
-            host_state = ws_host.receive_json()
-            host_session_id = host_state["your_session_id"]
+            ws_host.receive_json()
 
             with peer_client.websocket_connect(f"/api/syncplay/ws/{room_code}") as ws_peer:
                 peer_state = ws_peer.receive_json()

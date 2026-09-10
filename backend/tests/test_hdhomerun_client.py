@@ -304,11 +304,20 @@ def test_resolve_recording_url_falls_back_to_tuner_host_when_dvr_host_empty():
     )
 
 
-def test_resolve_recording_url_preserves_absolute_http_url():
+def test_resolve_recording_url_preserves_absolute_http_url_for_configured_host():
     assert (
-        hdhomerun_client.resolve_recording_url(TUNER_SETTINGS, "http://192.168.1.50:50000/recorded/123")
-        == "http://192.168.1.50:50000/recorded/123"
+        hdhomerun_client.resolve_recording_url(DVR_SETTINGS, "http://dvr.local:50000/recorded/123")
+        == "http://dvr.local:50000/recorded/123"
     )
+
+
+def test_resolve_recording_url_rejects_absolute_http_url_for_untrusted_host():
+    """A fully-qualified `url` is only trusted when it points at the
+    configured tuner/DVR host - otherwise a client could point the backend
+    at an arbitrary LAN/internal service (SSRF) via a param that looks like
+    a legitimate recording URL."""
+    with pytest.raises(hdhomerun_client.HDHomeRunError):
+        hdhomerun_client.resolve_recording_url(TUNER_SETTINGS, "http://192.168.1.50:50000/recorded/123")
 
 
 def test_resolve_recording_url_resolves_tuner_stream():
@@ -541,7 +550,9 @@ async def test_update_recording_rule_official():
         return_value=httpx.Response(200, json={"DeviceAuth": "AUTH123"})
     )
     rules_route = respx.post("https://api.hdhomerun.com/api/recording_rules").mock(
-        return_value=httpx.Response(200, json=[{"RecordingRuleID": "rule_off_1", "SeriesID": "EP123", "StartPadding": 300}])
+        return_value=httpx.Response(
+            200, json=[{"RecordingRuleID": "rule_off_1", "SeriesID": "EP123", "StartPadding": 300}]
+        )
     )
 
     result = await hdhomerun_client.update_recording_rule(

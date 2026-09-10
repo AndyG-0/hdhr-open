@@ -66,7 +66,9 @@ async def test_search_guide_matches_title_case_insensitively(tmp_db):
 async def test_search_guide_matches_synopsis(tmp_db):
     channel_id = _seed_channel()
     now = time.time()
-    _seed_program(channel_id, title="Some Show", start_ts=now + 3600, end_ts=now + 5400, synopsis="A documentary about sharks")
+    _seed_program(
+        channel_id, title="Some Show", start_ts=now + 3600, end_ts=now + 5400, synopsis="A documentary about sharks"
+    )
 
     result = await ai_guide.search_guide(query="sharks")
 

@@ -21,7 +21,9 @@ async def _enrich_tuner_status(
     tuners: list[dict[str, Any]], settings: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     enriched = []
-    dvr_host = hdhomerun_client._normalize_host(settings.get("dvr_host")) if settings and settings.get("dvr_host") else None
+    dvr_host = (
+        hdhomerun_client._normalize_host(settings.get("dvr_host")) if settings and settings.get("dvr_host") else None
+    )
 
     for tuner in tuners:
         tuner_copy = dict(tuner)
@@ -51,7 +53,10 @@ async def _enrich_tuner_status(
                 }
                 tuner_copy["warning"] = {
                     "severity": "danger",
-                    "message": f"Tuner {tuner_copy['index']} is currently recording '{title}'. Terminating will stop and save this recording early.",
+                    "message": (
+                        f"Tuner {tuner_copy['index']} is currently recording '{title}'. "
+                        "Terminating will stop and save this recording early."
+                    ),
                 }
             else:
                 # Live watch session
@@ -69,7 +74,8 @@ async def _enrich_tuner_status(
                     "name": viewer_names,
                     "ip": viewers[0]["client_ip"] if viewers else None,
                     "hostname": None,
-                    "details": f"Live TV on {ch_num}" + (f" ({capture.title})" if capture.title and capture.title != capture.channel_name else ""),
+                    "details": f"Live TV on {ch_num}"
+                    + (f" ({capture.title})" if capture.title and capture.title != capture.channel_name else ""),
                     "recording_id": capture.recording_id,
                     "scheduled_id": None,
                     "is_recording": False,
@@ -77,7 +83,10 @@ async def _enrich_tuner_status(
                 }
                 tuner_copy["warning"] = {
                     "severity": "warning",
-                    "message": f"Tuner {tuner_copy['index']} is in use for Live TV ({viewer_names}). Terminating will disconnect active viewers.",
+                    "message": (
+                        f"Tuner {tuner_copy['index']} is in use for Live TV ({viewer_names}). "
+                        "Terminating will disconnect active viewers."
+                    ),
                 }
         else:
             # External client or hardware lock
@@ -90,8 +99,14 @@ async def _enrich_tuner_status(
             dvr_ssh_viewers: list[dict[str, Any]] = []
             if is_dvr_server:
                 display_name = f"HDHomeRun RECORD ({target_ip})"
-                details = f"Official HDHomeRun RECORD engine on {target_ip} (proxies streams for official apps on iPhone, Apple TV, Android, etc.)"
-                warning_message = f"Tuner {tuner_copy['index']} is streaming through the official HDHomeRun RECORD engine on {target_ip}. Terminating will disconnect official app viewers or stop an active recording."
+                details = (
+                    f"Official HDHomeRun RECORD engine on {target_ip} "
+                    "(proxies streams for official apps on iPhone, Apple TV, Android, etc.)"
+                )
+                warning_message = (
+                    f"Tuner {tuner_copy['index']} is streaming through the official HDHomeRun RECORD engine on "
+                    f"{target_ip}. Terminating will disconnect official app viewers or stop an active recording."
+                )
 
                 if settings and hdhomerun_client.is_dvr_ssh_configured(settings):
                     ssh_clients = await hdhomerun_client.fetch_dvr_ssh_clients(settings)
@@ -110,11 +125,17 @@ async def _enrich_tuner_status(
             elif target_ip:
                 display_name = f"{target_ip} ({hostname})" if hostname else target_ip
                 details = f"External stream to {display_name}"
-                warning_message = f"Tuner {tuner_copy['index']} is streaming to external client {display_name}. Terminating will force the HDHomeRun hardware to clear the target and release the tuner."
+                warning_message = (
+                    f"Tuner {tuner_copy['index']} is streaming to external client {display_name}. Terminating "
+                    "will force the HDHomeRun hardware to clear the target and release the tuner."
+                )
             else:
                 display_name = "External client"
                 details = "External client or hardware lock"
-                warning_message = f"Tuner {tuner_copy['index']} is streaming to external client. Terminating will force the HDHomeRun hardware to clear the target and release the tuner."
+                warning_message = (
+                    f"Tuner {tuner_copy['index']} is streaming to external client. Terminating will force the "
+                    "HDHomeRun hardware to clear the target and release the tuner."
+                )
 
             tuner_copy["client"] = {
                 "type": "dvr_proxy" if is_dvr_server else "external",

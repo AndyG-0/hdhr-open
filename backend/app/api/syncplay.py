@@ -82,7 +82,9 @@ class SyncPlayRoom:
         self.created_at = time.time()
         self.content = content
         self.host_session_id = host_session_id
-        self.playback_state = SyncPlayPlaybackState(is_playing=False, position=0.0, playback_rate=1.0, updated_at=time.time())
+        self.playback_state = SyncPlayPlaybackState(
+            is_playing=False, position=0.0, playback_rate=1.0, updated_at=time.time()
+        )
         self.participants: dict[str, SyncPlayParticipant] = {}
         self.connections: dict[str, WebSocket] = {}
         self.empty_since: float | None = None

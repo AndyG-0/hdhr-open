@@ -459,7 +459,9 @@ def test_terminate_tuner_scheduled_recording(client, tmp_db, monkeypatch):
     release_tuner_mock = AsyncMock(return_value=True)
     release_hw_mock = AsyncMock(return_value=True)
 
-    monkeypatch.setattr(tuner_api.capture_pipeline, "get_active_capture_by_channel", AsyncMock(return_value=fake_capture))
+    monkeypatch.setattr(
+        tuner_api.capture_pipeline, "get_active_capture_by_channel", AsyncMock(return_value=fake_capture)
+    )
     monkeypatch.setattr(tuner_api.capture_pipeline, "stop_capture", stop_capture_mock)
     monkeypatch.setattr(tuner_api.tuner_allocator, "release_tuner", release_tuner_mock)
     monkeypatch.setattr(tuner_api.hdhomerun_client, "release_hardware_tuner", release_hw_mock)
@@ -500,7 +502,9 @@ def test_terminate_tuner_live_watch(client, tmp_db, monkeypatch):
     finalize_mock = AsyncMock(return_value=None)
     release_hw_mock = AsyncMock(return_value=True)
 
-    monkeypatch.setattr(tuner_api.capture_pipeline, "get_active_capture_by_channel", AsyncMock(return_value=fake_capture))
+    monkeypatch.setattr(
+        tuner_api.capture_pipeline, "get_active_capture_by_channel", AsyncMock(return_value=fake_capture)
+    )
     monkeypatch.setattr(tuner_api.watch, "finalize_capture_release", finalize_mock)
     monkeypatch.setattr(tuner_api.hdhomerun_client, "release_hardware_tuner", release_hw_mock)
 

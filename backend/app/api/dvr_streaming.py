@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app import hls_streaming, media_probe, transcoding
+from app import config, hls_streaming, media_probe, transcoding
 from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.dvr import edl_parser
@@ -153,8 +153,20 @@ def _resolve_target_media_url(
     an official DVR happens to also be configured.
     """
     if url:
-        p = Path(url)
-        if p.exists() and p.is_file():
+        # A local path is only ever trusted if it resolves inside
+        # RECORDINGS_DIR - client-supplied `url` otherwise reaches ffmpeg,
+        # ffprobe, and FileResponse below, so an unconstrained path here is
+        # an arbitrary local file read (e.g. `url=backend/secret.key`).
+        # Legitimate local playback URLs always come from list_recordings(),
+        # which only ever hands out paths already confined to
+        # RECORDINGS_DIR; a remote HDHomeRun-DVR URL never matches this
+        # branch since Path(url).exists() is false for an http(s):// value.
+        p = Path(url).resolve()
+        try:
+            p.relative_to(config.RECORDINGS_DIR.resolve())
+        except ValueError:
+            p = None
+        if p is not None and p.exists() and p.is_file():
             return str(p)
 
     if recording_id:
@@ -200,7 +212,10 @@ def _resolve_target_media_url(
                 detail=f"Recording not found: {recording_id}",
             )
 
-    return hdhomerun_client.resolve_recording_url(settings, url)
+    try:
+        return hdhomerun_client.resolve_recording_url(settings, url)
+    except hdhomerun_client.HDHomeRunError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 _TS_PACKET_SIZE = 188

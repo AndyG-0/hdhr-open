@@ -342,7 +342,7 @@ def resolve_guide_programs(
         if merged_rows:
             # Build an index of other provider airings on this channel that have external_program_id
             enrichment_candidates: list[dict[str, Any]] = []
-            for p, p_rows in by_provider.items():
+            for _p, p_rows in by_provider.items():
                 for pr in p_rows:
                     if pr.get("external_program_id"):
                         enrichment_candidates.append(pr)

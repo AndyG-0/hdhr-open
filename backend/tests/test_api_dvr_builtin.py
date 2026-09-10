@@ -565,7 +565,9 @@ def test_create_recording_rule_hdhomerun_auto_resolves_series_id_from_cloud_guid
         ]
     )
 
-    mock_add = AsyncMock(return_value=[{"RecordingRuleID": "rule_off_jeop", "SeriesID": "EP_JEOP_999", "Provider": "hdhomerun"}])
+    mock_add = AsyncMock(
+        return_value=[{"RecordingRuleID": "rule_off_jeop", "SeriesID": "EP_JEOP_999", "Provider": "hdhomerun"}]
+    )
     monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
 
     payload = {
@@ -587,7 +589,9 @@ def test_create_recording_rule_hdhomerun_fallback_on_client_error(client, tmp_db
 
     db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
 
-    mock_add = AsyncMock(side_effect=hdhomerun_client.HDHomeRunError("Add recording rule failed (HTTP 400): Airing not found"))
+    mock_add = AsyncMock(
+        side_effect=hdhomerun_client.HDHomeRunError("Add recording rule failed (HTTP 400): Airing not found")
+    )
     monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
 
     payload = {
@@ -1138,6 +1142,30 @@ def _fake_transcode_process() -> MagicMock:
     proc.stderr = MagicMock()
     proc.stderr.read = AsyncMock(return_value=b"")
     return proc
+
+
+def test_resolve_target_media_url_trusts_path_inside_recordings_dir(tmp_db, tmp_path):
+    video_file = tmp_path / "trusted_recording.ts"
+    video_file.write_bytes(b"video-bytes")
+
+    resolved = dvr_streaming._resolve_target_media_url({"tuner_host": "", "dvr_host": ""}, str(video_file))
+
+    assert resolved == str(video_file)
+
+
+def test_resolve_target_media_url_does_not_trust_path_outside_recordings_dir(tmp_db, tmp_path_factory):
+    """Regression test for an arbitrary local file read: a client-supplied
+    `url` pointing at a real file outside RECORDINGS_DIR (e.g.
+    `url=/app/backend/secret.key`) must never be returned as the resolved
+    local path, even though the file genuinely exists on disk - see
+    _resolve_target_media_url's containment check against RECORDINGS_DIR."""
+    outside_dir = tmp_path_factory.mktemp("outside_recordings_dir")
+    secret_like_file = outside_dir / "secret.key"
+    secret_like_file.write_bytes(b"super-secret-key-material")
+
+    resolved = dvr_streaming._resolve_target_media_url({"tuner_host": "", "dvr_host": ""}, str(secret_like_file))
+
+    assert resolved != str(secret_like_file.resolve())
 
 
 def test_recording_stream_proceeds_immediately_once_capture_has_data(client, tmp_db, tmp_path, monkeypatch):
