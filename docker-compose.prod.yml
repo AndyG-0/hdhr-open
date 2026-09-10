@@ -17,8 +17,9 @@ services:
       # previously-cached recording.
       - HDHOMERUN_MEDIA_CACHE_DIR=/app/data/hdhomerun_media_cache
       # Where the self-hosted ("builtin") DVR engine writes recorded files.
-      # Point this at a bind-mounted NAS/large-disk path in production —
-      # named-volume storage isn't sized for hours of recordings.
+      # Named-volume storage isn't sized for hours of recordings — set
+      # RECORDINGS_PATH (see the volumes: block below) to a bind-mounted
+      # NAS/large-disk host path in production.
       - RECORDINGS_DIR=/app/data/recordings
       # Same reasoning again: without this, rotated backend log files
       # (backend/app/logging_config.py) default to /app/logs, outside the
@@ -35,7 +36,14 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
     volumes:
       - ./backend/.env:/app/.env
-      - backend-storage:/app/data
+      # CONFIG_PATH/RECORDINGS_PATH let you redirect either piece to a host
+      # path (e.g. CONFIG_PATH=/srv/hdhropen/config, RECORDINGS_PATH=/mnt/nas/tv
+      # in the .env file next to this compose file) instead of the default
+      # Docker-managed named volumes. The container runs as a fixed non-root
+      # uid/gid 1000 ("hdhropen", see Dockerfile) with no supplementary
+      # groups, so any host directory used here must be writable by uid 1000.
+      - ${CONFIG_PATH:-backend-storage}:/app/data
+      - ${RECORDINGS_PATH:-recordings-storage}:/app/data/recordings
     # Uncomment to enable the "qsv"/"vaapi" hwaccel presets
     # (app/transcoding.py) — the image bundles the VA-API/QSV driver
     # packages (see backend/Dockerfile), but a container has no access to
@@ -67,6 +75,25 @@ services:
     #   * Some Intel setups need the driver named explicitly. If vainfo
     #     reports no driver, add LIBVA_DRIVER_NAME=iHD (Intel Gen8+),
     #     i965 (older Intel) or radeonsi (AMD) to the environment above.
+    #
+    # Uncomment instead (not in addition — pick the block matching your GPU)
+    # to enable the "nvenc" hwaccel preset on a host with an NVIDIA GPU.
+    # Requires the NVIDIA Container Toolkit installed on the host
+    # (`nvidia-ctk runtime configure --runtime=docker` then restart Docker)
+    # — see docs/hardware-acceleration.md. This does NOT need Swarm mode:
+    # `docker compose up` (Compose V2) honors `deploy.resources.reservations`
+    # directly. Also add `- NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`
+    # to the `environment:` list above — without it, the toolkit's default
+    # capability set (compute,utility) doesn't inject libnvidia-encode.so
+    # into the container, and h264_nvenc fails to load even with the GPU
+    # visible.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
@@ -100,3 +127,4 @@ services:
 
 volumes:
   backend-storage:
+  recordings-storage:

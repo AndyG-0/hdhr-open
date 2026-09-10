@@ -114,6 +114,11 @@ RUN BLD_FLAGS="-std=gnu99 -Wno-write-strings -Wno-pointer-sign -D_FILE_OFFSET_BI
 # --- runtime image -----------------------------------------------------------
 FROM python:3.12-slim
 
+# Set by buildx automatically (also honored by plain `docker build`/`docker
+# compose build` under BuildKit, the default since Docker 23) — used below to
+# skip the amd64-only jellyfin-ffmpeg install on arm64/Raspberry Pi builds.
+ARG TARGETARCH
+
 # Required for the "server_transcode" playback mode, which shells out to a
 # bare `ffmpeg` on PATH (see app/api/streaming.py) — the slim base image
 # doesn't ship it.
@@ -134,6 +139,39 @@ FROM python:3.12-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg va-driver-all vainfo \
     && rm -rf /var/lib/apt/lists/*
+
+# --- jellyfin-ffmpeg (amd64 only): unlocks the "nvenc" hwaccel preset ------
+#
+# Debian's own `ffmpeg` package (installed above) has no h264_nvenc encoder
+# compiled in: NVIDIA's encode SDK headers (nv-codec-headers) are
+# proprietary/nonfree, so Debian's mainline ffmpeg build excludes them
+# entirely — unlike va-driver-all above, this isn't a missing driver
+# package, it's a build-time exclusion in ffmpeg itself. jellyfin-ffmpeg
+# ships a build with nvenc (and vaapi/qsv, same as above) compiled in, so
+# swap it in for amd64 builds only — NVIDIA GPUs aren't an arm64/Raspberry
+# Pi scenario, and jellyfin-ffmpeg's arm64 packages have historically
+# lagged behind amd64 for a given Debian codename. Symlinking over
+# /usr/local/bin means every existing `subprocess` call to bare
+# "ffmpeg"/"ffprobe" (app/api/streaming.py, app/api/dvr_streaming.py,
+# app/hwaccel.py, ...) picks it up with no code changes.
+#
+# This does NOT bundle the NVIDIA driver itself — libnvidia-encode.so still
+# has to come from the host at container-runtime via the NVIDIA Container
+# Toolkit (see the commented `deploy:`/`environment:` block in
+# docker-compose.yml and docs/hardware-acceleration.md).
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        apt-get update \
+        && apt-get install -y --no-install-recommends curl gnupg \
+        && curl -fsSL https://repo.jellyfin.org/jellyfin_team.gpg.key | gpg --dearmor -o /usr/share/keyrings/jellyfin.gpg \
+        && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/jellyfin.gpg] https://repo.jellyfin.org/debian bookworm main" > /etc/apt/sources.list.d/jellyfin.list \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends jellyfin-ffmpeg7 \
+        && ln -sf /usr/lib/jellyfin-ffmpeg/ffmpeg /usr/local/bin/ffmpeg \
+        && ln -sf /usr/lib/jellyfin-ffmpeg/ffprobe /usr/local/bin/ffprobe \
+        && apt-get purge -y curl gnupg \
+        && apt-get autoremove -y \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # ccextractor's own runtime shared-lib deps for a BUILD_TYPE=minimal build
 # (docker/Dockerfile's `final` stage) — libgpac itself comes from the
