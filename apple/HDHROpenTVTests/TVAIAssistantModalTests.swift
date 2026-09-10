@@ -238,16 +238,36 @@ final class TVAIAssistantModalTests: XCTestCase {
         let exp1 = sut.inspection.inspect(after: 0) { view in
             try view.find(button: suggestion).tap()
         }
-        let exp2 = sut.inspection.inspect(after: 0.5) { view in
-            try view.find(button: "Cancel").tap()
+
+        // The cancel button's render lands at a variable, sometimes multi-second
+        // offset in CI rather than a fixed one. Poll for it across several
+        // scheduled inspections and tap on the first one where it's found, rather
+        // than gambling on one fixed delay being "long enough". Each retry needs
+        // its own source line: ViewInspector's Inspection helper keys its
+        // callback dictionary by call-site line number, so a loop registering
+        // multiple inspect(after:) calls from one line silently drops all but
+        // the last.
+        var didTapCancel = false
+        func tapCancelButtonIfFound(_ view: InspectableView<ViewType.View<TVAIAssistantModal>>) throws {
+            guard !didTapCancel else { return }
+            guard let button = try? view.find(button: "Cancel") else { return }
+            try button.tap()
+            didTapCancel = true
         }
-        let exp3 = sut.inspection.inspect(after: 1.0) { view in
+        let tap1 = sut.inspection.inspect(after: 0.5) { view in try tapCancelButtonIfFound(view) }
+        let tap2 = sut.inspection.inspect(after: 1.0) { view in try tapCancelButtonIfFound(view) }
+        let tap3 = sut.inspection.inspect(after: 1.5) { view in try tapCancelButtonIfFound(view) }
+        let tap4 = sut.inspection.inspect(after: 2.0) { view in try tapCancelButtonIfFound(view) }
+        let tap5 = sut.inspection.inspect(after: 2.5) { view in try tapCancelButtonIfFound(view) }
+
+        let expFinal = sut.inspection.inspect(after: 3.0) { view in
+            XCTAssertTrue(didTapCancel, "Never found the cancel button to tap")
             XCTAssertNoThrow(try view.find(text: "Action cancelled."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        await fulfillment(of: [exp1, tap1, tap2, tap3, tap4, tap5, expFinal], timeout: 5)
     }
 
     // MARK: - Tool-name humanization
