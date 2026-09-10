@@ -176,7 +176,7 @@ final class iOSAIAssistantSheetTests: XCTestCase {
             try view.find(button: suggestion).tap()
         }
         let exp2 = sut.inspection.inspect(after: 0.5) { view in
-            try view.find(ViewType.Button.self, where: { try $0.accessibilityIdentifier() == "ai-action-confirm-button" }).tap()
+            try view.find(viewWithAccessibilityIdentifier: "ai-action-confirm-button").button().tap()
         }
         let exp3 = sut.inspection.inspect(after: 1.0) { view in
             XCTAssertNoThrow(try view.find(text: "Action confirmed and scheduled."))
@@ -196,7 +196,7 @@ final class iOSAIAssistantSheetTests: XCTestCase {
             try view.find(button: suggestion).tap()
         }
         let exp2 = sut.inspection.inspect(after: 0.5) { view in
-            try view.find(ViewType.Button.self, where: { try $0.accessibilityIdentifier() == "ai-action-confirm-button" }).tap()
+            try view.find(viewWithAccessibilityIdentifier: "ai-action-confirm-button").button().tap()
         }
         let exp3 = sut.inspection.inspect(after: 1.0) { view in
             XCTAssertNoThrow(try view.find(text: "Failed to execute action."))
@@ -216,7 +216,7 @@ final class iOSAIAssistantSheetTests: XCTestCase {
             try view.find(button: suggestion).tap()
         }
         let exp2 = sut.inspection.inspect(after: 0.5) { view in
-            try view.find(ViewType.Button.self, where: { try $0.accessibilityIdentifier() == "ai-action-cancel-button" }).tap()
+            try view.find(viewWithAccessibilityIdentifier: "ai-action-cancel-button").button().tap()
         }
         let exp3 = sut.inspection.inspect(after: 1.0) { view in
             XCTAssertNoThrow(try view.find(text: "Action cancelled."))
