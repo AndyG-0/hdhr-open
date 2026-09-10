@@ -1,0 +1,66 @@
+[Unit]
+Description=HDHR Open - backend API
+After=network.target
+
+[Service]
+Type=simple
+User=__HDHROPEN_USER__
+WorkingDirectory=__HDHROPEN_BACKEND_DIR__
+# Runs the synced venv's uvicorn directly rather than `uv run uvicorn`, so
+# start-up doesn't depend on `uv` being able to write to its own cache dir
+# under the read-only sandbox below — `uv sync` (build step) already
+# produced everything this needs.
+ExecStart=__HDHROPEN_BACKEND_DIR__/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+EnvironmentFile=__HDHROPEN_BACKEND_DIR__/.env
+
+# A stuck ffmpeg transcode (server_transcode playback) or a slow DVR
+# operation shouldn't be able to starve the host of memory/CPU. Raise these
+# if a real workload needs more headroom.
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=256
+
+# Sandboxing. ProtectSystem=strict makes the whole filesystem read-only
+# except ReadWritePaths below — which covers storage.db, secret.key, the
+# media cache, recordings, and .env under the backend's own directory. If
+# DB_PATH/RECORDINGS_DIR/etc. are overridden to somewhere outside this tree,
+# add that path here too.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=__HDHROPEN_BACKEND_DIR__
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+# The sandbox above also blocks GPU access, so the "qsv"/"vaapi"/"nvenc"
+# hwaccel presets (app/transcoding.py) need one of the drop-ins below — not
+# shipped enabled because SupplementaryGroups= fails the unit outright on a
+# host with no matching group. Add with `systemctl edit hdhr-open-backend`;
+# see docs/hardware-acceleration.md and deploy/README.md.
+
+# Uncomment for Intel/AMD VAAPI or Quick Sync (qsv/vaapi/vaapi_full presets).
+# Find the render node with `ls /dev/dri` and the group with `getent group render`.
+# DeviceAllow=/dev/dri/renderD128 rw
+# SupplementaryGroups=render
+
+# Uncomment for NVIDIA NVENC. Requires an NVENC-capable ffmpeg on the host
+# (stock Debian/Ubuntu ffmpeg lacks it — see docs/hardware-acceleration.md
+# for a jellyfin-ffmpeg-based host install) and current NVIDIA drivers.
+# DeviceAllow=/dev/nvidia0 rw
+# DeviceAllow=/dev/nvidiactl rw
+# DeviceAllow=/dev/nvidia-uvm rw
+# SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,41 @@
+[Unit]
+Description=HDHR Open - frontend server
+After=network.target hdhr-open-backend.service
+Requires=hdhr-open-backend.service
+
+[Service]
+Type=simple
+User=__HDHROPEN_USER__
+WorkingDirectory=__HDHROPEN_FRONTEND_DIR__
+Environment=PORT=3000
+Environment=NODE_ENV=production
+Environment=PUBLIC_API_BASE_URL=__HDHROPEN_PUBLIC_API_BASE_URL__
+EnvironmentFile=-__HDHROPEN_FRONTEND_DIR__/.env
+ExecStart=/usr/bin/node build/index.js
+Restart=on-failure
+RestartSec=3
+
+# Lighter cap than the backend — no ffmpeg workload here.
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=128
+
+# Sandboxing. No ReadWritePaths needed: this only serves the already-built
+# `build/` output and doesn't write to disk at runtime.
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

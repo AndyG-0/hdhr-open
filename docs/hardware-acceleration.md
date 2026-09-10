@@ -90,8 +90,8 @@ builds, which does ship `h264_nvenc`.
 ## Barebones (non-Docker) install
 
 Running directly on the host has the same two requirements, just satisfied
-differently — see [`deploy/README.md`](../deploy/README.md#hardware-acceleration)
-for the full walkthrough: installing `ffmpeg`/`va-driver-all`/`vainfo` (or
+differently — see [`deploy/README.md`](../deploy/README.md) for the full
+walkthrough: installing `ffmpeg`/`va-driver-all`/`vainfo` (or
 `jellyfin-ffmpeg` for NVENC) on the host, and the systemd `DeviceAllow=`/
 `SupplementaryGroups=` drop-in needed because the installed service is
 sandboxed by default.

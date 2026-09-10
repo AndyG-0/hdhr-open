@@ -59,9 +59,10 @@ change when the frontend and backend are reachable at different hosts
 For a tagged-image production deployment (pulling from a registry instead of
 building locally), see `docker-compose.prod.yml`.
 
-Hardware-accelerated transcoding (VAAPI/Quick Sync) requires passing
-`/dev/dri` through to the backend container — see the commented block in
-`docker-compose.yml` for the device-passthrough and permissions details.
+Hardware-accelerated transcoding (VAAPI/Quick Sync, or NVENC with an NVIDIA
+GPU) requires passing the right device through to the backend container —
+see [`docs/hardware-acceleration.md`](docs/hardware-acceleration.md) for the
+device-passthrough and permissions details for each.
 
 ### Local development
 
@@ -74,6 +75,20 @@ dev server) on `:5273` — offset from the stock 8000/5173 ports so this can
 run alongside another local project using the defaults. First run copies
 `backend/.env.example` → `backend/.env` and `frontend/.env.example` →
 `frontend/.env` automatically.
+
+### Barebones (no Docker)
+
+For running directly on the host without containers (e.g. a Raspberry Pi
+you don't want to run Docker on):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/andyg-0/hdhr-open/main/deploy/install.sh | bash
+```
+
+Installs system dependencies, builds both services, and runs them as
+systemd services. See [`deploy/README.md`](deploy/README.md) for manual
+setup, updating, uninstalling, and enabling hardware-accelerated
+transcoding outside a container.
 
 ## Network exposure
 
