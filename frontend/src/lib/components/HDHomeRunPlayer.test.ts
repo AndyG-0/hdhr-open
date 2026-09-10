@@ -418,10 +418,13 @@ describe('HDHomeRunPlayer', () => {
 		expect(fetchMock.mock.calls[1][0]).toMatch(/track=2/);
 
 		// Enable the overlay and confirm only the new track's cue is showing.
+		// currentTime stays well inside LIVE_CAPTION_MIN_DISPLAY_SECONDS (1.5s -
+		// the guaranteed floor regardless of cue text length) so the stretched
+		// "Track 2 line" cue is still in its display window.
 		const ccButton = screen.getByRole('button', { name: 'Subtitles / Closed Captions' });
 		await fireEvent.click(ccButton);
 		const video = document.querySelector('video')!;
-		Object.defineProperty(video, 'currentTime', { value: 2, configurable: true });
+		Object.defineProperty(video, 'currentTime', { value: 0.2, configurable: true });
 		await fireEvent(video, new Event('timeupdate'));
 
 		expect(await screen.findByText('Track 2 line')).toBeInTheDocument();
@@ -674,9 +677,11 @@ describe('HDHomeRunPlayer', () => {
 		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
 		// The cue's natural window (1-2s) is already behind currentTime (10s) by
 		// the time it arrives, so instead of silently never activating it gets
-		// rescheduled to start now and held for LIVE_CUE_MIN_DISPLAY_SECONDS.
+		// rescheduled to start now and held for at least
+		// LIVE_CAPTION_MIN_DISPLAY_SECONDS (1.5s - 'Stale' is too short to reach
+		// that floor at LIVE_CAPTION_CPS on its own).
 		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
-		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(14);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(10 + 1.5);
 
 		vi.useRealTimers();
 	});
@@ -724,13 +729,14 @@ describe('HDHomeRunPlayer', () => {
 
 		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
 		// Both cues are stale on arrival, but instead of both piling up at
-		// [10, 14] the second is pushed to start where the first's window
+		// the same slot the second is pushed to start where the first's window
 		// ends, so they play one after another instead of stacking as
-		// multiple simultaneous lines.
+		// multiple simultaneous lines. Both are short ('First'/'Second'), so
+		// each clamps to the LIVE_CAPTION_MIN_DISPLAY_SECONDS (1.5s) floor.
 		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
-		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(14);
-		expect(fakeTextTrack.cues[1].startTime).toBeCloseTo(14);
-		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(18);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(10 + 1.5);
+		expect(fakeTextTrack.cues[1].startTime).toBeCloseTo(10 + 1.5);
+		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(10 + 1.5 * 2);
 
 		vi.useRealTimers();
 	});
@@ -770,21 +776,21 @@ describe('HDHomeRunPlayer', () => {
 		Object.defineProperty(video, 'paused', { value: false, configurable: true });
 		await fireEvent(video, new Event('timeupdate'));
 
-		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.advanceTimersByTimeAsync(500);
 		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
 		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
-		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(14);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(10 + 1.5);
 
-		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.advanceTimersByTimeAsync(500);
 		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
 		// If the second cue's reservation carried over from the first poll's
-		// nextStretchSlotAbsolute (14), it would queue at [14, 18] and every
-		// later cue would drift further ahead of real time with each new poll,
-		// never catching back up - the permanent-freeze bug. Anchoring fresh to
-		// "now" on this separate poll instead puts it right alongside the
-		// first cue, at [10, 14].
+		// nextStretchSlotAbsolute, it would queue right after the first cue's
+		// window and every later cue would drift further ahead of real time
+		// with each new poll, never catching back up - the permanent-freeze
+		// bug. Anchoring fresh to "now" on this separate poll instead puts it
+		// right alongside the first cue, at the same slot.
 		expect(fakeTextTrack.cues[1].startTime).toBeCloseTo(10);
-		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(14);
+		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(10 + 1.5);
 
 		vi.useRealTimers();
 	});
@@ -807,10 +813,14 @@ describe('HDHomeRunPlayer', () => {
 		// well behind the currentTime set below, as if the whole backlog
 		// arrived in one poll.
 		const blocks = [];
+		// Padded to 68 characters so LIVE_CAPTION_CPS (17 cps) yields exactly a
+		// 4s display duration per cue - long enough to actually need reading
+		// time, matching the stagger math below.
+		const padding = 'x'.repeat(63);
 		for (let i = 0; i < 10; i++) {
 			const startS = (31 + i * 0.1).toFixed(3);
 			const endS = (31.1 + i * 0.1).toFixed(3);
-			blocks.push(`00:00:${startS} --> 00:00:${endS}`, `Cue${i}`, '');
+			blocks.push(`00:00:${startS} --> 00:00:${endS}`, `Cue${i} ${padding}`, '');
 		}
 		const vttBacklog = ['WEBVTT', '', ...blocks].join('\n');
 		const fetchMock = vi
@@ -899,6 +909,252 @@ describe('HDHomeRunPlayer', () => {
 		await vi.waitFor(() => expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(11));
 		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(12);
 		expect(fakeTextTrack.cues).toHaveLength(1);
+
+		vi.useRealTimers();
+	});
+
+	it('shows two overlapping stretched cues from separate polls simultaneously, then only the newer one once the older expires', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttEmpty = 'WEBVTT\n\n';
+		// Both short enough to clamp to the LIVE_CAPTION_MIN_DISPLAY_SECONDS
+		// (1.5s) floor, delivered on separate polls close enough together
+		// that their stretched windows genuinely overlap.
+		const vttAlpha = ['WEBVTT', '', '00:00:31.000 --> 00:00:32.000', 'Alpha', ''].join('\n');
+		const vttBravo = [vttAlpha, '00:00:33.000 --> 00:00:34.000', 'Bravo', ''].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttEmpty })
+			.mockResolvedValueOnce({ ok: true, text: async () => vttAlpha })
+			.mockResolvedValueOnce({ ok: true, text: async () => vttBravo });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		const ccButton = await screen.findByRole('button', { name: 'Subtitles / Closed Captions' });
+		await fireEvent.click(ccButton);
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+		Object.defineProperty(video, 'paused', { value: false, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		// Alpha arrives first, stretched to [10, 11.5].
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
+
+		// A little real time passes before Bravo arrives on the next poll -
+		// enough that its stretched window starts after Alpha's but before
+		// Alpha's already ends, so the two genuinely overlap.
+		Object.defineProperty(video, 'currentTime', { value: 10.4, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
+		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(10 + 1.5);
+		expect(fakeTextTrack.cues[1].startTime).toBeCloseTo(10.4);
+		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(10.4 + 1.5);
+
+		// At 10.5, both windows contain the current position - both lines
+		// should render simultaneously.
+		Object.defineProperty(video, 'currentTime', { value: 10.5, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+		expect(await screen.findByText('Alpha')).toBeInTheDocument();
+		expect(screen.getByText('Bravo')).toBeInTheDocument();
+
+		// Once playback moves past Alpha's window (11.5) but is still inside
+		// Bravo's (ends 11.9), only Bravo remains.
+		Object.defineProperty(video, 'currentTime', { value: 11.6, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+		expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
+		expect(screen.getByText('Bravo')).toBeInTheDocument();
+
+		vi.useRealTimers();
+	});
+
+	it('evicts the oldest open cue once a third stretched cue needs a slot, truncating its display window', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttEmpty = 'WEBVTT\n\n';
+		// 51 characters / LIVE_CAPTION_CPS (17) = a 3s natural hold - long
+		// enough that it's still short of that when the cap forces eviction.
+		const longText = 'y'.repeat(51);
+		const vtt1 = ['WEBVTT', '', '00:00:31.000 --> 00:00:32.000', longText, ''].join('\n');
+		const vtt2 = [vtt1, '00:00:31.100 --> 00:00:32.100', longText, ''].join('\n');
+		const vtt3 = [vtt2, '00:00:31.200 --> 00:00:32.200', 'C', ''].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttEmpty })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt1 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt2 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt3 });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		const ccButton = await screen.findByRole('button', { name: 'Subtitles / Closed Captions' });
+		await fireEvent.click(ccButton);
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+		// currentTime never advances across the three polls below, so every
+		// cue's own "now" lands on the exact same absolute instant (40) -
+		// isolating the cap logic itself, independent of natural expiry.
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+		Object.defineProperty(video, 'paused', { value: false, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
+		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(13);
+
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
+		expect(fakeTextTrack.cues[1].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(13);
+
+		// A third stretched cue needs a slot while both prior cues are still
+		// within their full 3s hold - the new cue is nudged to start right
+		// after the oldest's guaranteed minimum (10 + 1.5) instead of
+		// stacking on top, and the oldest is evicted: its display window (on
+		// both the shared cue data and the hidden TextTrack's cue) is
+		// truncated to end exactly there instead of running its full 3s.
+		// The second cue, not yet at the cap, is untouched.
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(3));
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(10 + 1.5);
+		expect(fakeTextTrack.cues[1].endTime).toBeCloseTo(13);
+		expect(fakeTextTrack.cues[2].startTime).toBeCloseTo(10 + 1.5);
+		expect(fakeTextTrack.cues[2].endTime).toBeCloseTo(10 + 1.5 + 1.5);
+
+		// Never more than 2 lines rendered at once, even right at the
+		// boundary where the evicted cue would otherwise still be active.
+		Object.defineProperty(video, 'currentTime', { value: 10 + 1.5 - 0.05, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+		expect(document.querySelectorAll('.caption-line').length).toBeLessThanOrEqual(2);
+
+		vi.useRealTimers();
+	});
+
+	it('scales a stretched live cue duration to its text length, clamped to the min/max hold', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttEmpty = 'WEBVTT\n\n';
+		const shortText = 'Hi'; // 2 chars / 17 cps << the 1.5s floor
+		const mediumText = 'z'.repeat(34); // 34 / 17 = exactly 2s
+		const longText = 'w'.repeat(200); // 200 / 17 = 11.76s, clamped to the 7s ceiling
+		const vtt1 = ['WEBVTT', '', '00:00:31.000 --> 00:00:32.000', shortText, ''].join('\n');
+		const vtt2 = [vtt1, '00:00:31.100 --> 00:00:32.100', mediumText, ''].join('\n');
+		const vtt3 = [vtt2, '00:00:31.200 --> 00:00:32.200', longText, ''].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttEmpty })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt1 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt2 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt3 });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+		Object.defineProperty(video, 'paused', { value: false, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
+		expect(fakeTextTrack.cues[0].endTime - fakeTextTrack.cues[0].startTime).toBeCloseTo(1.5);
+
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
+		expect(fakeTextTrack.cues[1].endTime - fakeTextTrack.cues[1].startTime).toBeCloseTo(2);
+
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(3));
+		expect(fakeTextTrack.cues[2].endTime - fakeTextTrack.cues[2].startTime).toBeCloseTo(7);
+
+		vi.useRealTimers();
+	});
+
+	it('keeps a still-open stretched cue alive across a poll that only adds an unrelated new cue', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 30,
+			video: null,
+			audio: [],
+			has_captions: true,
+			transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+		});
+		const vttEmpty = 'WEBVTT\n\n';
+		// Long enough that its stretched window (>1.5s) is still open by the
+		// time the second poll below fires.
+		const longText = 'y'.repeat(51); // 3s hold
+		const vtt1 = ['WEBVTT', '', '00:00:31.000 --> 00:00:32.000', longText, ''].join('\n');
+		const vtt2 = [vtt1, '00:00:40.000 --> 00:00:41.000', 'Unrelated', ''].join('\n');
+		const fetchMock = vi
+			.fn()
+			.mockResolvedValueOnce({ ok: true, text: async () => vttEmpty })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt1 })
+			.mockResolvedValueOnce({ ok: true, text: async () => vtt2 });
+		vi.stubGlobal('fetch', fetchMock);
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		const ccButton = await screen.findByRole('button', { name: 'Subtitles / Closed Captions' });
+		await fireEvent.click(ccButton);
+
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+		const video = document.querySelector('video')!;
+		Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+		Object.defineProperty(video, 'paused', { value: false, configurable: true });
+		await fireEvent(video, new Event('timeupdate'));
+
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(1));
+		// Stretched to [10, 13] (3s hold) - still well short of its natural
+		// end (40s local... n/a here, it was already stale on arrival).
+		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(13);
+
+		// currentTime doesn't move (still mid-way through the first cue's
+		// stretched window) - the second poll's full re-parse of the whole
+		// cumulative VTT must not discard the first cue's already-decided
+		// displayStart/displayEnd and revert it to its raw, deeply-expired
+		// natural timing (which would make it vanish immediately).
+		await vi.advanceTimersByTimeAsync(500);
+		await vi.waitFor(() => expect(fakeTextTrack.cues).toHaveLength(2));
+		expect(fakeTextTrack.cues[0].startTime).toBeCloseTo(10);
+		expect(fakeTextTrack.cues[0].endTime).toBeCloseTo(13);
+		expect(await screen.findByText(longText)).toBeInTheDocument();
 
 		vi.useRealTimers();
 	});

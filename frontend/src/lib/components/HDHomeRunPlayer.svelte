@@ -107,7 +107,7 @@
 	}: Props = $props();
 
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
-	const CAPTION_POLL_INTERVAL_MS = 1_000;
+	const CAPTION_POLL_INTERVAL_MS = 500;
 
 	let overlayEl = $state<HTMLDivElement | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);

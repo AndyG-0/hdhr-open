@@ -77,17 +77,34 @@ _LIVE_CAPTION_STDOUT_STALL_SECONDS = 60.0
 _LIVE_CAPTION_CUE_SILENCE_SECONDS = 180.0
 _LIVE_CAPTION_TERMINATE_TIMEOUT_SECONDS = 5.0
 # ccextractor's --stdin `-s` (live/growing-file) mode reliably segfaults if
-# started while file_path has too little data on disk yet - confirmed down to
-# the byte range (<1.5MB crashes, >=2MB doesn't, tested both with a closed
-# pipe and one held open with no EOF, so it's not an artifact of hitting EOF
-# early). A capture is well under this size for the first second or two after
-# a viewer tunes in, and ensure_live_captions can be reached that early (the
-# player's own attach path polls captions immediately). Waiting here avoids
-# ever handing ccextractor a too-small input instead of discovering it via
-# the crash-loop breaker below, which would otherwise burn all its retries on
-# byte-0 re-reads of the same too-small prefix and disable captions for the
-# rest of the capture before the source ever had a real chance.
-_LIVE_CAPTION_MIN_START_BYTES = 4_000_000
+# it hits EOF (stdin closed) before it's been fed enough bytes - re-verified
+# this session (2026-09-09) with an automated crash-boundary bisection
+# against 5 real recordings spanning different channels/bitrates/content: the
+# cutoff was the *exact same byte count in every one*, 1,048,576 (1MiB) to
+# the byte - one byte under crashes 100% of the time, one byte at or over
+# never does. That precision (data-independent, identical to the byte across
+# unrelated recordings) points to a fixed internal probe/analysis buffer
+# inside ccextractor 0.96.5 itself, not anything about caption content or
+# stream bitrate. Separately confirmed this is specifically an EOF artifact,
+# not "too little data present" in general: feeding the same
+# under-1MiB prefix without closing stdin (mirroring how pump_tail_follow
+# actually feeds it below - never closes until the source dies) never
+# crashed even after several seconds, at any size tested down to 100KB.
+# So the real risk this constant guards against is narrow: a source that
+# dies (is_source_alive() goes false) before the pipe has carried 1MiB to
+# ccextractor, which closes stdin and delivers that early EOF - not the
+# ordinary startup case, where pump_tail_follow just keeps blocking for more
+# data and never crashes regardless of how little is on disk. 1.5MiB (50%
+# margin over the confirmed exact cutoff) keeps that guarantee while cutting
+# the previous 4MB figure's startup wait by well over half. A capture is
+# well under this size for the first second or two after a viewer tunes in,
+# and ensure_live_captions can be reached that early (the player's own
+# attach path polls captions immediately). Waiting here avoids ever handing
+# ccextractor a too-small input instead of discovering it via the crash-loop
+# breaker below, which would otherwise burn all its retries on byte-0
+# re-reads of the same too-small prefix and disable captions for the rest of
+# the capture before the source ever had a real chance.
+_LIVE_CAPTION_MIN_START_BYTES = 1_572_864  # 1.5 MiB
 
 # Escalating backoff + circuit breaker: an attempt that dies this fast is
 # treated as a crash-loop signal rather than a legitimate stall/cue-silence
@@ -443,6 +460,18 @@ async def _run_live_caption_process_once(
         # "Task exception was never retrieved" leak with no diagnostics.
         nonlocal stalled, cue_stalled, cues_emitted
         buffer = ""
+        # CEA-608 roll-up mode: ccextractor's SRT output for each cue is a
+        # snapshot of the *whole* current on-screen roll-up buffer, not just
+        # the newly-completed line - so the still-visible previous line gets
+        # re-emitted verbatim as the new cue's first line (confirmed against
+        # real broadcast captures: ~75% of consecutive cues share a line this
+        # way). The client intentionally keeps a still-open previous cue on
+        # screen alongside a newly-arriving one (see caption-controller.ts's
+        # roll-up eviction), so passing this repeated line through as well
+        # would show it twice at once - which is exactly the "duplicated
+        # line" symptom this strips at the source, before it's ever written
+        # to the output file.
+        last_emitted_line: str | None = None
         lag_samples: list[float] = []
         last_summary_monotonic = time.monotonic()
         last_cue_monotonic = time.monotonic()
@@ -502,8 +531,18 @@ async def _run_live_caption_process_once(
                     block, buffer = buffer.split("\n\n", 1)
                     cue = _parse_srt_block(block)
                     if cue is not None:
-                        cues_emitted += 1
                         last_cue_monotonic = time.monotonic()
+                        start, end, text = cue
+                        lines = text.split("\n")
+                        if last_emitted_line is not None and lines and lines[0].strip() == last_emitted_line:
+                            lines = lines[1:]
+                        if not lines:
+                            # The whole cue was a repeat of what's already on
+                            # screen (no new line at all) - nothing to add.
+                            continue
+                        last_emitted_line = lines[-1].strip()
+                        cue = (start, end, "\n".join(lines))
+                        cues_emitted += 1
                         _append_live_cues(output_path, [cue])
                         lag = (time.time() - capture_start_ts) - cue[1] if capture_start_ts is not None else None
                         logger.info(

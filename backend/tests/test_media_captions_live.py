@@ -142,6 +142,61 @@ async def test_run_live_caption_process_once_parses_cues_incrementally_across_re
     await asyncio.wait_for(task, timeout=1.0)
 
 
+async def test_run_live_caption_process_once_strips_repeated_rollup_line(monkeypatch, tmp_path):
+    """CEA-608 roll-up mode: ccextractor's SRT output for each cue is a
+    snapshot of the whole current on-screen buffer, so a still-visible
+    previous line gets re-emitted verbatim as the new cue's first line (e.g.
+    cue 1 "Alpha\nBravo", cue 2 "Bravo\nCharlie" - "Bravo" is not a second,
+    independent line of dialogue, it's the same line still on screen). That
+    repeated leading line must be stripped before it reaches the output file,
+    or a client showing two still-open cues at once would render it twice."""
+    monkeypatch.setattr(shared, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
+    output_path = tmp_path / "rec1.live.vtt"
+
+    fake_process = _FakeCaptionProcess()
+
+    async def fake_exec(*argv, **kwargs):
+        return fake_process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    pump_started = asyncio.Event()
+
+    async def fake_pump(file_path, writer, stop_event, is_source_alive, start_offset_bytes=None):
+        pump_started.set()
+        while not stop_event.is_set():
+            await asyncio.sleep(0.005)
+
+    monkeypatch.setattr(captions_live, "pump_tail_follow", fake_pump)
+
+    task = asyncio.create_task(
+        captions_live._run_live_caption_process_once(tmp_path / "capture.ts", output_path, lambda: True)
+    )
+    await pump_started.wait()
+
+    fake_process.stdout.push(b"1\n00:00:01,000 --> 00:00:02,000\nAlpha\nBravo\n\n")
+    await asyncio.sleep(0.02)
+    fake_process.stdout.push(b"2\n00:00:02,000 --> 00:00:03,000\nBravo\nCharlie\n\n")
+    await asyncio.sleep(0.02)
+    # A cue that arrives with no new line at all past what's already on
+    # screen (both lines a pure repeat) contributes nothing - not even an
+    # empty cue block.
+    fake_process.stdout.push(b"3\n00:00:03,000 --> 00:00:04,000\nCharlie\n\n")
+    await asyncio.sleep(0.02)
+    fake_process.stdout.push(b"4\n00:00:04,000 --> 00:00:05,000\nCharlie\nDelta\n\n")
+    await asyncio.sleep(0.02)
+
+    fake_process.stdout.close()
+    await asyncio.wait_for(task, timeout=1.0)
+
+    output_text = output_path.read_text()
+    assert "Alpha\nBravo" in output_text
+    # Only the genuinely new line survives on every subsequent cue.
+    assert "Bravo\nCharlie" not in output_text
+    assert output_text.count("Charlie") == 1
+    assert "Delta" in output_text
+
+
 async def test_run_live_caption_process_once_logs_lag_when_capture_start_ts_given(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(shared, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path)
     output_path = tmp_path / "rec1.live.vtt"

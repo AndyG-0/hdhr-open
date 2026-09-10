@@ -37,8 +37,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _READ_CHUNK_BYTES = 188 * 348  # ~64KB, a whole number of TS packets
-_POLL_INTERVAL_SECONDS = 0.2
-_MAX_EOF_POLLS_WITHOUT_GROWTH = 25  # ~5s of a genuinely stalled-but-alive source
+_POLL_INTERVAL_SECONDS = 0.05
+_MAX_EOF_POLLS_WITHOUT_GROWTH = 100  # ~5s of a genuinely stalled-but-alive source
 
 
 async def pump_tail_follow(

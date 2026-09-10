@@ -677,7 +677,7 @@ async def recording_captions(
         if not live_path.exists():
             # Nothing extracted yet - the client polls again shortly.
             raise HTTPException(status_code=404, detail="No captions extracted yet")
-        return FileResponse(live_path, media_type="text/vtt")
+        return FileResponse(live_path, media_type="text/vtt", headers={"Cache-Control": "no-cache"})
 
     if track == 2:
         # Finished recordings only decode via ffmpeg's movie/subcc filter

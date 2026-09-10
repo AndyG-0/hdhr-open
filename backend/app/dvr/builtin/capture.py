@@ -174,6 +174,8 @@ class CapturePipeline:
             "copy",
             "-map",
             "0",
+            "-flush_packets",
+            "1",
             "-f",
             "mpegts",
             "-y",
