@@ -215,16 +215,37 @@ final class iOSAIAssistantSheetTests: XCTestCase {
         let exp1 = sut.inspection.inspect(after: 0) { view in
             try view.find(button: suggestion).tap()
         }
-        let exp2 = sut.inspection.inspect(after: 1.0) { view in
-            try view.find(viewWithAccessibilityIdentifier: "ai-action-cancel-button").button().tap()
+
+        // The cancel button's search has been observed to intermittently miss on CI
+        // (but never locally), even with generous fixed delays. Rather than guess at a
+        // single delay that's "long enough", poll for the button across several
+        // scheduled inspections and tap it the first time the search succeeds - this
+        // converges immediately in the common case and tolerates arbitrary CI
+        // slowness in the rare one. `Inspection.callbacks` is keyed by call-site line
+        // number, so each retry needs its own source line - a loop would collide.
+        var didTapCancel = false
+        func tapCancelButtonIfFound(_ view: InspectableView<ViewType.View<iOSAIAssistantSheet>>) throws {
+            guard !didTapCancel else { return }
+            guard let button = try? view.find(viewWithAccessibilityIdentifier: "ai-action-cancel-button").button() else {
+                return
+            }
+            try button.tap()
+            didTapCancel = true
         }
-        let exp3 = sut.inspection.inspect(after: 2.0) { view in
+        let tap1 = sut.inspection.inspect(after: 1.0) { view in try tapCancelButtonIfFound(view) }
+        let tap2 = sut.inspection.inspect(after: 1.5) { view in try tapCancelButtonIfFound(view) }
+        let tap3 = sut.inspection.inspect(after: 2.0) { view in try tapCancelButtonIfFound(view) }
+        let tap4 = sut.inspection.inspect(after: 2.5) { view in try tapCancelButtonIfFound(view) }
+        let tap5 = sut.inspection.inspect(after: 3.0) { view in try tapCancelButtonIfFound(view) }
+
+        let expFinal = sut.inspection.inspect(after: 3.5) { view in
+            XCTAssertTrue(didTapCancel, "Never found the cancel button to tap")
             XCTAssertNoThrow(try view.find(text: "Action cancelled."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 5)
+        await fulfillment(of: [exp1, tap1, tap2, tap3, tap4, tap5, expFinal], timeout: 6)
     }
 
     // MARK: - Tool-name humanization
