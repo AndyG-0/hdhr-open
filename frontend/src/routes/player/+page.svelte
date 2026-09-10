@@ -75,10 +75,17 @@
 	}
 
 	onMount(() => {
+		const prevOverflow = typeof document !== 'undefined' ? document.body.style.overflow : '';
+		if (typeof document !== 'undefined') {
+			document.body.style.overflow = 'hidden';
+		}
 		window.addEventListener('pagehide', stopWatchSession);
 		loadAll();
 
 		return () => {
+			if (typeof document !== 'undefined') {
+				document.body.style.overflow = prevOverflow;
+			}
 			window.removeEventListener('pagehide', stopWatchSession);
 			stopWatchSession();
 		};
@@ -428,16 +435,6 @@
 </div>
 
 <style>
-	:global(html),
-	:global(body) {
-		margin: 0;
-		padding: 0;
-		width: 100%;
-		height: 100%;
-		overflow: hidden;
-		background: #000;
-	}
-
 	.popout-player-container {
 		position: fixed;
 		inset: 0;

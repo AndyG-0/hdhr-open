@@ -186,6 +186,10 @@
 	const allowedLayouts = $derived(availableLayouts($multiview.maxFeeds));
 
 	onMount(() => {
+		const prevOverflow = typeof document !== 'undefined' ? document.body.style.overflow : '';
+		if (typeof document !== 'undefined') {
+			document.body.style.overflow = 'hidden';
+		}
 		window.addEventListener('keydown', handleKeyDown);
 		initTunerCapacity().catch(() => {});
 
@@ -210,6 +214,9 @@
 		}
 
 		return () => {
+			if (typeof document !== 'undefined') {
+				document.body.style.overflow = prevOverflow;
+			}
 			window.removeEventListener('keydown', handleKeyDown);
 		};
 	});
@@ -427,14 +434,6 @@
 </div>
 
 <style>
-	:global(html),
-	:global(body) {
-		margin: 0;
-		padding: 0;
-		overflow: hidden;
-		background: #000;
-	}
-
 	.multiview-container {
 		position: fixed;
 		inset: 0;
