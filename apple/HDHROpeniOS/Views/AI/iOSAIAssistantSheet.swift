@@ -279,6 +279,7 @@ public struct iOSAIAssistantSheet: View {
                         .cornerRadius(8)
                     }
                     .disabled(action.resolution == .confirming)
+                    .accessibilityIdentifier("ai-action-confirm-button")
 
                     Button(action: {
                         cancelAction(action.actionId)
@@ -292,6 +293,7 @@ public struct iOSAIAssistantSheet: View {
                             .cornerRadius(8)
                     }
                     .disabled(action.resolution == .confirming)
+                    .accessibilityIdentifier("ai-action-cancel-button")
                 }
                 .padding(.top, 4)
 

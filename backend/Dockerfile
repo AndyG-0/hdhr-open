@@ -112,7 +112,10 @@ RUN BLD_FLAGS="-std=gnu99 -Wno-write-strings -Wno-pointer-sign -D_FILE_OFFSET_BI
     gcc $BLD_FLAGS $BLD_INCLUDE -o ccextractor $BLD_SOURCES $BLD_LINKER
 
 # --- runtime image -----------------------------------------------------------
-FROM python:3.12-slim
+# Pinned to bookworm (not the floating "slim" tag) so this stays on the same
+# Debian release as the jellyfin-ffmpeg7 apt repo below — "slim" has drifted
+# to trixie, whose libvpx7/libx265-199 don't satisfy jellyfin's bookworm .deb.
+FROM python:3.12-slim-bookworm
 
 # Set by buildx automatically (also honored by plain `docker build`/`docker
 # compose build` under BuildKit, the default since Docker 23) — used below to
