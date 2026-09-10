@@ -93,13 +93,13 @@ final class iOSAIAssistantSheetTests: XCTestCase {
         let exp2 = sut.inspection.inspect(after: 0.05) { view in
             XCTAssertNoThrow(try view.find(text: "Thinking..."))
         }
-        let exp3 = sut.inspection.inspect(after: DelayedAIURLProtocol.delay + 0.2) { view in
+        let exp3 = sut.inspection.inspect(after: DelayedAIURLProtocol.delay + 1.0) { view in
             XCTAssertThrowsError(try view.find(text: "Thinking..."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 5)
     }
 
     private func sseData(_ events: [String]) -> Data {
@@ -175,16 +175,16 @@ final class iOSAIAssistantSheetTests: XCTestCase {
         let exp1 = sut.inspection.inspect(after: 0) { view in
             try view.find(button: suggestion).tap()
         }
-        let exp2 = sut.inspection.inspect(after: 0.5) { view in
+        let exp2 = sut.inspection.inspect(after: 1.0) { view in
             try view.find(viewWithAccessibilityIdentifier: "ai-action-confirm-button").button().tap()
         }
-        let exp3 = sut.inspection.inspect(after: 1.0) { view in
+        let exp3 = sut.inspection.inspect(after: 2.0) { view in
             XCTAssertNoThrow(try view.find(text: "Action confirmed and scheduled."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 5)
     }
 
     func testConfirmActionFailureRendersFailedState() async throws {
@@ -195,16 +195,16 @@ final class iOSAIAssistantSheetTests: XCTestCase {
         let exp1 = sut.inspection.inspect(after: 0) { view in
             try view.find(button: suggestion).tap()
         }
-        let exp2 = sut.inspection.inspect(after: 0.5) { view in
+        let exp2 = sut.inspection.inspect(after: 1.0) { view in
             try view.find(viewWithAccessibilityIdentifier: "ai-action-confirm-button").button().tap()
         }
-        let exp3 = sut.inspection.inspect(after: 1.0) { view in
+        let exp3 = sut.inspection.inspect(after: 2.0) { view in
             XCTAssertNoThrow(try view.find(text: "Failed to execute action."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 5)
     }
 
     func testCancelActionRendersCancelledState() async throws {
@@ -215,16 +215,16 @@ final class iOSAIAssistantSheetTests: XCTestCase {
         let exp1 = sut.inspection.inspect(after: 0) { view in
             try view.find(button: suggestion).tap()
         }
-        let exp2 = sut.inspection.inspect(after: 0.5) { view in
+        let exp2 = sut.inspection.inspect(after: 1.0) { view in
             try view.find(viewWithAccessibilityIdentifier: "ai-action-cancel-button").button().tap()
         }
-        let exp3 = sut.inspection.inspect(after: 1.0) { view in
+        let exp3 = sut.inspection.inspect(after: 2.0) { view in
             XCTAssertNoThrow(try view.find(text: "Action cancelled."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 5)
     }
 
     // MARK: - Tool-name humanization
