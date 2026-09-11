@@ -164,6 +164,7 @@
 	}
 
 	function handleWindowPointerDown(e: PointerEvent) {
+		if (showCancelRuleConfirmation || showFallbackConfirmation) return;
 		if (dialogEl && e.target instanceof Node && !dialogEl.contains(e.target)) onClose();
 	}
 

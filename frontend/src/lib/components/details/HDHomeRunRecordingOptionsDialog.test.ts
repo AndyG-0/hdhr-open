@@ -384,6 +384,11 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		const cancelModal = await screen.findByRole('alertdialog');
 		expect(cancelModal).toBeInTheDocument();
 		const modalConfirmBtn = within(cancelModal).getByRole('button', { name: 'Cancel Recording' });
+		// A real browser fires pointerdown before click; the confirm button lives
+		// outside the dialog's own root element, so a naive "click outside closes
+		// the dialog" listener bound to window pointerdown would tear the dialog
+		// (and this button) down before the click ever reaches onCancelRule.
+		await fireEvent.pointerDown(modalConfirmBtn);
 		await fireEvent.click(modalConfirmBtn);
 
 		expect(onCancelRule).toHaveBeenCalledWith('rule_123');
@@ -419,7 +424,11 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(fallbackModal).toBeInTheDocument();
 		expect(within(fallbackModal).getByText(/Schedule on Built-in DVR\?/i)).toBeInTheDocument();
 
-		await fireEvent.click(within(fallbackModal).getByRole('button', { name: 'Schedule on Built-in DVR' }));
+		const fallbackConfirmBtn = within(fallbackModal).getByRole('button', { name: 'Schedule on Built-in DVR' });
+		// Same outside-click hazard as the cancel-rule confirm modal: this button
+		// lives outside the parent dialog's root element.
+		await fireEvent.pointerDown(fallbackConfirmBtn);
+		await fireEvent.click(fallbackConfirmBtn);
 		expect(onConfirm).toHaveBeenCalledWith('episode', expect.objectContaining({
 			server: 'builtin',
 		}));
