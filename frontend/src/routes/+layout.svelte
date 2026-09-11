@@ -213,6 +213,10 @@
 		gap: 0.25rem;
 		padding: 0.5rem 1rem;
 		border-bottom: 1px solid var(--color-border);
+		position: sticky;
+		top: 0;
+		z-index: 10;
+		background: var(--color-bg);
 	}
 
 	.app-nav a {
