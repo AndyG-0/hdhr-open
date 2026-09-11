@@ -136,6 +136,12 @@
 		touch-action: none;
 	}
 
+	@media (max-width: 28.75rem) {
+		.volume-slider-wrap {
+			width: 2.75rem;
+		}
+	}
+
 	.volume-slider-wrap:focus-visible .volume-track {
 		box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.5);
 	}
