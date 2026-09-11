@@ -40,7 +40,6 @@
       </CodeCoverageTargets>
       <Testables>
          <TestableReference
-            parallelizable = "YES"
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
