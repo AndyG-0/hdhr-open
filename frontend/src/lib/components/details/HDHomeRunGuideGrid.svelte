@@ -63,6 +63,7 @@
 	const DAY_SECONDS = 86400;
 
 	let scrollEl = $state<HTMLDivElement | null>(null);
+	let shellEl = $state<HTMLDivElement | null>(null);
 	let nowSeconds = $state(Math.floor(Date.now() / 1000));
 	let hasAutoScrolled = false;
 
@@ -87,18 +88,25 @@
 	const MIN_HORIZONTAL_OVERSCAN_PX = 600;
 
 	// Channel column shrinks on narrow phones so more width goes to the guide
-	// itself. Driven from JS (not a CSS media query) because .grid-inner's
-	// total pixel width below must stay in exact sync with the column width,
-	// or the grid's second (1fr) track ends up mis-sized. NARROW_VIEWPORT_PX
+	// itself. Driven from JS (not a CSS media query) because the header/body
+	// panes' total pixel width below must stay in exact sync with the column
+	// width, or the 1fr track column ends up mis-sized. NARROW_VIEWPORT_PX
 	// matches the 28.75rem breakpoint used elsewhere for mobile fixes.
+	//
+	// Measured off shellEl (the whole 4-quadrant component), not scrollEl —
+	// scrollEl (the body pane) only spans the track/time area now that the
+	// channel column and headers live in their own panes, so it no longer
+	// reflects total device width the way the old single-scroller's
+	// clientWidth did.
 	const NARROW_VIEWPORT_PX = 460;
 	// Call signs never run past ~7 chars (e.g. "KPNX-HD"), so 160px left a
 	// visible gap wide enough for a second name - tightened to just fit the
 	// name/number/badge column with a modest buffer.
 	const CHANNEL_COL_WIDTH_PX = 112;
 	const CHANNEL_COL_WIDTH_NARROW_PX = 80;
+	let containerWidth = $state(0);
 	const channelColWidthPx = $derived(
-		viewportWidth > 0 && viewportWidth <= NARROW_VIEWPORT_PX ? CHANNEL_COL_WIDTH_NARROW_PX : CHANNEL_COL_WIDTH_PX,
+		containerWidth > 0 && containerWidth <= NARROW_VIEWPORT_PX ? CHANNEL_COL_WIDTH_NARROW_PX : CHANNEL_COL_WIDTH_PX,
 	);
 	const isNarrowChannelCol = $derived(channelColWidthPx === CHANNEL_COL_WIDTH_NARROW_PX);
 
@@ -139,6 +147,16 @@
 		const ro = new ResizeObserver(() => {
 			viewportHeight = el.clientHeight;
 			viewportWidth = el.clientWidth;
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
+	});
+
+	$effect(() => {
+		if (!shellEl) return;
+		const el = shellEl;
+		const ro = new ResizeObserver(() => {
+			containerWidth = el.clientWidth;
 		});
 		ro.observe(el);
 		return () => ro.disconnect();
@@ -237,6 +255,22 @@
 
 	const totalWidth = $derived((windowBounds.end - windowBounds.start) * PX_PER_SEC);
 	const nowLeft = $derived((nowSeconds - windowBounds.start) * PX_PER_SEC);
+
+	// Simulates position:sticky for the day label as the user scrolls
+	// horizontally, so "Today"/"Tomorrow"/etc. stays visible instead of only
+	// showing at the very start of that day's segment. Real `position:
+	// sticky` can't be used here because .pane-header-inner (the day/time
+	// rulers' container) is repositioned via a CSS transform, not native
+	// scrolling — sticky only responds to an actual scrolling ancestor. This
+	// is cheap to compute (dayMarks is at most ~14 entries, one per day in
+	// the fetched guide window) unlike the per-row/per-cell sticky this
+	// component dropped for performance.
+	const DAY_LABEL_RESERVE_PX = 100;
+	function dayLabelLeft(mark: { left: number; width: number }): number {
+		const scrolledIntoSegment = scrollLeft - mark.left;
+		const maxOffset = Math.max(mark.width - DAY_LABEL_RESERVE_PX, 0);
+		return Math.min(Math.max(scrolledIntoSegment, 0), maxOffset);
+	}
 
 	// The visible horizontal time-window (+ overscan), used to filter which
 	// airings become DOM cells. Cell coordinates are still computed against
@@ -685,112 +719,131 @@
 	</div>
 {/if}
 
-<div class="guide-grid" bind:this={scrollEl} onscroll={onGuideGridScroll}>
-	<div
-		class="grid-inner"
-		class:narrow-channel-col={isNarrowChannelCol}
-		style={`width: ${totalWidth + channelColWidthPx}px; --channel-col-width: ${channelColWidthPx}px;`}
-	>
+<div
+	class="quadrant-shell"
+	class:narrow-channel-col={isNarrowChannelCol}
+	bind:this={shellEl}
+	style={`--channel-col-width: ${channelColWidthPx}px;`}
+>
+	<div class="pane-corner">
 		<div class="day-corner"></div>
-		<div class="day-ruler" style={`width: ${totalWidth}px;`}>
-			{#each dayMarks as mark (mark.seconds)}
-				<div class="day-segment" style={`left: ${mark.left}px; width: ${mark.width}px;`}>
-					<span class="day-label">{mark.label}</span>
-				</div>
-			{/each}
-		</div>
 		<div class="corner-cell"></div>
-		<div class="time-ruler" style={`width: ${totalWidth}px;`}>
-			{#each hourMarks as mark (mark.seconds)}
-				<span class="hour-mark" style={`left: ${(mark.seconds - windowBounds.start) * PX_PER_SEC}px;`}>
-					{mark.label}
-				</span>
-			{/each}
-			<div class="now-line" style={`left: ${nowLeft}px;`}></div>
-		</div>
+	</div>
 
-		{#if topSpacerHeight > 0}
-			<div class="row-spacer" style={`height: ${topSpacerHeight}px;`}></div>
-		{/if}
-		{#each windowedChannels as channel (channel.channel_number)}
-			{@const guideEntry = guideByChannel.get(channel.channel_number)}
-			{@const cells = getRowCells(channel.channel_number, guideEntry, channel.now, channel.next)}
-			<div
-				class="channel-col clickable"
-				role="button"
-				tabindex="0"
-				onclick={() => onWatch(channel)}
-				onkeydown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
-						e.preventDefault();
-						onWatch(channel);
-					}
-				}}
-			>
-				<button
-					type="button"
-					class="favorite-toggle"
-					class:active={favoriteChannels.has(channel.channel_number)}
-					disabled={savingFavorite}
-					onclick={(e) => {
-						e.stopPropagation();
-						onToggleFavorite(channel.channel_number);
-					}}
-					onkeydown={(e) => e.stopPropagation()}
-					aria-label={favoriteChannels.has(channel.channel_number)
-						? $_('hdhomerun.detail.remove_favorite')
-						: $_('hdhomerun.detail.add_favorite')}
-				>
-					{favoriteChannels.has(channel.channel_number) ? '★' : '☆'}
-				</button>
-				<span class="channel-number">{channel.channel_number}</span>
-				<span class="channel-name">{channel.name}</span>
-				{#if channel.is_hd}<span class="badge">HD</span>{/if}
-			</div>
-			<div class="channel-track" style={`width: ${totalWidth}px;`}>
-				<div class="now-line"></div>
-				{#each cells as cell (cell.airing.start ?? cell.airing.title)}
-					{@const existingRule = findExistingRule(cell.airing, channel)}
-					{@const isMatch = debouncedSearchQuery.trim()
-						? isAiringMatch(cell.airing, channel, debouncedSearchQuery.trim().toLowerCase())
-						: false}
-					{@const cellKey = `${channel.channel_number}:${cell.airing.start ?? cell.airing.title}`}
-					<div
-						class="airing-cell"
-						class:live={isLive(cell.airing)}
-						class:search-match={isMatch}
-						class:search-dimmed={debouncedSearchQuery.trim() && !isMatch}
-						class:cell-flash={highlightedCellKey === cellKey}
-						style={`left: ${cell.left}px; width: ${cell.width}px;`}
-						role="button"
-						tabindex="0"
-						onpointerdown={(e) => onCellPointerDown(e, cell.airing, channel)}
-						onpointermove={onCellPointerMove}
-						onpointerup={cancelPress}
-						onpointercancel={cancelPress}
-						onpointerleave={cancelPress}
-						onclick={(e) => onCellClick(e, cell.airing, channel)}
-						onkeydown={(e) => onCellKeydown(e, cell.airing, channel)}
-						oncontextmenu={(e) => e.preventDefault()}
-					>
-						<span class="cell-time" style={`max-width: ${Math.max(cell.width - 16, 0)}px;`}
-							>{formatCellTime(cell.airing.start)}</span
-						>
-						<span class="cell-title" style={`max-width: ${Math.max(cell.width - 16, 0)}px;`}
-							>{cell.airing.title}</span
-						>
-						{#if existingRule && pendingRuleIds.has(existingRule.RecordingRuleID)}
-							<span class="cell-live-badge cell-pending-badge">{$_('hdhomerun.detail.pending_recording_badge')}</span>
-						{:else if existingRule}
-							<span class="cell-live-badge">{$_('hdhomerun.tile.recording_badge')}</span>
-						{/if}
+	<div class="pane-header">
+		<div class="pane-header-inner" style={`width: ${totalWidth}px; transform: translateX(${-scrollLeft}px);`}>
+			<div class="day-ruler" style={`width: ${totalWidth}px;`}>
+				{#each dayMarks as mark (mark.seconds)}
+					<div class="day-segment" style={`left: ${mark.left}px; width: ${mark.width}px;`}>
+						<span class="day-label" style={`left: ${dayLabelLeft(mark)}px;`}>{mark.label}</span>
 					</div>
 				{/each}
 			</div>
-		{/each}
-		{#if bottomSpacerHeight > 0}
-			<div class="row-spacer" style={`height: ${bottomSpacerHeight}px;`}></div>
-		{/if}
+			<div class="time-ruler" style={`width: ${totalWidth}px;`}>
+				{#each hourMarks as mark (mark.seconds)}
+					<span class="hour-mark" style={`left: ${(mark.seconds - windowBounds.start) * PX_PER_SEC}px;`}>
+						{mark.label}
+					</span>
+				{/each}
+				<div class="now-line" style={`left: ${nowLeft}px;`}></div>
+			</div>
+		</div>
+	</div>
+
+	<div class="pane-channels">
+		<div class="pane-channels-inner" style={`transform: translateY(${-scrollTop}px);`}>
+			{#if topSpacerHeight > 0}
+				<div class="row-spacer" style={`height: ${topSpacerHeight}px;`}></div>
+			{/if}
+			{#each windowedChannels as channel (channel.channel_number)}
+				<div
+					class="channel-col clickable"
+					role="button"
+					tabindex="0"
+					onclick={() => onWatch(channel)}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							onWatch(channel);
+						}
+					}}
+				>
+					<button
+						type="button"
+						class="favorite-toggle"
+						class:active={favoriteChannels.has(channel.channel_number)}
+						disabled={savingFavorite}
+						onclick={(e) => {
+							e.stopPropagation();
+							onToggleFavorite(channel.channel_number);
+						}}
+						onkeydown={(e) => e.stopPropagation()}
+						aria-label={favoriteChannels.has(channel.channel_number)
+							? $_('hdhomerun.detail.remove_favorite')
+							: $_('hdhomerun.detail.add_favorite')}
+					>
+						{favoriteChannels.has(channel.channel_number) ? '★' : '☆'}
+					</button>
+					<span class="channel-number">{channel.channel_number}</span>
+					<span class="channel-name">{channel.name}</span>
+					{#if channel.is_hd}<span class="badge">HD</span>{/if}
+				</div>
+			{/each}
+			{#if bottomSpacerHeight > 0}
+				<div class="row-spacer" style={`height: ${bottomSpacerHeight}px;`}></div>
+			{/if}
+		</div>
+	</div>
+
+	<div class="pane-body" bind:this={scrollEl} onscroll={onGuideGridScroll}>
+		<div class="pane-body-inner" style={`width: ${totalWidth}px;`}>
+			{#if topSpacerHeight > 0}
+				<div class="row-spacer" style={`height: ${topSpacerHeight}px;`}></div>
+			{/if}
+			{#each windowedChannels as channel (channel.channel_number)}
+				{@const guideEntry = guideByChannel.get(channel.channel_number)}
+				{@const cells = getRowCells(channel.channel_number, guideEntry, channel.now, channel.next)}
+				<div class="channel-track" style={`width: ${totalWidth}px;`}>
+					<div class="now-line"></div>
+					{#each cells as cell (cell.airing.start ?? cell.airing.title)}
+						{@const existingRule = findExistingRule(cell.airing, channel)}
+						{@const isMatch = debouncedSearchQuery.trim()
+							? isAiringMatch(cell.airing, channel, debouncedSearchQuery.trim().toLowerCase())
+							: false}
+						{@const cellKey = `${channel.channel_number}:${cell.airing.start ?? cell.airing.title}`}
+						<div
+							class="airing-cell"
+							class:live={isLive(cell.airing)}
+							class:search-match={isMatch}
+							class:search-dimmed={debouncedSearchQuery.trim() && !isMatch}
+							class:cell-flash={highlightedCellKey === cellKey}
+							style={`left: ${cell.left}px; width: ${cell.width}px;`}
+							role="button"
+							tabindex="0"
+							onpointerdown={(e) => onCellPointerDown(e, cell.airing, channel)}
+							onpointermove={onCellPointerMove}
+							onpointerup={cancelPress}
+							onpointercancel={cancelPress}
+							onpointerleave={cancelPress}
+							onclick={(e) => onCellClick(e, cell.airing, channel)}
+							onkeydown={(e) => onCellKeydown(e, cell.airing, channel)}
+							oncontextmenu={(e) => e.preventDefault()}
+						>
+							<span class="cell-time">{formatCellTime(cell.airing.start)}</span>
+							<span class="cell-title">{cell.airing.title}</span>
+							{#if existingRule && pendingRuleIds.has(existingRule.RecordingRuleID)}
+								<span class="cell-live-badge cell-pending-badge">{$_('hdhomerun.detail.pending_recording_badge')}</span>
+							{:else if existingRule}
+								<span class="cell-live-badge">{$_('hdhomerun.tile.recording_badge')}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/each}
+			{#if bottomSpacerHeight > 0}
+				<div class="row-spacer" style={`height: ${bottomSpacerHeight}px;`}></div>
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -1167,47 +1220,82 @@
 		text-align: center;
 	}
 
-	.guide-grid {
-		overflow: auto;
-		overscroll-behavior-x: contain;
+	/* 4-quadrant frozen-pane layout: pane-corner/pane-header/pane-channels stay
+	   visually fixed while only pane-body natively scrolls (both axes). The
+	   header and channel-column panes are re-positioned via CSS transforms
+	   driven by the same scrollTop/scrollLeft state already tracked for
+	   pane-body's onscroll handler, instead of relying on position:sticky —
+	   sticky's per-element recalculation cost (previously one sticky node per
+	   visible row, plus two per visible airing cell) is what caused mobile
+	   scroll jank that virtualization and rAF batching alone didn't fix. */
+	.quadrant-shell {
+		display: grid;
+		grid-template-columns: var(--channel-col-width, 10rem) 1fr;
+		grid-template-rows: 3.5rem 1fr;
 		border: 1px solid var(--color-border);
 		border-radius: 0.75rem;
 		margin: 0.5rem 0;
 		flex: 1;
 		min-height: 0;
+		overflow: hidden;
 	}
 
-	.grid-inner {
-		display: grid;
-		grid-template-columns: var(--channel-col-width, 10rem) 1fr;
+	.pane-corner {
+		position: relative;
+		z-index: 3;
+		background: var(--color-surface);
+		border-right: 1px solid var(--color-border);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.pane-header {
+		position: relative;
+		overflow: hidden;
+		z-index: 2;
+		background: var(--color-surface);
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.pane-header-inner {
+		position: relative;
+		will-change: transform;
+	}
+
+	.pane-channels {
+		position: relative;
+		overflow: hidden;
+		z-index: 1;
+		background: var(--color-surface);
+		border-right: 1px solid var(--color-border);
+	}
+
+	.pane-channels-inner {
+		will-change: transform;
+	}
+
+	.pane-body {
+		overflow: auto;
+		overscroll-behavior-x: contain;
+		position: relative;
+	}
+
+	.pane-body-inner {
 		position: relative;
 	}
 
 	.day-corner {
-		position: sticky;
-		top: 0;
-		left: 0;
-		z-index: 6;
 		height: 1.5rem;
 		background: var(--color-surface);
-		border-right: 1px solid var(--color-border);
 		border-bottom: 1px solid var(--color-border);
 	}
 
 	.corner-cell {
-		position: sticky;
-		top: 1.5rem;
-		left: 0;
-		z-index: 4;
+		height: 2rem;
 		background: var(--color-surface);
-		border-right: 1px solid var(--color-border);
-		border-bottom: 1px solid var(--color-border);
 	}
 
 	.day-ruler {
-		position: sticky;
-		top: 0;
-		z-index: 5;
+		position: relative;
 		height: 1.5rem;
 		background: var(--color-surface);
 		border-bottom: 1px solid var(--color-border);
@@ -1221,8 +1309,8 @@
 	}
 
 	.day-label {
-		position: sticky;
-		left: var(--channel-col-width, 10rem);
+		position: absolute;
+		top: 0;
 		display: inline-flex;
 		align-items: center;
 		height: 1.5rem;
@@ -1237,12 +1325,9 @@
 	}
 
 	.time-ruler {
-		position: sticky;
-		top: 1.5rem;
-		z-index: 3;
+		position: relative;
 		height: 2rem;
 		background: var(--color-surface);
-		border-bottom: 1px solid var(--color-border);
 	}
 
 	.hour-mark {
@@ -1255,16 +1340,8 @@
 		border-left: 1px solid var(--color-border);
 	}
 
-	.row-spacer {
-		grid-column: 1 / -1;
-	}
-
 	.channel-col {
-		position: sticky;
-		left: 0;
-		z-index: 2;
 		background: var(--color-surface);
-		border-right: 1px solid var(--color-border);
 		border-bottom: 1px solid var(--color-border);
 		display: flex;
 		align-items: center;
@@ -1335,12 +1412,12 @@
 	/* On narrow phones the channel column shrinks (see channelColWidthPx in
 	   script); there's no room left for the channel name or HD badge, so hide
 	   them and keep only the number + favorite star legible. */
-	.grid-inner.narrow-channel-col .channel-name,
-	.grid-inner.narrow-channel-col .badge {
+	.quadrant-shell.narrow-channel-col .channel-name,
+	.quadrant-shell.narrow-channel-col .badge {
 		display: none;
 	}
 
-	.grid-inner.narrow-channel-col .channel-col {
+	.quadrant-shell.narrow-channel-col .channel-col {
 		padding: 0.35rem;
 		gap: 0.2rem;
 		min-height: 3.25rem;
@@ -1423,9 +1500,6 @@
 	.cell-time {
 		font-size: 0.7rem;
 		color: var(--color-text-muted);
-		position: sticky;
-		left: var(--channel-col-width, 10rem);
-		align-self: flex-start;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -1434,9 +1508,6 @@
 	.cell-title {
 		font-size: 0.8rem;
 		font-weight: 600;
-		position: sticky;
-		left: var(--channel-col-width, 10rem);
-		align-self: flex-start;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;

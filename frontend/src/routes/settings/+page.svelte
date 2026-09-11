@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { api, type AppSettings, type XMLTVFeedChannel, type SchedulesDirectStation } from '$lib/api';
 
 	import { user } from '$lib/stores/user';
@@ -193,7 +192,6 @@
 </script>
 
 <div class="settings-page">
-	<button class="back" onclick={() => goto('/')}>{$_('common.back')}</button>
 	<h1>{$_('settings.page.title')}</h1>
 
 	<div class="settings-group">
@@ -295,16 +293,6 @@
 		min-height: 100vh;
 		max-width: 90rem;
 		margin: 0 auto;
-	}
-
-	.back {
-		background: none;
-		border: none;
-		font-size: 1.1rem;
-		color: var(--color-accent);
-		margin-bottom: 1.5rem;
-		cursor: pointer;
-		padding: 0.5rem 0;
 	}
 
 	h1 {
