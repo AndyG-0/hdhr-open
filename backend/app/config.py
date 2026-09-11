@@ -84,6 +84,14 @@ class Settings(BaseSettings):
     # (comma-separated list of: "builtin", "hdhomerun").
     dvr_server_priority: str = "builtin,hdhomerun"
 
+    # Auto-extend in-progress recordings heuristically classified as sports
+    # (see app.dvr.builtin.sports_extension) when the game hasn't finished by
+    # its scheduled end time. String-typed like the other APP_SETTINGS_KEYS
+    # above ("true"/"false", a plain integer) since runtime overrides come
+    # back from app_settings as strings — parsed where consumed.
+    sports_extension_enabled: str = "false"
+    sports_extension_max_minutes: str = "240"
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origin.split(",") if origin.strip()]
@@ -93,7 +101,13 @@ settings = Settings()
 
 # Global settings a user can edit at runtime from the UI, keyed the same as
 # the `Settings` fields above.
-APP_SETTINGS_KEYS = ("timezone", "guide_provider_priority", "dvr_server_priority")
+APP_SETTINGS_KEYS = (
+    "timezone",
+    "guide_provider_priority",
+    "dvr_server_priority",
+    "sports_extension_enabled",
+    "sports_extension_max_minutes",
+)
 
 # The subset of APP_SETTINGS_KEYS that hold credentials/tokens rather than
 # plain preferences — encrypted at rest by app.storage.db (see app.crypto)
@@ -141,3 +155,18 @@ def resolve_dvr_server_priority(raw_priority: str | None = None) -> tuple[str, .
         if p not in items:
             items.append(p)
     return tuple(items)
+
+
+def resolve_sports_extension_enabled(raw_value: str | None = None) -> bool:
+    if raw_value is None:
+        raw_value = effective_settings().get("sports_extension_enabled", "false")
+    return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def resolve_sports_extension_max_minutes(raw_value: str | None = None) -> int:
+    if raw_value is None:
+        raw_value = effective_settings().get("sports_extension_max_minutes", "240")
+    try:
+        return max(0, int(str(raw_value).strip()))
+    except ValueError:
+        return 240

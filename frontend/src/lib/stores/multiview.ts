@@ -382,17 +382,23 @@ export async function addFeed(
 }
 
 /**
+ * Stops a slot's heartbeat and terminates its watch session on the backend.
+ */
+function teardownSlot(slot: MultiViewSlot): void {
+	stopSlotHeartbeat(slot.id);
+	if (slot.watchSessionId) {
+		api.stopWatch(slot.watchSessionId);
+	}
+}
+
+/**
  * Removes a feed by index.
  */
 export function removeFeed(index: number): void {
 	const currentState = get(multiview);
 	if (index < 0 || index >= currentState.slots.length) return;
 
-	const targetSlot = currentState.slots[index];
-	stopSlotHeartbeat(targetSlot.id);
-	if (targetSlot.watchSessionId) {
-		api.stopWatch(targetSlot.watchSessionId);
-	}
+	teardownSlot(currentState.slots[index]);
 
 	const remainingSlots = currentState.slots.filter((_, i) => i !== index);
 
@@ -586,13 +592,41 @@ export function swapSlots(fromIndex: number, toIndex: number): void {
 }
 
 /**
- * Sets the presentation layout.
+ * Sets the presentation layout. If the new layout has less capacity than the
+ * number of active slots, the excess slots (last first) are removed and their
+ * watch sessions terminated the same way removeFeed() does.
  */
 export function setLayout(layout: MultiViewLayout): void {
-	multiview.update((state) => ({
-		...state,
-		layout,
+	const currentState = get(multiview);
+	const capacity = maxSlotsForLayout(layout);
+
+	if (currentState.slots.length <= capacity) {
+		multiview.update((state) => ({ ...state, layout }));
+		return;
+	}
+
+	const keptSlots = currentState.slots.slice(0, capacity);
+	const removedSlots = currentState.slots.slice(capacity);
+	for (const slot of removedSlots) {
+		teardownSlot(slot);
+	}
+
+	const nextActiveIndex = Math.min(currentState.activeSlotIndex, keptSlots.length - 1);
+	const updatedSlots = keptSlots.map((s, i) => ({
+		...s,
+		isMuted: i !== nextActiveIndex,
 	}));
+
+	multiview.set({
+		...currentState,
+		layout,
+		slots: updatedSlots,
+		activeSlotIndex: nextActiveIndex,
+		expandedSlotIndex:
+			currentState.expandedSlotIndex !== null && currentState.expandedSlotIndex >= capacity
+				? null
+				: currentState.expandedSlotIndex,
+	});
 }
 
 /**

@@ -27,6 +27,7 @@ from app.api import users as users_api
 from app.api import watch as watch_api
 from app.config import DB_PATH, SECRET_KEY_PATH, settings
 from app.dvr.builtin import engine as dvr_engine
+from app.dvr.builtin import sports_extension
 from app.dvr.builtin.capture import CAPTION_EXTRACTION_JOB_ID
 from app.guide import cleanup as guide_cleanup
 from app.guide import schedules_direct as schedules_direct_guide
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI):
     schedules_direct_guide.register(scheduler)
     guide_cleanup.register(scheduler)
     dvr_engine.register(scheduler)
+    sports_extension.register(scheduler)
     await hls_streaming.sweep_session_dir_on_startup()
     hls_streaming.register(scheduler)
     scheduler.start()

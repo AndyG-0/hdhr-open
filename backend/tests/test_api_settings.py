@@ -23,6 +23,8 @@ def test_get_settings_returns_env_default(client, tmp_db):
         "timezone": "UTC",
         "guide_provider_priority": "xmltv,schedules_direct,hdhomerun_cloud",
         "dvr_server_priority": "builtin,hdhomerun",
+        "sports_extension_enabled": "false",
+        "sports_extension_max_minutes": "240",
     }
 
 

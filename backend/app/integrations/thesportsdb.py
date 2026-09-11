@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import urllib.parse
+from datetime import date, datetime
 
 import httpx
 
@@ -119,4 +120,63 @@ async def search_sports_poster(title: str, episode_title: str | None = None) -> 
         pass
 
     _sports_cache[cache_key] = None
+    return None
+
+
+_FINISHED_STATUSES = {"MATCH FINISHED", "FINISHED", "FT", "AOT", "AET"}
+_SCHEDULED_STATUSES = {"NS"}
+
+
+async def get_event_status(team_a: str, team_b: str, event_date: date | None = None) -> str | None:
+    """Best-effort live status lookup for a matchup between two teams.
+
+    Returns "scheduled", "live", or "finished", or None if the event can't be
+    confidently identified. Deliberately not cached (unlike poster art) since
+    status changes over the lifetime of a broadcast and a stale cached value
+    could permanently hide a "finished" or "live" transition.
+    """
+    for first, second in ((team_a, team_b), (team_b, team_a)):
+        query = f"{first}_vs_{second}".replace(" ", "_")
+        url = f"{API_BASE_URL}/searchevents.php?e={urllib.parse.quote(query)}"
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+                resp = await client.get(url)
+            if resp.status_code != 200:
+                continue
+            data = resp.json()
+        except Exception:
+            continue
+
+        events = data.get("event")
+        if not events or not isinstance(events, list):
+            continue
+
+        event = events[0]
+        if event_date is not None and len(events) > 1:
+            best_event = None
+            best_delta = None
+            for candidate in events:
+                raw_date = candidate.get("dateEvent")
+                if not raw_date:
+                    continue
+                try:
+                    parsed = datetime.strptime(raw_date, "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                delta = abs((parsed - event_date).days)
+                if best_delta is None or delta < best_delta:
+                    best_event, best_delta = candidate, delta
+            if best_event is not None and best_delta is not None and best_delta <= 1:
+                event = best_event
+
+        status = (event.get("strStatus") or "").strip()
+        if not status:
+            return None
+        status_upper = status.upper()
+        if status_upper in _FINISHED_STATUSES:
+            return "finished"
+        if status_upper in _SCHEDULED_STATUSES:
+            return "scheduled"
+        return "live"
+
     return None

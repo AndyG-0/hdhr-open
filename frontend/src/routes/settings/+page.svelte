@@ -15,6 +15,7 @@
 	import LanguageSection from '$lib/components/settings/LanguageSection.svelte';
 	import AppearanceSection from '$lib/components/settings/AppearanceSection.svelte';
 	import TimezoneSection from '$lib/components/settings/TimezoneSection.svelte';
+	import SportsExtensionSection from '$lib/components/settings/SportsExtensionSection.svelte';
 	import HDHomeRunNetworkSection from '$lib/components/settings/HDHomeRunNetworkSection.svelte';
 	import PlaybackSection from '$lib/components/settings/PlaybackSection.svelte';
 	import XmltvFeedSection from '$lib/components/settings/XmltvFeedSection.svelte';
@@ -270,6 +271,11 @@
 			/>
 
 			<PlaybackSection initialSettings={hdhomerunNetworkSettings} />
+
+			<SportsExtensionSection
+				initialEnabled={settings?.sports_extension_enabled ?? null}
+				initialMaxMinutes={settings?.sports_extension_max_minutes ?? null}
+			/>
 
 			<JobsSection />
 

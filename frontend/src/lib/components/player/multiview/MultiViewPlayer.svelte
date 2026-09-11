@@ -490,7 +490,7 @@
 	.title-cluster {
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
+		gap: 0.4rem;
 		min-width: 0;
 	}
 
@@ -722,6 +722,21 @@
 
 		.layout-btn-text {
 			display: none;
+		}
+	}
+
+	@media (max-width: 28.75rem) {
+		.multiview-toolbar {
+			flex-wrap: wrap;
+			row-gap: 0.5rem;
+			gap: 0.5rem;
+		}
+
+		.toolbar-left,
+		.toolbar-center,
+		.toolbar-right {
+			flex-wrap: wrap;
+			gap: 0.35rem;
 		}
 	}
 </style>

@@ -467,8 +467,10 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		flex-wrap: wrap;
 		width: 100%;
-		gap: 1rem;
+		column-gap: 1rem;
+		row-gap: 0.5rem;
 	}
 
 	.controls-left,
@@ -476,6 +478,18 @@
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
+	}
+
+	@media (max-width: 28.75rem) {
+		.controls-tier {
+			gap: 0.5rem;
+		}
+
+		.controls-left,
+		.controls-right {
+			flex-wrap: wrap;
+			gap: 0.25rem;
+		}
 	}
 
 	.ctrl-btn {

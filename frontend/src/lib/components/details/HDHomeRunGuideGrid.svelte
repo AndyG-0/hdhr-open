@@ -86,12 +86,52 @@
 	// measured yet (e.g. jsdom in tests, where ResizeObserver is a no-op).
 	const MIN_HORIZONTAL_OVERSCAN_PX = 600;
 
+	// Channel column shrinks on narrow phones so more width goes to the guide
+	// itself. Driven from JS (not a CSS media query) because .grid-inner's
+	// total pixel width below must stay in exact sync with the column width,
+	// or the grid's second (1fr) track ends up mis-sized. NARROW_VIEWPORT_PX
+	// matches the 28.75rem breakpoint used elsewhere for mobile fixes.
+	const NARROW_VIEWPORT_PX = 460;
+	// Call signs never run past ~7 chars (e.g. "KPNX-HD"), so 160px left a
+	// visible gap wide enough for a second name - tightened to just fit the
+	// name/number/badge column with a modest buffer.
+	const CHANNEL_COL_WIDTH_PX = 112;
+	const CHANNEL_COL_WIDTH_NARROW_PX = 80;
+	const channelColWidthPx = $derived(
+		viewportWidth > 0 && viewportWidth <= NARROW_VIEWPORT_PX ? CHANNEL_COL_WIDTH_NARROW_PX : CHANNEL_COL_WIDTH_PX,
+	);
+	const isNarrowChannelCol = $derived(channelColWidthPx === CHANNEL_COL_WIDTH_NARROW_PX);
+
+	// Batches scroll position updates to once per animation frame instead of
+	// once per native `scroll` event (which can fire far more often than the
+	// display refresh rate on some mobile browsers/trackpads). Without this,
+	// every scroll tick synchronously re-runs the full derived chain below
+	// (visibleRange, visibleTimeRange, and per-row cell layout), which is the
+	// root cause of the guide becoming janky/unresponsive during a long
+	// scroll session.
+	let scrollRafId: number | null = null;
+	let pendingScrollTop = 0;
+	let pendingScrollLeft = 0;
+
 	function onGuideGridScroll(e: Event) {
 		cancelPress();
 		const el = e.currentTarget as HTMLElement;
-		scrollTop = el.scrollTop;
-		scrollLeft = el.scrollLeft;
+		pendingScrollTop = el.scrollTop;
+		pendingScrollLeft = el.scrollLeft;
+		if (scrollRafId === null) {
+			scrollRafId = requestAnimationFrame(() => {
+				scrollTop = pendingScrollTop;
+				scrollLeft = pendingScrollLeft;
+				scrollRafId = null;
+			});
+		}
 	}
+
+	$effect(() => {
+		return () => {
+			if (scrollRafId !== null) cancelAnimationFrame(scrollRafId);
+		};
+	});
 
 	$effect(() => {
 		if (!scrollEl) return;
@@ -260,6 +300,56 @@
 		return result.sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
 	}
 
+	// Per-row layout cache: without this, mergeAiringsWithNowNext +
+	// computeCellLayout re-run for every windowed row on every scroll frame,
+	// even though a given row's inputs (its airings + the visible time
+	// window) usually haven't changed since the last frame. visibleTimeRange
+	// is rounded to a coarse grain so small scroll deltas that don't change
+	// which airings are relevant still hit the cache.
+	const ROW_CACHE_TIME_QUANTUM_SEC = 30;
+	interface RowLayoutCacheEntry {
+		airingsRef: HDHomeRunGuideEntry[] | undefined;
+		nowRef: HDHomeRunGuideEntry | null | undefined;
+		nextRef: HDHomeRunGuideEntry | null | undefined;
+		timeKey: string;
+		cells: CellLayout[];
+	}
+	const rowLayoutCache = new Map<string, RowLayoutCacheEntry>();
+
+	function quantize(value: number): number {
+		return Math.floor(value / ROW_CACHE_TIME_QUANTUM_SEC) * ROW_CACHE_TIME_QUANTUM_SEC;
+	}
+
+	function getRowCells(
+		channelNumber: string,
+		guideEntry: HDHomeRunFullGuideChannel | undefined,
+		nowAiring: HDHomeRunGuideEntry | null | undefined,
+		nextAiring: HDHomeRunGuideEntry | null | undefined,
+	): CellLayout[] {
+		const timeKey = `${quantize(visibleTimeRange.start)}|${quantize(visibleTimeRange.end)}|${windowBounds.start}|${windowBounds.end}`;
+		const cached = rowLayoutCache.get(channelNumber);
+		if (
+			cached &&
+			cached.airingsRef === guideEntry?.airings &&
+			cached.nowRef === nowAiring &&
+			cached.nextRef === nextAiring &&
+			cached.timeKey === timeKey
+		) {
+			return cached.cells;
+		}
+		const airings = mergeAiringsWithNowNext(guideEntry?.airings ?? [], nowAiring, nextAiring);
+		const visibleAirings = airings.filter((a) => airingOverlapsRange(a, visibleTimeRange.start, visibleTimeRange.end));
+		const cells = computeCellLayout(visibleAirings, windowBounds.start, windowBounds.end);
+		rowLayoutCache.set(channelNumber, {
+			airingsRef: guideEntry?.airings,
+			nowRef: nowAiring,
+			nextRef: nextAiring,
+			timeKey,
+			cells,
+		});
+		return cells;
+	}
+
 	function isLive(airing: HDHomeRunGuideEntry): boolean {
 		return airing.start != null && airing.end != null && airing.start <= nowSeconds && nowSeconds < airing.end;
 	}
@@ -370,6 +460,15 @@
 	const windowedChannels = $derived(visibleChannels.slice(visibleRange.start, visibleRange.end));
 	const topSpacerHeight = $derived(visibleRange.start * ROW_HEIGHT);
 	const bottomSpacerHeight = $derived((visibleChannels.length - visibleRange.end) * ROW_HEIGHT);
+
+	// Evict row-layout cache entries that have scrolled out of the windowed
+	// range so the cache doesn't grow unbounded over a long session.
+	$effect(() => {
+		const visibleIds = new Set(windowedChannels.map((c) => c.channel_number));
+		for (const key of rowLayoutCache.keys()) {
+			if (!visibleIds.has(key)) rowLayoutCache.delete(key);
+		}
+	});
 
 	function scrollToAiring(airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel) {
 		if (!scrollEl || airing.start == null) return;
@@ -587,7 +686,11 @@
 {/if}
 
 <div class="guide-grid" bind:this={scrollEl} onscroll={onGuideGridScroll}>
-	<div class="grid-inner" style={`width: ${totalWidth + 160}px;`}>
+	<div
+		class="grid-inner"
+		class:narrow-channel-col={isNarrowChannelCol}
+		style={`width: ${totalWidth + channelColWidthPx}px; --channel-col-width: ${channelColWidthPx}px;`}
+	>
 		<div class="day-corner"></div>
 		<div class="day-ruler" style={`width: ${totalWidth}px;`}>
 			{#each dayMarks as mark (mark.seconds)}
@@ -611,9 +714,7 @@
 		{/if}
 		{#each windowedChannels as channel (channel.channel_number)}
 			{@const guideEntry = guideByChannel.get(channel.channel_number)}
-			{@const airings = mergeAiringsWithNowNext(guideEntry?.airings ?? [], channel.now, channel.next)}
-			{@const visibleAirings = airings.filter((a) => airingOverlapsRange(a, visibleTimeRange.start, visibleTimeRange.end))}
-			{@const cells = computeCellLayout(visibleAirings, windowBounds.start, windowBounds.end)}
+			{@const cells = getRowCells(channel.channel_number, guideEntry, channel.now, channel.next)}
 			<div
 				class="channel-col clickable"
 				role="button"
@@ -1078,7 +1179,7 @@
 
 	.grid-inner {
 		display: grid;
-		grid-template-columns: 10rem 1fr;
+		grid-template-columns: var(--channel-col-width, 10rem) 1fr;
 		position: relative;
 	}
 
@@ -1121,7 +1222,7 @@
 
 	.day-label {
 		position: sticky;
-		left: 10rem;
+		left: var(--channel-col-width, 10rem);
 		display: inline-flex;
 		align-items: center;
 		height: 1.5rem;
@@ -1231,6 +1332,20 @@
 		padding: 0.05rem 0.3rem;
 	}
 
+	/* On narrow phones the channel column shrinks (see channelColWidthPx in
+	   script); there's no room left for the channel name or HD badge, so hide
+	   them and keep only the number + favorite star legible. */
+	.grid-inner.narrow-channel-col .channel-name,
+	.grid-inner.narrow-channel-col .badge {
+		display: none;
+	}
+
+	.grid-inner.narrow-channel-col .channel-col {
+		padding: 0.35rem;
+		gap: 0.2rem;
+		min-height: 3.25rem;
+	}
+
 	.channel-track {
 		position: relative;
 		min-height: 4rem;
@@ -1309,7 +1424,7 @@
 		font-size: 0.7rem;
 		color: var(--color-text-muted);
 		position: sticky;
-		left: 10rem;
+		left: var(--channel-col-width, 10rem);
 		align-self: flex-start;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -1320,7 +1435,7 @@
 		font-size: 0.8rem;
 		font-weight: 600;
 		position: sticky;
-		left: 10rem;
+		left: var(--channel-col-width, 10rem);
 		align-self: flex-start;
 		overflow: hidden;
 		text-overflow: ellipsis;
