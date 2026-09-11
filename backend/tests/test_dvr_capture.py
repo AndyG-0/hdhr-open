@@ -34,6 +34,76 @@ async def test_start_capture_fails_when_tuner_unconfigured(tmp_db):
 
 
 @pytest.mark.asyncio
+async def test_start_capture_writer_loglevel_follows_ffmpeg_debug_setting(tmp_db, tmp_path, monkeypatch):
+    """The writer ffmpeg's -loglevel should track the same ffmpeg_debug
+    setting the downstream transcode ffmpeg already honors
+    (transcoding.resolve_loglevel) - previously it was hardcoded to
+    "warning", so toggling the setting had no effect on live tuning."""
+    from app import transcoding
+
+    pipeline = CapturePipeline()
+    monkeypatch.setattr(pipeline, "_ensure_recordings_dir", lambda: tmp_path)
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(return_value=b"")
+
+    spawn_mock = AsyncMock(return_value=mock_proc)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: coro.close())
+
+    capture = await pipeline.start_capture(
+        recording_id="rec_debug",
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Late Night",
+        start_ts=1000.0,
+        end_ts=2000.0,
+        settings={"tuner_host": "192.168.1.100", "tuner_port": 80, "ffmpeg_debug": True},
+    )
+    assert capture is not None
+
+    argv = spawn_mock.await_args.args
+    loglevel_index = argv.index("-loglevel")
+    assert argv[loglevel_index + 1] == transcoding.DEBUG_FFMPEG_LOGLEVEL
+
+
+@pytest.mark.asyncio
+async def test_start_capture_captures_writer_stderr_instead_of_discarding_it(tmp_db, tmp_path, monkeypatch):
+    """The writer ffmpeg's stderr used to be read and thrown away
+    (drain_stderr()), leaving no way to see why a tuner-lock failure
+    happened. It should now retain a tail, the same way the downstream
+    transcode ffmpeg's stderr already does (subprocess_streaming.py)."""
+    pipeline = CapturePipeline()
+    monkeypatch.setattr(pipeline, "_ensure_recordings_dir", lambda: tmp_path)
+
+    mock_proc = MagicMock()
+    mock_proc.returncode = None
+    mock_proc.stderr = MagicMock()
+    mock_proc.stderr.read = AsyncMock(side_effect=[b"Connection refused - could not connect to tuner", b""])
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=mock_proc))
+    monkeypatch.setattr(capture_module, "run_in_background", lambda coro: coro.close())
+
+    capture = await pipeline.start_capture(
+        recording_id="rec_stderr",
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Late Night",
+        start_ts=1000.0,
+        end_ts=2000.0,
+        settings={"tuner_host": "192.168.1.100", "tuner_port": 80},
+    )
+    assert capture is not None
+    assert capture.drain_task is not None
+    await capture.drain_task
+
+    assert bytes(capture.stderr_tail) == b"Connection refused - could not connect to tuner"
+    assert capture.stderr_drain_done.is_set()
+
+
+@pytest.mark.asyncio
 async def test_start_and_stop_capture_lifecycle(tmp_db, tmp_path, monkeypatch):
     pipeline = CapturePipeline()
     monkeypatch.setattr(pipeline, "_ensure_recordings_dir", lambda: tmp_path)

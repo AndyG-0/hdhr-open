@@ -247,10 +247,11 @@ async def _wait_for_live_capture_data(capture: ActiveCapture, recording_id: str)
     """Block (briefly) until a just-started capture's writer ffmpeg has
     actually flushed some bytes to disk, so the downstream transcode ffmpeg
     we're about to spawn gets real input right away instead of an empty pipe.
-    Returns False if the capture disappears (writer failed) or the wait times
-    out with the file still effectively empty - callers should treat either
-    as a startup failure. A no-op for a capture that's already been running
-    for a while, since it'll already be well past the byte threshold."""
+    Returns False if the capture disappears (writer failed), its ffmpeg
+    process has already exited, or the wait times out with the file still
+    effectively empty - callers should treat any of these as a startup
+    failure. A no-op for a capture that's already been running for a while,
+    since it'll already be well past the byte threshold."""
     deadline = time.monotonic() + _LIVE_CAPTURE_READY_TIMEOUT_SECONDS
     while True:
         try:
@@ -260,9 +261,33 @@ async def _wait_for_live_capture_data(capture: ActiveCapture, recording_id: str)
             pass
         if not capture_pipeline.is_capture_active(recording_id):
             return False
+        # The writer ffmpeg exiting on its own (bad channel, tuner refused
+        # the connection, etc.) doesn't remove it from
+        # capture_pipeline - only an explicit stop_capture() does - so
+        # without this check a dead writer would still burn the full
+        # timeout above instead of failing immediately.
+        if capture.process is not None and capture.process.returncode is not None:
+            return False
         if time.monotonic() >= deadline:
             return False
         await asyncio.sleep(_LIVE_CAPTURE_READY_POLL_SECONDS)
+
+
+async def _describe_live_capture_failure(capture: ActiveCapture) -> tuple[str, str]:
+    """Why the writer ffmpeg never produced data: a one-line cause plus its
+    stderr tail, in the same (cause, reason) shape
+    describe_ffmpeg_startup_failure returns for the downstream transcode
+    ffmpeg - reused here since it's the same "process died or never wrote
+    anything, here's its stderr" question, just against the writer instead."""
+    if capture.process is None:
+        return "capture has no writer process", ""
+    return await describe_ffmpeg_startup_failure(
+        capture.process,
+        capture.stderr_tail,
+        capture.stderr_drain_done,
+        startup_timeout=_LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
+        flush_timeout=STDERR_FLUSH_TIMEOUT_SECONDS,
+    )
 
 
 @router.get("/recording-stream")
@@ -292,15 +317,21 @@ async def stream_recording(
     mode = settings.get("playback_mode", "server_transcode")
     if mode == "server_transcode" or audio_index is not None or start is not None:
         if active_capture is not None and not await _wait_for_live_capture_data(active_capture, recording_id):
+            cause, reason = await _describe_live_capture_failure(active_capture)
             logger.error(
-                "Recording transcode aborted for %s: capture produced no data within %ss (tuner likely still locking)",
+                "Recording transcode aborted for %s: capture produced no data within %ss (%s)\n"
+                "tuner ffmpeg output:\n%s",
                 target_url,
                 _LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
+                cause,
+                reason or "(none)",
             )
             detail = (
                 "Could not start streaming recording: tuner did not produce any data within "
                 f"{_LIVE_CAPTURE_READY_TIMEOUT_SECONDS}s"
             )
+            if reason:
+                detail += f". ffmpeg said: {reason[-DETAIL_REASON_CHARS:]}"
             record_stream_failure(cache_key, 502, detail)
             raise HTTPException(status_code=502, detail=detail)
         input_url = "pipe:0" if active_capture is not None else target_url
@@ -468,18 +499,22 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request
     )
 
     if active_capture is not None and not await _wait_for_live_capture_data(active_capture, body.recording_id):
+        cause, reason = await _describe_live_capture_failure(active_capture)
         logger.error(
-            "Recording HLS transcode aborted for %s: capture produced no data within %ss (tuner likely still locking)",
+            "Recording HLS transcode aborted for %s: capture produced no data within %ss (%s)\n"
+            "tuner ffmpeg output:\n%s",
             target_url,
             _LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
+            cause,
+            reason or "(none)",
         )
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "Could not start streaming recording: tuner did not produce any data within "
-                f"{_LIVE_CAPTURE_READY_TIMEOUT_SECONDS}s"
-            ),
+        detail = (
+            "Could not start streaming recording: tuner did not produce any data within "
+            f"{_LIVE_CAPTURE_READY_TIMEOUT_SECONDS}s"
         )
+        if reason:
+            detail += f". ffmpeg said: {reason[-DETAIL_REASON_CHARS:]}"
+        raise HTTPException(status_code=502, detail=detail)
 
     input_url = "pipe:0" if active_capture is not None else target_url
     # Demuxer-side -ss can't seek a pipe; a seek into a live capture is
