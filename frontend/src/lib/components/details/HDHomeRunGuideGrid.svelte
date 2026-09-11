@@ -75,9 +75,22 @@
 	let scrollTop = $state(0);
 	let viewportHeight = $state(0);
 
+	// Horizontal virtualization: only render airing cells within the
+	// scrolled viewport (+ overscan) for each visible row. Without this,
+	// every row would render a DOM node per airing across the whole fetched
+	// guide window (up to ~14 days), which is thousands of nodes and the
+	// cause of severe scroll jank/lockups on mobile.
+	let scrollLeft = $state(0);
+	let viewportWidth = $state(0);
+	// Floor so overscan stays generous even when viewportWidth hasn't been
+	// measured yet (e.g. jsdom in tests, where ResizeObserver is a no-op).
+	const MIN_HORIZONTAL_OVERSCAN_PX = 600;
+
 	function onGuideGridScroll(e: Event) {
 		cancelPress();
-		scrollTop = (e.currentTarget as HTMLElement).scrollTop;
+		const el = e.currentTarget as HTMLElement;
+		scrollTop = el.scrollTop;
+		scrollLeft = el.scrollLeft;
 	}
 
 	$effect(() => {
@@ -85,6 +98,7 @@
 		const el = scrollEl;
 		const ro = new ResizeObserver(() => {
 			viewportHeight = el.clientHeight;
+			viewportWidth = el.clientWidth;
 		});
 		ro.observe(el);
 		return () => ro.disconnect();
@@ -183,6 +197,22 @@
 
 	const totalWidth = $derived((windowBounds.end - windowBounds.start) * PX_PER_SEC);
 	const nowLeft = $derived((nowSeconds - windowBounds.start) * PX_PER_SEC);
+
+	// The visible horizontal time-window (+ overscan), used to filter which
+	// airings become DOM cells. Cell coordinates are still computed against
+	// the full windowBounds (see computeCellLayout below), so this only
+	// changes which airings are rendered, never where a rendered cell sits.
+	const horizontalOverscanPx = $derived(Math.max(viewportWidth, MIN_HORIZONTAL_OVERSCAN_PX));
+	const visibleTimeRange = $derived.by(() => {
+		const { start, end } = windowBounds;
+		const rangeStart = start + Math.max(scrollLeft - horizontalOverscanPx, 0) / PX_PER_SEC;
+		const rangeEnd = start + (scrollLeft + viewportWidth + horizontalOverscanPx) / PX_PER_SEC;
+		return { start: Math.max(rangeStart, start), end: Math.min(rangeEnd, end) };
+	});
+
+	function airingOverlapsRange(airing: HDHomeRunGuideEntry, start: number, end: number): boolean {
+		return airing.start != null && airing.end != null && airing.start < end && airing.end > start;
+	}
 
 	interface CellLayout {
 		airing: HDHomeRunGuideEntry;
@@ -371,7 +401,13 @@
 	$effect(() => {
 		if (hasAutoScrolled || !scrollEl || !fullGuide) return;
 		hasAutoScrolled = true;
-		scrollEl.scrollLeft = Math.max(nowLeft - 60, 0);
+		const initialLeft = Math.max(nowLeft - 60, 0);
+		scrollEl.scrollLeft = initialLeft;
+		// Set state synchronously too — the native scroll event that would
+		// otherwise update it fires asynchronously, which would briefly
+		// render cells near the start of the (up to 14-day) window instead
+		// of near "now" on first paint.
+		scrollLeft = initialLeft;
 	});
 
 	let menuState = $state<{ airing: HDHomeRunGuideEntry; channel: HDHomeRunChannel; x: number; y: number } | null>(null);
@@ -576,7 +612,8 @@
 		{#each windowedChannels as channel (channel.channel_number)}
 			{@const guideEntry = guideByChannel.get(channel.channel_number)}
 			{@const airings = mergeAiringsWithNowNext(guideEntry?.airings ?? [], channel.now, channel.next)}
-			{@const cells = computeCellLayout(airings, windowBounds.start, windowBounds.end)}
+			{@const visibleAirings = airings.filter((a) => airingOverlapsRange(a, visibleTimeRange.start, visibleTimeRange.end))}
+			{@const cells = computeCellLayout(visibleAirings, windowBounds.start, windowBounds.end)}
 			<div
 				class="channel-col clickable"
 				role="button"
@@ -1035,7 +1072,8 @@
 		border: 1px solid var(--color-border);
 		border-radius: 0.75rem;
 		margin: 0.5rem 0;
-		max-height: 70vh;
+		flex: 1;
+		min-height: 0;
 	}
 
 	.grid-inner {

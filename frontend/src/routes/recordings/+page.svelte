@@ -39,6 +39,11 @@
 	let dvrInfo = $state<HDHomeRunDvrInfo | null>(null);
 	let recordingsInProgress = $state<HDHomeRunRecording[]>([]);
 	let allRecordings = $state<HDHomeRunRecording[]>([]);
+	const RECORDINGS_PAGE_SIZE = 30;
+	let recordingsOffset = $state(0);
+	let hasMoreRecordings = $state(true);
+	let loadingMoreRecordings = $state(false);
+	let recordingsSentinelEl = $state<HTMLDivElement | null>(null);
 	let recordingRules = $state<HDHomeRunRecordingRule[]>([]);
 	let editingRule = $state<HDHomeRunRecordingRule | null>(null);
 	let channels = $state<HDHomeRunChannel[]>([]);
@@ -113,7 +118,7 @@
 		try {
 			const [dvr, recordings, rules, channelsResult, integration, tunerInfoResult, tunersResult] = await Promise.all([
 				api.getDvrInfo().catch(() => null),
-				api.listRecordings().catch(() => []),
+				api.listRecordings({ limit: RECORDINGS_PAGE_SIZE, offset: 0 }).catch(() => []),
 				api.listRecordingRules().catch(() => []),
 				api.getHDHomeRunChannels().catch(() => null),
 				api.getNetworkIntegration('hdhomerun').catch(() => null),
@@ -129,6 +134,8 @@
 			const now = Date.now() / 1000;
 			recordingsInProgress = recordings.filter((r) => r.record_end === null || r.record_end > now);
 			allRecordings = recordings.filter((r) => r.record_end !== null && r.record_end <= now);
+			recordingsOffset = recordings.length;
+			hasMoreRecordings = recordings.length === RECORDINGS_PAGE_SIZE;
 			recordingRules = rules;
 			if (channelsResult) {
 				channels = channelsResult.channels;
@@ -143,6 +150,50 @@
 
 	$effect(() => {
 		loadAll();
+	});
+
+	async function loadMoreRecordings() {
+		if (loadingMoreRecordings || !hasMoreRecordings) return;
+		loadingMoreRecordings = true;
+		try {
+			const page = await api.listRecordings({ limit: RECORDINGS_PAGE_SIZE, offset: recordingsOffset });
+			const now = Date.now() / 1000;
+			// Offset pagination can drift as recordings start/finish while the
+			// user scrolls (an in-progress recording completing shifts every
+			// later page by one row) — dedup by id guards against a recording
+			// showing up twice across pages. Entries without a recording_id
+			// (rare, some official-HDHomeRun-DVR rows) aren't deduped; an
+			// accepted edge case rather than building a composite key for it.
+			const knownIds = new Set(
+				[...recordingsInProgress, ...allRecordings].map((r) => r.recording_id).filter((id) => id != null),
+			);
+			const fresh = page.filter((r) => r.recording_id == null || !knownIds.has(r.recording_id));
+			recordingsInProgress = [
+				...recordingsInProgress,
+				...fresh.filter((r) => r.record_end === null || r.record_end > now),
+			];
+			allRecordings = [...allRecordings, ...fresh.filter((r) => r.record_end !== null && r.record_end <= now)];
+			recordingsOffset += page.length;
+			hasMoreRecordings = page.length === RECORDINGS_PAGE_SIZE;
+		} catch {
+			// Leave hasMoreRecordings as-is; the sentinel stays in view so the
+			// next scroll/intersection tick simply retries.
+		} finally {
+			loadingMoreRecordings = false;
+		}
+	}
+
+	$effect(() => {
+		if (!recordingsSentinelEl) return;
+		const el = recordingsSentinelEl;
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries[0]?.isIntersecting) loadMoreRecordings();
+			},
+			{ rootMargin: '400px' },
+		);
+		io.observe(el);
+		return () => io.disconnect();
 	});
 
 	function handleTerminateTuner(tuner: HDHomeRunTuner) {
@@ -561,6 +612,11 @@
 			{/each}
 		{/if}
 
+		<div class="recordings-sentinel" bind:this={recordingsSentinelEl}></div>
+		{#if loadingMoreRecordings}
+			<p class="hint">{$_('common.loading')}</p>
+		{/if}
+
 		<div class="section-header">
 			<h2>{$_('hdhomerun.detail.scheduled_recordings')}</h2>
 			<button class="new-keyword-rule-btn" onclick={() => (showKeywordRuleDialog = true)}>
@@ -891,6 +947,10 @@
 		margin: 0.5rem 0 1.5rem;
 	}
 
+	.recordings-sentinel {
+		min-height: 1px;
+	}
+
 	.section-header {
 		display: flex;
 		align-items: center;
@@ -911,6 +971,7 @@
 
 	.rule-card {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 1rem;
 		background: var(--color-surface);
@@ -925,6 +986,13 @@
 		font-weight: 600;
 		white-space: normal;
 		overflow-wrap: break-word;
+	}
+
+	@media (max-width: 30rem) {
+		.rule-title {
+			flex: 1 1 100%;
+			width: 100%;
+		}
 	}
 
 	.rule-details {

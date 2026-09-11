@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.api._dvr_shared import _get_hdhomerun_settings_safe
@@ -137,7 +137,10 @@ def _format_builtin_recording(r: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/recordings")
-async def list_recordings():
+async def list_recordings(
+    limit: int | None = Query(default=None, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
     settings = await _get_hdhomerun_settings_safe()
     results: list[dict[str, Any]] = []
 
@@ -170,6 +173,16 @@ async def list_recordings():
             logger.debug("Could not fetch official DVR recordings", exc_info=True)
 
     results.sort(key=lambda r: r.get("start") or 0, reverse=True)
+    if limit is not None:
+        # Sliced in Python, post-merge, rather than pushed down as SQL
+        # LIMIT/OFFSET on db.list_recordings(): that function has other
+        # callers (retention/rule-matching) needing the complete set, and
+        # the official-HDHomeRun-DVR fetch above is always unbounded with
+        # no pagination API of its own, so a SQL-level limit on just the
+        # local source couldn't be combined with it correctly anyway. A
+        # self-hosted library is realistically hundreds of rows, so an
+        # unbounded fetch + Python slice here has no real cost.
+        return results[offset : offset + limit]
     return results
 
 

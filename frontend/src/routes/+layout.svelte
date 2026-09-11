@@ -54,6 +54,13 @@
 		// decide setup-vs-login before either store's data actually matters.
 		await loadSetupStatus();
 		await loadCurrentUser();
+
+		// Installability only - no offline caching. Note navigator.serviceWorker
+		// only exists in secure contexts, so this silently no-ops when the app
+		// is accessed over plain HTTP on a LAN IP (only localhost/HTTPS get it).
+		if ('serviceWorker' in navigator) {
+			navigator.serviceWorker.register('/sw.js').catch(() => {});
+		}
 	});
 
 	// Three-way redirect: unreachable backend gets its own message (below),
@@ -119,20 +126,24 @@
 			<p class="hint">{$_('layout.fatal_hint')}</p>
 		</div>
 	{:else}
-		{#if $user && page.url.pathname !== '/login' && page.url.pathname !== '/setup' && page.url.pathname !== '/player'}
-			<nav class="app-nav">
-				<a href="/" class:active={page.url.pathname === '/'}>{$_('layout.nav_guide')}</a>
-				<a href="/recordings" class:active={page.url.pathname === '/recordings'}>{$_('layout.nav_recordings')}</a>
-				<a href="/settings" class:active={page.url.pathname === '/settings'}>{$_('layout.nav_settings')}</a>
-				{#if aiConfigured}
-					<button class="app-nav-button" class:active={$aiDrawerOpen} onclick={toggleAIDrawer}>
-						{$_('layout.nav_ask_ai')}
-					</button>
-				{/if}
-			</nav>
-		{/if}
+		<div class="app-shell">
+			{#if $user && page.url.pathname !== '/login' && page.url.pathname !== '/setup' && page.url.pathname !== '/player'}
+				<nav class="app-nav">
+					<a href="/" class:active={page.url.pathname === '/'}>{$_('layout.nav_guide')}</a>
+					<a href="/recordings" class:active={page.url.pathname === '/recordings'}>{$_('layout.nav_recordings')}</a>
+					<a href="/settings" class:active={page.url.pathname === '/settings'}>{$_('layout.nav_settings')}</a>
+					{#if aiConfigured}
+						<button class="app-nav-button" class:active={$aiDrawerOpen} onclick={toggleAIDrawer}>
+							{$_('layout.nav_ask_ai')}
+						</button>
+					{/if}
+				</nav>
+			{/if}
 
-		{@render children()}
+			<div class="app-content">
+				{@render children()}
+			</div>
+		</div>
 
 		{#if $playback.media && page.url.pathname !== '/player'}
 			<HDHomeRunPlayer
@@ -182,6 +193,21 @@
 {/if}
 
 <style>
+	.app-shell {
+		display: flex;
+		flex-direction: column;
+		min-height: 100dvh;
+		padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+			env(safe-area-inset-left);
+	}
+
+	.app-content {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+	}
+
 	.app-nav {
 		display: flex;
 		gap: 0.25rem;

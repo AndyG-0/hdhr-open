@@ -897,7 +897,13 @@ export const api = {
 	},
 	getHDHomeRunChannels: () => getJSON<HDHomeRunChannelsResponse>('/api/guide/channels'),
 	getDvrInfo: () => getJSON<HDHomeRunDvrInfo>('/api/dvr/info'),
-	listRecordings: () => getJSON<HDHomeRunRecording[]>('/api/dvr/recordings'),
+	listRecordings: (params?: { limit?: number; offset?: number }) => {
+		const query = new URLSearchParams();
+		if (params?.limit !== undefined) query.set('limit', String(params.limit));
+		if (params?.offset !== undefined) query.set('offset', String(params.offset));
+		const qs = query.toString();
+		return getJSON<HDHomeRunRecording[]>(`/api/dvr/recordings${qs ? `?${qs}` : ''}`);
+	},
 	listRecordingRules: () => getJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules'),
 	getTunerStatus: () => getJSON<HDHomeRunTuner[]>('/api/tuner/status'),
 	getTunerInfo: () => getJSON<HDHomeRunTunerInfo>('/api/tuner/info'),
