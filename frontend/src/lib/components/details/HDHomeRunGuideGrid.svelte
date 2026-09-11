@@ -834,8 +834,8 @@
 						{favoriteChannels.has(channel.channel_number) ? '★' : '☆'}
 					</button>
 					<span class="channel-number">{channel.channel_number}</span>
-					<span class="channel-name">{channel.name}</span>
 					{#if channel.is_hd}<span class="badge">HD</span>{/if}
+					<span class="channel-name">{channel.name}</span>
 				</div>
 			{/each}
 			{#if bottomSpacerHeight > 0}
@@ -1342,7 +1342,7 @@
 
 	.pane-body {
 		overflow: auto;
-		overscroll-behavior-x: contain;
+		overscroll-behavior: contain;
 		position: relative;
 	}
 
