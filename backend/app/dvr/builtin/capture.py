@@ -18,13 +18,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app import jobs, media_probe
-from app.async_utils import run_in_background, terminate_process
+from app import jobs, media_probe, transcoding
+from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.config import RECORDINGS_DIR
 from app.dvr.builtin import poster_lookup
 from app.dvr.media import captions_live, captions_static
 from app.integrations import hdhomerun_client
 from app.storage import db
+from app.subprocess_streaming import STDERR_TAIL_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class ActiveCapture:
     drain_task: asyncio.Task[None] | None = None
     is_temporary: bool = False
     viewer_session_ids: set[str] = field(default_factory=set)
+    stderr_tail: bytearray = field(default_factory=bytearray)
+    stderr_drain_done: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class CapturePipeline:
@@ -159,7 +162,7 @@ class CapturePipeline:
             "ffmpeg",
             "-hide_banner",
             "-loglevel",
-            "warning",
+            transcoding.resolve_loglevel(settings),
             "-reconnect",
             "1",
             "-reconnect_at_eof",
@@ -202,16 +205,15 @@ class CapturePipeline:
             logger.error("Failed to launch ffmpeg for recording %s: %s", recording_id, exc)
             return None
 
-        async def drain_stderr() -> None:
-            if process.stderr is None:
-                return
-            with contextlib.suppress(Exception):
-                while True:
-                    chunk = await process.stderr.read(4096)
-                    if not chunk:
-                        break
-
-        drain_task = asyncio.create_task(drain_stderr())
+        stderr_tail = bytearray()
+        stderr_drain_done = asyncio.Event()
+        drain_task = None
+        if process.stderr is not None:
+            drain_task = asyncio.create_task(
+                drain_stderr_tail(process.stderr, stderr_tail, stderr_drain_done, tail_bytes=STDERR_TAIL_BYTES)
+            )
+        else:
+            stderr_drain_done.set()
 
         capture = ActiveCapture(
             recording_id=recording_id,
@@ -233,6 +235,8 @@ class CapturePipeline:
             process=process,
             drain_task=drain_task,
             is_temporary=is_temporary,
+            stderr_tail=stderr_tail,
+            stderr_drain_done=stderr_drain_done,
         )
 
         async with self._lock:

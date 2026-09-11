@@ -1358,6 +1358,69 @@ def test_recording_stream_502s_without_spawning_ffmpeg_when_capture_stays_empty(
         capture_pipeline._active_captures.pop("rec_empty", None)
 
 
+def test_recording_stream_fails_fast_with_real_reason_when_writer_ffmpeg_already_exited(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """A writer ffmpeg that dies immediately (bad channel, tuner refused the
+    connection, network unreachable, etc.) should fail the request right
+    away with its real stderr in the 502 detail, not sit through the full
+    pre-flight timeout only to report a generic 'no data' message - see
+    CapturePipeline.start_capture, which never notices its own writer
+    process has exited (only stop_capture() removes an ActiveCapture)."""
+    from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local"})
+
+    video_file = tmp_path / "writer_died.ts"
+    video_file.write_bytes(b"")  # writer exited before writing anything
+
+    writer_process = MagicMock()
+    writer_process.returncode = 1
+    writer_process.wait = AsyncMock(return_value=1)
+
+    now = time.time()
+    active_capture = ActiveCapture(
+        recording_id="rec_writer_died",
+        scheduled_id=None,
+        rule_id=None,
+        channel_number="4.1",
+        channel_name="WNBC",
+        title="Live Show",
+        episode_title=None,
+        season_number=None,
+        episode_number=None,
+        start_ts=now,
+        end_ts=now + 600,
+        file_path=video_file,
+        image_url=None,
+        process=writer_process,
+        stderr_tail=bytearray(b"Connection refused - could not connect to tuner"),
+    )
+    active_capture.stderr_drain_done.set()
+    capture_pipeline._active_captures["rec_writer_died"] = active_capture
+
+    spawn_mock = AsyncMock(side_effect=lambda *a, **kw: _fake_transcode_process())
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
+
+    try:
+        start = time.monotonic()
+        response = client.get(
+            "/api/dvr/recording-stream",
+            params={"url": str(video_file), "recording_id": "rec_writer_died"},
+        )
+        elapsed = time.monotonic() - start
+
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert "tuner did not produce any data" in detail
+        assert "Connection refused" in detail
+        # Should fail on the very first poll, nowhere near the 20s timeout.
+        assert elapsed < 5
+        spawn_mock.assert_not_awaited()
+    finally:
+        capture_pipeline._active_captures.pop("rec_writer_died", None)
+
+
 def test_recording_stream_repeat_request_after_502_fails_fast_without_respawning(
     client, tmp_db, tmp_path, monkeypatch
 ):
