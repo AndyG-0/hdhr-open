@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     # above ("true"/"false", a plain integer) since runtime overrides come
     # back from app_settings as strings — parsed where consumed.
     sports_extension_enabled: str = "false"
-    sports_extension_max_minutes: str = "60"
+    sports_extension_max_minutes: str = "240"
 
     @property
     def cors_origins(self) -> list[str]:
@@ -165,8 +165,8 @@ def resolve_sports_extension_enabled(raw_value: str | None = None) -> bool:
 
 def resolve_sports_extension_max_minutes(raw_value: str | None = None) -> int:
     if raw_value is None:
-        raw_value = effective_settings().get("sports_extension_max_minutes", "60")
+        raw_value = effective_settings().get("sports_extension_max_minutes", "240")
     try:
         return max(0, int(str(raw_value).strip()))
     except ValueError:
-        return 60
+        return 240

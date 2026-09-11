@@ -38,7 +38,7 @@ def _public_shape(current: dict[str, Any]) -> dict[str, Any]:
         "guide_provider_priority": current.get("guide_provider_priority", "xmltv,schedules_direct,hdhomerun_cloud"),
         "dvr_server_priority": current.get("dvr_server_priority", "builtin,hdhomerun"),
         "sports_extension_enabled": current.get("sports_extension_enabled", "false"),
-        "sports_extension_max_minutes": current.get("sports_extension_max_minutes", "60"),
+        "sports_extension_max_minutes": current.get("sports_extension_max_minutes", "240"),
         **{f"has_{key}": bool(current.get(key)) for key in SECRET_APP_SETTINGS_KEYS},
     }
 

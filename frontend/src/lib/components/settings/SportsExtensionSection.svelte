@@ -11,14 +11,14 @@
 	let { initialEnabled, initialMaxMinutes }: Props = $props();
 
 	let enabled = $state(false);
-	let maxMinutes = $state(60);
+	let maxMinutes = $state(240);
 	const sportsExtensionState = new SaveState();
 
 	loadOnceWhen(
 		() => initialEnabled !== null && initialMaxMinutes !== null,
 		() => {
 			enabled = initialEnabled === 'true';
-			maxMinutes = Number(initialMaxMinutes) || 60;
+			maxMinutes = Number(initialMaxMinutes) || 240;
 		},
 	);
 
