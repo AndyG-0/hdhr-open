@@ -437,6 +437,7 @@
 
 	.rec-title {
 		font-weight: 600;
+		overflow-wrap: break-word;
 	}
 
 	.rec-channel,

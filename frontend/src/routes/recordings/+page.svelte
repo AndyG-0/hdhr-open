@@ -800,6 +800,7 @@
 	.recordings-page {
 		display: flex;
 		flex-direction: column;
+		overflow-x: hidden;
 	}
 
 	.hint {
@@ -983,6 +984,7 @@
 	.rule-title {
 		flex: 0 0 20rem;
 		width: 20rem;
+		min-width: 0;
 		font-weight: 600;
 		white-space: normal;
 		overflow-wrap: break-word;
