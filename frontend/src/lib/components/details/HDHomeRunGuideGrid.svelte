@@ -68,10 +68,13 @@
 	let hasAutoScrolled = false;
 
 	// Vertical virtualization: only render channel rows within the scrolled
-	// viewport (+ overscan). ROW_HEIGHT is a fixed estimate — acceptable
-	// since .channel-name never wraps (nowrap + ellipsis), so rows are
-	// effectively uniform height.
-	const ROW_HEIGHT = 65;
+	// viewport (+ overscan). rowHeightPx (below, after isNarrowChannelCol is
+	// defined) is a fixed estimate — acceptable since .channel-name never
+	// wraps (nowrap + ellipsis), so rows are effectively uniform height. It
+	// must track the actual CSS min-height of both .channel-col and
+	// .channel-track (kept in sync with each other, including in narrow
+	// mode) — using a single mismatched constant for both panes previously
+	// caused them to drift apart while scrolling.
 	const OVERSCAN = 5;
 	let scrollTop = $state(0);
 	let viewportHeight = $state(0);
@@ -109,6 +112,9 @@
 		containerWidth > 0 && containerWidth <= NARROW_VIEWPORT_PX ? CHANNEL_COL_WIDTH_NARROW_PX : CHANNEL_COL_WIDTH_PX,
 	);
 	const isNarrowChannelCol = $derived(channelColWidthPx === CHANNEL_COL_WIDTH_NARROW_PX);
+	// Matches .channel-col / .channel-track min-height (4rem, or 3.25rem in
+	// narrow mode) at a 16px root font size.
+	const rowHeightPx = $derived(isNarrowChannelCol ? 52 : 64);
 
 	// Batches scroll position updates to once per animation frame instead of
 	// once per native `scroll` event (which can fire far more often than the
@@ -339,8 +345,15 @@
 	// even though a given row's inputs (its airings + the visible time
 	// window) usually haven't changed since the last frame. visibleTimeRange
 	// is rounded to a coarse grain so small scroll deltas that don't change
-	// which airings are relevant still hit the cache.
-	const ROW_CACHE_TIME_QUANTUM_SEC = 30;
+	// which airings are relevant still hit the cache. The quantum is in
+	// guide-time seconds, and PX_PER_SEC (4px/min) means 900 guide-seconds
+	// is ~60 screen px — comfortably under the ≥600px horizontal overscan
+	// buffer, so the cache still refreshes well before an unrendered airing
+	// could become visible. (This used to be 30s, i.e. ~2 screen px — fine
+	// grained enough that almost any real scroll motion invalidated every
+	// visible row's cache on every animation frame, which was the actual
+	// cause of the multi-second freeze during horizontal scrolling.)
+	const ROW_CACHE_TIME_QUANTUM_SEC = 900;
 	interface RowLayoutCacheEntry {
 		airingsRef: HDHomeRunGuideEntry[] | undefined;
 		nowRef: HDHomeRunGuideEntry | null | undefined;
@@ -487,13 +500,13 @@
 
 	const visibleRange = $derived.by(() => {
 		const total = visibleChannels.length;
-		const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-		const end = Math.min(total, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+		const start = Math.max(0, Math.floor(scrollTop / rowHeightPx) - OVERSCAN);
+		const end = Math.min(total, Math.ceil((scrollTop + viewportHeight) / rowHeightPx) + OVERSCAN);
 		return { start, end };
 	});
 	const windowedChannels = $derived(visibleChannels.slice(visibleRange.start, visibleRange.end));
-	const topSpacerHeight = $derived(visibleRange.start * ROW_HEIGHT);
-	const bottomSpacerHeight = $derived((visibleChannels.length - visibleRange.end) * ROW_HEIGHT);
+	const topSpacerHeight = $derived(visibleRange.start * rowHeightPx);
+	const bottomSpacerHeight = $derived((visibleChannels.length - visibleRange.end) * rowHeightPx);
 
 	// Evict row-layout cache entries that have scrolled out of the windowed
 	// range so the cache doesn't grow unbounded over a long session.
@@ -529,18 +542,38 @@
 		return `${dayName} · ${timeSpan}`;
 	}
 
+	// Jumps the guide so the given guide-window pixel offset starts a little
+	// after the left edge. Used for the initial "now" auto-scroll, and by the
+	// jump-to control (§4) for "now"/day selections. Sets `scrollLeft`
+	// synchronously too — the native scroll event that would otherwise update
+	// it fires asynchronously, which would briefly render cells near the
+	// previous scroll position instead of the target on first paint.
+	function scrollToLeftPx(targetLeft: number) {
+		if (!scrollEl) return;
+		const left = Math.max(targetLeft - 60, 0);
+		scrollEl.scrollLeft = left;
+		scrollLeft = left;
+	}
+
+	function scrollToNow() {
+		scrollToLeftPx(nowLeft);
+	}
+
+	function scrollToDay(mark: { seconds: number; left: number }) {
+		const isToday = mark.seconds === dayMarks[0]?.seconds;
+		if (isToday) {
+			scrollToNow();
+		} else {
+			scrollToLeftPx(mark.left);
+		}
+	}
+
 	// Auto-scroll the timeline so "now" starts a little after the left edge,
 	// once, the first time real guide data is available.
 	$effect(() => {
 		if (hasAutoScrolled || !scrollEl || !fullGuide) return;
 		hasAutoScrolled = true;
-		const initialLeft = Math.max(nowLeft - 60, 0);
-		scrollEl.scrollLeft = initialLeft;
-		// Set state synchronously too — the native scroll event that would
-		// otherwise update it fires asynchronously, which would briefly
-		// render cells near the start of the (up to 14-day) window instead
-		// of near "now" on first paint.
-		scrollLeft = initialLeft;
+		scrollToNow();
 	});
 
 	let menuState = $state<{ airing: HDHomeRunGuideEntry; channel: HDHomeRunChannel; x: number; y: number } | null>(null);
@@ -642,6 +675,22 @@
 			</button>
 		{/if}
 	</div>
+	{#if dayMarks.length > 0}
+		<select
+			class="guide-jump-select"
+			aria-label={$_('hdhomerun.detail.jump_to_label')}
+			onchange={(e) => {
+				const target = dayMarks.find((mark) => String(mark.seconds) === e.currentTarget.value);
+				if (target) scrollToDay(target);
+				e.currentTarget.value = '';
+			}}
+		>
+			<option value="" disabled selected>{$_('hdhomerun.detail.jump_to_label')}</option>
+			{#each dayMarks as mark (mark.seconds)}
+				<option value={mark.seconds}>{mark.label}</option>
+			{/each}
+		</select>
+	{/if}
 </div>
 
 {#if debouncedSearchQuery.trim()}
@@ -804,7 +853,7 @@
 				{@const guideEntry = guideByChannel.get(channel.channel_number)}
 				{@const cells = getRowCells(channel.channel_number, guideEntry, channel.now, channel.next)}
 				<div class="channel-track" style={`width: ${totalWidth}px;`}>
-					<div class="now-line"></div>
+					<div class="now-line" style={`left: ${nowLeft}px;`}></div>
 					{#each cells as cell (cell.airing.start ?? cell.airing.title)}
 						{@const existingRule = findExistingRule(cell.airing, channel)}
 						{@const isMatch = debouncedSearchQuery.trim()
@@ -1000,6 +1049,7 @@
 	.guide-toolbar {
 		display: flex;
 		align-items: center;
+		gap: 0.5rem;
 		margin: 0.75rem 0 0.5rem;
 	}
 
@@ -1008,7 +1058,24 @@
 		display: flex;
 		align-items: center;
 		max-width: 22rem;
-		width: 100%;
+		flex: 1;
+	}
+
+	.guide-jump-select {
+		flex-shrink: 0;
+		max-width: 8.5rem;
+		padding: 0.45rem 0.5rem;
+		border: 1px solid var(--color-border);
+		border-radius: 0.5rem;
+		background: var(--color-surface);
+		color: var(--color-text);
+		font: inherit;
+		font-size: 0.85rem;
+	}
+
+	.guide-jump-select:focus {
+		outline: none;
+		border-color: var(--color-accent);
 	}
 
 	.search-icon {
@@ -1427,6 +1494,13 @@
 		position: relative;
 		min-height: 4rem;
 		border-bottom: 1px solid var(--color-border);
+	}
+
+	/* Must match .channel-col's narrow min-height above (and rowHeightPx in
+	   the script) — otherwise the channel column and program grid rows fall
+	   out of sync while scrolling. */
+	.quadrant-shell.narrow-channel-col .channel-track {
+		min-height: 3.25rem;
 	}
 
 	.now-line {
