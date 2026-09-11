@@ -226,4 +226,10 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 # CORS_ORIGIN for which browser origins may call it), not this bind address;
 # there's no auth in front of it, so treat that mapping as the real
 # perimeter — see README's "Network exposure" section.
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# UVICORN_PORT overrides the port uvicorn actually binds to inside the
+# container (default 8000) — see docker-compose.yml/.prod.yml, which map
+# this to the host via BACKEND_PORT. Shell form (not exec form) so
+# ${UVICORN_PORT} is expanded at container start, not build time.
+ENV UVICORN_PORT=8000
+CMD ["sh", "-c", "exec uv run uvicorn app.main:app --host 0.0.0.0 --port ${UVICORN_PORT}"]

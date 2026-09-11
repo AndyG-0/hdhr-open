@@ -56,6 +56,16 @@ LAN — see `docker-compose.yml` for the environment variables that need to
 change when the frontend and backend are reachable at different hosts
 (`CORS_ORIGIN`, `PUBLIC_API_BASE_URL`).
 
+If port 8000 is already taken on the host (e.g. another project running
+alongside this one), set `BACKEND_PORT` to publish the backend on a
+different host port instead — e.g. `BACKEND_PORT=18001 docker compose up -d`
+— and update `PUBLIC_API_BASE_URL` to match. This only changes the
+published host port; it can't collide with another container regardless,
+since each container has its own isolated network namespace — the internal
+port doesn't need to change for that. `UVICORN_PORT` (also env-overridable)
+controls what port uvicorn binds to *inside* the container, for the rare
+case something else inside that same namespace needs port 8000.
+
 For a tagged-image production deployment (pulling from a registry instead of
 building locally), see `docker-compose.prod.yml`.
 

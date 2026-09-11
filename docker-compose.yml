@@ -4,8 +4,20 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     ports:
-      - "8000:8000"
+      # BACKEND_PORT (host side) is independent of UVICORN_PORT (container
+      # side, see environment: below) — the container's own network
+      # namespace means the internal port can never collide with another
+      # container's, so BACKEND_PORT alone is enough to dodge a host-port
+      # collision with another service. Keep PUBLIC_API_BASE_URL below in
+      # sync if you change BACKEND_PORT.
+      - "${BACKEND_PORT:-8000}:${UVICORN_PORT:-8000}"
     environment:
+      # What port uvicorn actually binds to inside the container (see
+      # backend/Dockerfile) — only needs to change if something inside the
+      # container's own namespace also wants port 8000 (rare); a host-level
+      # port collision with another container is handled by BACKEND_PORT
+      # above instead.
+      - UVICORN_PORT=${UVICORN_PORT:-8000}
       - DB_PATH=/app/data/storage.db
       # Without this, the secret-encryption key (backend/app/crypto.py)
       # defaults to /app/secret.key, which isn't backed by the volume below
@@ -98,7 +110,10 @@ services:
     #           capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      # CMD-SHELL (not CMD) so ${UVICORN_PORT} is expanded against the
+      # container's own environment at check time, matching whatever port
+      # the CMD above actually bound to.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:${UVICORN_PORT:-8000}/api/health')\""]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -113,6 +128,9 @@ services:
       # note in frontend/Dockerfile. Override in a .env file next to this
       # compose file, or with `PUBLIC_API_BASE_URL=... docker compose up`.
       # Changing this only needs a container restart, not a rebuild.
+      # If you override BACKEND_PORT above, override this to match — it
+      # isn't derived automatically (nested ${...} defaults aren't reliably
+      # supported across Compose implementations).
       - PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
