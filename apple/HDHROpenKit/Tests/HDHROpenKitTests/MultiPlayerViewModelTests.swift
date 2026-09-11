@@ -531,10 +531,10 @@ final class MultiPlayerViewModelTests: XCTestCase {
             try await vm.replaceFeed(at: 0, with: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
         }
 
-        // Give the stale replace time to clear its tuner-availability check
+        // Wait for the stale replace to clear its tuner-availability check
         // and reach the gated negotiation call before the second replace
         // targets the same slot.
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await MockURLProtocol.waitUntilLogged("/api/watch/5.1/start")
         try await vm.replaceFeed(at: 0, with: HDHomeRunChannel(channelNumber: "7.1", name: "ABC"))
 
         XCTAssertEqual(vm.slots[0].channel.channelNumber, "7.1")
@@ -654,10 +654,10 @@ final class MultiPlayerViewModelTests: XCTestCase {
 
         let finishTask = Task { try await vm.finishAddFeed(slotId: slotId) }
 
-        // Give `finishAddFeed` time to clear its tuner-availability check
+        // Wait for `finishAddFeed` to clear its tuner-availability check
         // and reach the gated negotiation call before removing the slot out
         // from under it.
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await MockURLProtocol.waitUntilLogged("/api/watch/4.1/start")
         vm.removeFeed(at: 0)
         XCTAssertTrue(vm.slots.isEmpty)
 
