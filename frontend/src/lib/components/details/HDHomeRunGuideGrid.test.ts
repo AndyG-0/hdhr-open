@@ -163,4 +163,57 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 
 		expect(screen.queryByText(/Celebrity guests and gossip/i)).not.toBeInTheDocument();
 	});
+
+	it('positions the now-line inside every channel row, not just the header', () => {
+		const { container } = render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		const rowNowLine = container.querySelector('.channel-track .now-line');
+		expect(rowNowLine).not.toBeNull();
+		expect(rowNowLine?.getAttribute('style')).toMatch(/left:\s*[\d.]+px/);
+	});
+
+	it('jump-to control lets the user pick a loaded day', async () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		const jumpSelect = screen.getByLabelText('Jump to') as HTMLSelectElement;
+		expect(jumpSelect.options[1]?.textContent).toBe('Today');
+
+		await fireEvent.change(jumpSelect, { target: { value: jumpSelect.options[1].value } });
+
+		// Selecting a day is a one-shot action — the control resets to its
+		// placeholder so it can fire again on the same option.
+		expect(jumpSelect.value).toBe('');
+	});
 });
