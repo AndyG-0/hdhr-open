@@ -801,6 +801,7 @@
 		display: flex;
 		flex-direction: column;
 		overflow-x: hidden;
+		padding: 1.25rem;
 	}
 
 	.hint {
