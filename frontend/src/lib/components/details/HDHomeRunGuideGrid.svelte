@@ -92,7 +92,10 @@
 	// or the grid's second (1fr) track ends up mis-sized. NARROW_VIEWPORT_PX
 	// matches the 28.75rem breakpoint used elsewhere for mobile fixes.
 	const NARROW_VIEWPORT_PX = 460;
-	const CHANNEL_COL_WIDTH_PX = 160;
+	// Call signs never run past ~7 chars (e.g. "KPNX-HD"), so 160px left a
+	// visible gap wide enough for a second name - tightened to just fit the
+	// name/number/badge column with a modest buffer.
+	const CHANNEL_COL_WIDTH_PX = 112;
 	const CHANNEL_COL_WIDTH_NARROW_PX = 80;
 	const channelColWidthPx = $derived(
 		viewportWidth > 0 && viewportWidth <= NARROW_VIEWPORT_PX ? CHANNEL_COL_WIDTH_NARROW_PX : CHANNEL_COL_WIDTH_PX,
