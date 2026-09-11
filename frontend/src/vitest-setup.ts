@@ -53,6 +53,17 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
 	};
 }
 
+// jsdom doesn't implement IntersectionObserver; used only to trigger
+// infinite-scroll pagination on the recordings page, which isn't exercised
+// by these tests.
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+	globalThis.IntersectionObserver = class {
+		observe() {}
+		unobserve() {}
+		disconnect() {}
+	} as unknown as typeof IntersectionObserver;
+}
+
 // jsdom doesn't implement matchMedia; the theme store uses it to resolve
 // "system" mode. Default to "light preferred" (matches: false) — tests that
 // care about the resolved OS scheme can override window.matchMedia directly.

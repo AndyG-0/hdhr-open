@@ -403,6 +403,8 @@
 	.guide-page {
 		display: flex;
 		flex-direction: column;
+		flex: 1;
+		min-height: 0;
 		gap: 0.5rem;
 	}
 
