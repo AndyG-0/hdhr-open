@@ -38,6 +38,7 @@ import {
 	replaceFeed,
 	setAudioSlot,
 	swapSlots,
+	setLayout,
 	expandSlot,
 	closeAll,
 	recommendedLayout,
@@ -307,6 +308,61 @@ describe('multiview store', () => {
 		state = get(multiview);
 		expect(state.slots).toHaveLength(2);
 		expect(state.layout).toBe('side_by_side');
+	});
+
+	it('trims excess slots and tears down their sessions when switching to a smaller layout', async () => {
+		getTunerInfo.mockResolvedValue({ friendly_name: 'HDHomeRun FLEX 4K', tuner_count: 4 });
+		await initTunerCapacity();
+
+		await addFeed(mockChannel('2.1', 'KDFW'));
+		await addFeed(mockChannel('4.1', 'KXAS'));
+		await addFeed(mockChannel('5.1', 'WFAA'));
+		await addFeed(mockChannel('11.1', 'KTVT'));
+		expect(get(multiview).layout).toBe('quad');
+
+		setLayout('three_box');
+		let state = get(multiview);
+		expect(state.layout).toBe('three_box');
+		expect(state.slots).toHaveLength(3);
+		expect(state.slots.map((s) => s.channel.channel_number)).toEqual(['2.1', '4.1', '5.1']);
+		expect(stopWatch).toHaveBeenCalledWith('watch_11.1');
+
+		setLayout('side_by_side');
+		state = get(multiview);
+		expect(state.layout).toBe('side_by_side');
+		expect(state.slots).toHaveLength(2);
+		expect(state.slots.map((s) => s.channel.channel_number)).toEqual(['2.1', '4.1']);
+		expect(stopWatch).toHaveBeenCalledWith('watch_5.1');
+	});
+
+	it('keeps active slot in range and clears expandedSlotIndex when the expanded slot is trimmed', async () => {
+		getTunerInfo.mockResolvedValue({ friendly_name: 'HDHomeRun FLEX 4K', tuner_count: 4 });
+		await initTunerCapacity();
+
+		await addFeed(mockChannel('2.1', 'KDFW'));
+		await addFeed(mockChannel('4.1', 'KXAS'));
+		await addFeed(mockChannel('5.1', 'WFAA'));
+		await addFeed(mockChannel('11.1', 'KTVT'));
+
+		setAudioSlot(3);
+		expandSlot(3);
+
+		setLayout('side_by_side');
+		const state = get(multiview);
+		expect(state.slots).toHaveLength(2);
+		expect(state.activeSlotIndex).toBe(1);
+		expect(state.expandedSlotIndex).toBeNull();
+		expect(state.slots[1].isMuted).toBe(false);
+	});
+
+	it('does not touch slots when switching to a layout with equal or greater capacity', async () => {
+		await addFeed(mockChannel('2.1', 'KDFW'));
+		await addFeed(mockChannel('4.1', 'KXAS'));
+
+		setLayout('side_by_side');
+		const state = get(multiview);
+		expect(state.slots).toHaveLength(2);
+		expect(stopWatch).not.toHaveBeenCalled();
 	});
 
 	it('closes all feeds and cleans up all sessions', async () => {

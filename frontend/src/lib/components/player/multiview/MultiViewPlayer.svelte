@@ -490,7 +490,7 @@
 	.title-cluster {
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
+		gap: 0.4rem;
 		min-width: 0;
 	}
 
