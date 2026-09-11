@@ -9,6 +9,8 @@ export interface AppSettings {
 	timezone: string;
 	guide_provider_priority: string;
 	dvr_server_priority: string;
+	sports_extension_enabled: string;
+	sports_extension_max_minutes: string;
 }
 
 // A Google Cast receiver device fetches this playlist directly over HTTP
