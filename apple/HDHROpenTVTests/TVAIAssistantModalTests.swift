@@ -113,16 +113,21 @@ final class TVAIAssistantModalTests: XCTestCase {
         let exp1 = sut.inspection.inspect(after: 0) { view in
             try view.find(button: suggestion).tap()
         }
-        let exp2 = sut.inspection.inspect(after: 0.05) { view in
-            XCTAssertNoThrow(try view.find(text: "Thinking..."))
+        // isSending flips to true synchronously on tap, but the view needs a
+        // render pass to reflect it - poll across several checkpoints (all
+        // comfortably inside DelayedAIURLProtocol's response window) rather
+        // than gambling that a single fixed offset lands after that render.
+        let (thinkingExpectations, foundThinking) = pollingInspection(on: sut.inspection, at: (0.02, 0.05, 0.08, 0.12, 0.16)) { view in
+            (try? view.find(text: "Thinking...")) != nil
         }
-        let exp3 = sut.inspection.inspect(after: DelayedAIURLProtocol.delay + 0.2) { view in
+        let exp3 = sut.inspection.inspect(after: DelayedAIURLProtocol.delay + 1.0) { view in
+            XCTAssertTrue(foundThinking.succeeded, "Never observed the Thinking... indicator")
             XCTAssertThrowsError(try view.find(text: "Thinking..."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 2)
+        await fulfillment(of: [exp1] + thinkingExpectations + [exp3], timeout: 5)
     }
 
     private func sseData(_ events: [String]) -> Data {
@@ -207,7 +212,9 @@ final class TVAIAssistantModalTests: XCTestCase {
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        // Margin from the last checkpoint (1.0s) to the outer timeout is kept
+        // at >=3x to tolerate CI slowness between the tap and the state update.
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 4)
     }
 
     func testConfirmActionFailureRendersFailedState() async throws {
@@ -227,7 +234,9 @@ final class TVAIAssistantModalTests: XCTestCase {
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, exp2, exp3], timeout: 3)
+        // Margin from the last checkpoint (1.0s) to the outer timeout is kept
+        // at >=3x to tolerate CI slowness between the tap and the state update.
+        await fulfillment(of: [exp1, exp2, exp3], timeout: 4)
     }
 
     func testCancelActionRendersCancelledState() async throws {
@@ -242,32 +251,21 @@ final class TVAIAssistantModalTests: XCTestCase {
         // The cancel button's render lands at a variable, sometimes multi-second
         // offset in CI rather than a fixed one. Poll for it across several
         // scheduled inspections and tap on the first one where it's found, rather
-        // than gambling on one fixed delay being "long enough". Each retry needs
-        // its own source line: ViewInspector's Inspection helper keys its
-        // callback dictionary by call-site line number, so a loop registering
-        // multiple inspect(after:) calls from one line silently drops all but
-        // the last.
-        var didTapCancel = false
-        func tapCancelButtonIfFound(_ view: InspectableView<ViewType.View<TVAIAssistantModal>>) throws {
-            guard !didTapCancel else { return }
-            guard let button = try? view.find(button: "Cancel") else { return }
+        // than gambling on one fixed delay being "long enough".
+        let (tapExpectations, didTapCancel) = pollingInspection(on: sut.inspection, at: (0.5, 1.0, 1.5, 2.0, 2.5)) { view in
+            guard let button = try? view.find(button: "Cancel") else { return false }
             try button.tap()
-            didTapCancel = true
+            return true
         }
-        let tap1 = sut.inspection.inspect(after: 0.5) { view in try tapCancelButtonIfFound(view) }
-        let tap2 = sut.inspection.inspect(after: 1.0) { view in try tapCancelButtonIfFound(view) }
-        let tap3 = sut.inspection.inspect(after: 1.5) { view in try tapCancelButtonIfFound(view) }
-        let tap4 = sut.inspection.inspect(after: 2.0) { view in try tapCancelButtonIfFound(view) }
-        let tap5 = sut.inspection.inspect(after: 2.5) { view in try tapCancelButtonIfFound(view) }
 
         let expFinal = sut.inspection.inspect(after: 3.0) { view in
-            XCTAssertTrue(didTapCancel, "Never found the cancel button to tap")
+            XCTAssertTrue(didTapCancel.succeeded, "Never found the cancel button to tap")
             XCTAssertNoThrow(try view.find(text: "Action cancelled."))
         }
 
         ViewHosting.host(view: sut)
         defer { ViewHosting.expel() }
-        await fulfillment(of: [exp1, tap1, tap2, tap3, tap4, tap5, expFinal], timeout: 5)
+        await fulfillment(of: [exp1] + tapExpectations + [expFinal], timeout: 5)
     }
 
     // MARK: - Tool-name humanization

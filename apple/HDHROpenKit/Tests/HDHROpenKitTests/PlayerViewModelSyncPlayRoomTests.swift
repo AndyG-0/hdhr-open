@@ -89,9 +89,9 @@ final class PlayerViewModelSyncPlayRoomTests: XCTestCase {
         let content = SyncPlayContent(type: "recording", recordingId: "rec-42", channelNumber: nil, title: "Remote Recording", durationSeconds: nil)
 
         vm.syncPlayClient.onRemoteContentChange?(content)
-        // handleRemoteContentChange dispatches through nested Tasks - give them
-        // a chance to run before asserting.
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // handleRemoteContentChange dispatches through nested Tasks - poll
+        // rather than guessing a fixed delay is enough for them to run.
+        try await pollUntil { vm.activeRecording?.recordingId == "rec-42" }
 
         XCTAssertEqual(vm.activeRecording?.recordingId, "rec-42")
     }
@@ -101,7 +101,7 @@ final class PlayerViewModelSyncPlayRoomTests: XCTestCase {
         let content = SyncPlayContent(type: "channel", recordingId: nil, channelNumber: "9.1", title: "Remote Channel", durationSeconds: nil)
 
         vm.syncPlayClient.onRemoteContentChange?(content)
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await pollUntil { vm.activeChannel?.channelNumber == "9.1" }
 
         XCTAssertEqual(vm.activeChannel?.channelNumber, "9.1")
     }

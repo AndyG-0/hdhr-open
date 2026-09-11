@@ -47,6 +47,26 @@ final class MockURLProtocol: URLProtocol {
         gateSemaphores = [:]
     }
 
+    /// Suspends until `path` has actually reached `startLoading` (i.e. is
+    /// logged in `requestLog`), instead of guessing a fixed sleep is "long
+    /// enough" for a concurrently-started task to get there. Use this before
+    /// firing a second, un-gated call whose ordering relative to the first
+    /// depends on the first having already reached its gate - a blind sleep
+    /// that's too short lets the second call race ahead and breaks that
+    /// ordering under CI contention.
+    static func waitUntilLogged(_ path: String, timeoutSeconds: TimeInterval = 2.0) async throws {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while !requestLog.contains(path) {
+            if Date() >= deadline {
+                throw NSError(
+                    domain: "MockURLProtocol", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for \(path) to be logged"]
+                )
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
     /// Per-path FIFO queues, consumed one response per request before
     /// falling back to `handlers[path]`. Needed for endpoints that don't
     /// vary by path per logical resource (e.g. `/api/dvr/recording-stream-hls`

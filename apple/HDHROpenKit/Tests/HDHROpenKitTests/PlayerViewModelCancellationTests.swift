@@ -54,9 +54,9 @@ final class PlayerViewModelCancellationTests: XCTestCase {
         let vm = makeMockedViewModel()
         let staleTask = Task { await vm.playChannel(channel: HDHomeRunChannel(channelNumber: "4.1", name: "NBC")) }
 
-        // Give the stale call time to clear `closePlayer()` and reach the
+        // Wait for the stale call to clear `closePlayer()` and reach the
         // gated negotiation call before the superseding call starts.
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await MockURLProtocol.waitUntilLogged("/api/watch/4.1/start")
         await vm.playChannel(channel: HDHomeRunChannel(channelNumber: "5.1", name: "CBS"))
 
         XCTAssertEqual(vm.activeChannel?.channelNumber, "5.1")
@@ -103,9 +103,9 @@ final class PlayerViewModelCancellationTests: XCTestCase {
         let recording = HDHomeRunRecording(recordingId: "rec-1", title: "A Recording", playUrl: "http://hdhr/rec.mpg")
         let playTask = Task { await vm.playRecording(recording) }
 
-        // Give `playRecording` time to negotiate the HLS session and reach
+        // Wait for `playRecording` to negotiate the HLS session and reach
         // the gated metadata fetch before closing the player out from under it.
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await MockURLProtocol.waitUntilLogged("/api/dvr/recording-detail")
         vm.closePlayer()
         XCTAssertEqual(vm.playerEngine.duration, 0.0, accuracy: 0.01)
 

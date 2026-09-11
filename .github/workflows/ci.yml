@@ -61,16 +61,93 @@ jobs:
             android/app/build/reports/
             android/core/build/reports/
 
-  apple:
+  apple-lint:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - run: brew install swiftlint swiftformat
-      - run: ./apple/check.sh
-      - name: Upload Test and Coverage Reports on Failure
+      - run: bash apple/scripts/lint.sh
+
+  apple-kit-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: apple/HDHROpenKit/.build
+          key: apple-kit-spm-${{ runner.os }}-${{ hashFiles('apple/HDHROpenKit/Package.resolved') }}
+          restore-keys: |
+            apple-kit-spm-${{ runner.os }}-
+      - run: bash apple/scripts/test-kit.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple-kit-coverage
+          path: apple/.build/results/kit_coverage.json
+      - name: Upload Kit Test Reports on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: apple-reports
-          path: |
-            apple/.build/results/
+          name: apple-kit-reports
+          path: apple/.build/results/
+
+  apple-ios-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: apple/.build/DerivedData-ios
+          key: apple-ios-derived-${{ runner.os }}-${{ hashFiles('apple/HDHROpen.xcodeproj/project.pbxproj', 'apple/HDHROpen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            apple-ios-derived-${{ runner.os }}-
+      - run: bash apple/scripts/test-app.sh ios
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple-ios-coverage
+          path: apple/.build/results/ios_coverage.json
+      - name: Upload iOS Test Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-ios-reports
+          path: apple/.build/results/ios_test_results.xcresult
+
+  apple-tv-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: apple/.build/DerivedData-tv
+          key: apple-tv-derived-${{ runner.os }}-${{ hashFiles('apple/HDHROpen.xcodeproj/project.pbxproj', 'apple/HDHROpen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            apple-tv-derived-${{ runner.os }}-
+      - run: bash apple/scripts/test-app.sh tv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple-tv-coverage
+          path: apple/.build/results/tv_coverage.json
+      - name: Upload TV Test Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apple-tv-reports
+          path: apple/.build/results/tv_test_results.xcresult
+
+  apple-coverage-gate:
+    needs: [apple-kit-tests, apple-ios-tests, apple-tv-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: apple-*-coverage
+          path: apple/.build/results
+          merge-multiple: true
+      - run: |
+          python3 apple/scripts/compute_coverage.py \
+            --kit-json apple/.build/results/kit_coverage.json \
+            --ios-json apple/.build/results/ios_coverage.json \
+            --tv-json apple/.build/results/tv_coverage.json \
+            --threshold 83.0 \
+            --min-file-coverage 40.0
