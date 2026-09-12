@@ -6,7 +6,12 @@ import Foundation
 /// this and fail silently via `try?` where applicable, which is fine for
 /// tests exercising those paths.
 final class MockURLProtocol: URLProtocol {
-    static var handlers: [String: (Data, Int)] = [:]
+    private static let handlersLock = NSLock()
+    private static var _handlers: [String: (Data, Int)] = [:]
+    static var handlers: [String: (Data, Int)] {
+        get { handlersLock.lock(); defer { handlersLock.unlock() }; return _handlers }
+        set { handlersLock.lock(); defer { handlersLock.unlock() }; _handlers = newValue }
+    }
 
     /// Every request path seen, in arrival order - lets tests assert a
     /// teardown call (e.g. an HLS/watch-session stop) actually happened,

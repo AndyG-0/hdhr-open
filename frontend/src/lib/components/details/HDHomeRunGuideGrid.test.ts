@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent, within } from '@testing-library/svelte';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import HDHomeRunGuideGrid from './HDHomeRunGuideGrid.svelte';
 import type { HDHomeRunChannel, HDHomeRunFullGuideChannel } from '$lib/api';
@@ -189,6 +189,15 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 	});
 
 	it('jump-to control lets the user pick a loaded day', async () => {
+		// The guide window looks back 2 hours from "now", which rolls into the
+		// previous calendar day whenever the real clock is within 2 hours after
+		// midnight — splitting the ruler into two day segments and making
+		// options[1] "yesterday" instead of "Today". Pin to noon so this test
+		// doesn't depend on what time of day it happens to run.
+		const noon = new Date();
+		noon.setHours(12, 0, 0, 0);
+		vi.setSystemTime(noon);
+
 		render(HDHomeRunGuideGrid, {
 			props: {
 				channels: [mockChannel],
@@ -215,5 +224,46 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 		// Selecting a day is a one-shot action — the control resets to its
 		// placeholder so it can fire again on the same option.
 		expect(jumpSelect.value).toBe('');
+	});
+
+	it('cancelling a recording from the options dialog calls onCancelRule after a real pointerdown+click sequence', async () => {
+		const onCancelRule = vi.fn();
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [{ RecordingRuleID: 'rule_1', Title: 'Daytime Talk', ChannelOnly: '4.1' } as never],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule,
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		// "Daytime Talk" isn't live, so clicking the cell opens the recording
+		// options dialog (rather than watching).
+		await fireEvent.click(screen.getByText('Daytime Talk'));
+
+		const cancelBtn = await screen.findByRole('button', { name: 'Cancel Recording' });
+		await fireEvent.click(cancelBtn);
+
+		const cancelModal = await screen.findByRole('alertdialog');
+		const modalConfirmBtn = within(cancelModal).getByRole('button', { name: 'Cancel Recording' });
+
+		// A real browser fires pointerdown before click for a single interaction.
+		// The confirm button lives outside the options dialog's own root element,
+		// so a naive "click outside closes the dialog" listener on window
+		// pointerdown would unmount the dialog (and this button) before the click
+		// ever reaches onCancelRule.
+		await fireEvent.pointerDown(modalConfirmBtn);
+		await fireEvent.click(modalConfirmBtn);
+
+		expect(onCancelRule).toHaveBeenCalledWith('rule_1');
 	});
 });

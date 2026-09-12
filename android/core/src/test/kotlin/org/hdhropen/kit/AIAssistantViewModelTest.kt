@@ -3,6 +3,7 @@ package org.hdhropen.kit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -20,6 +21,7 @@ import org.junit.Test
 class AIAssistantViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val testScope = TestScope(testDispatcher)
     private lateinit var server: MockWebServer
     private lateinit var apiClient: APIClient
     private lateinit var viewModel: AIAssistantViewModel
@@ -31,7 +33,7 @@ class AIAssistantViewModelTest {
         server.start()
         val url = server.url("/").toString().removeSuffix("/")
         apiClient = APIClient(baseURL = url, ioDispatcher = testDispatcher)
-        viewModel = AIAssistantViewModel(apiClient, ioDispatcher = testDispatcher)
+        viewModel = AIAssistantViewModel(apiClient, ioDispatcher = testDispatcher, externalScope = testScope)
     }
 
     @After
@@ -48,7 +50,7 @@ class AIAssistantViewModelTest {
     }
 
     @Test
-    fun testSendPromptStreamsTokens() = runTest {
+    fun testSendPromptStreamsTokens() = testScope.runTest {
         val sseBody = """
             data: {"type":"token","text":"Hello "}
             
@@ -72,7 +74,7 @@ class AIAssistantViewModelTest {
     }
 
     @Test
-    fun testToolCallsAndActionPreviewConfirmation() = runTest {
+    fun testToolCallsAndActionPreviewConfirmation() = testScope.runTest {
         val sseBody = """
             data: {"type":"tool_status","tool":"search_guide","status":"running","message":"Searching..."}
             
@@ -112,7 +114,7 @@ class AIAssistantViewModelTest {
     }
 
     @Test
-    fun testCancelAction() = runTest {
+    fun testCancelAction() = testScope.runTest {
         val sseBody = """
             data: {"type":"action_preview","action_id":"act-2","tool":"delete_rule","preview":{"id":"123"}}
             
@@ -133,7 +135,7 @@ class AIAssistantViewModelTest {
     }
 
     @Test
-    fun testNewChatClearsState() = runTest {
+    fun testNewChatClearsState() = testScope.runTest {
         val sseBody = """
             data: {"type":"token","text":"Response"}
             
