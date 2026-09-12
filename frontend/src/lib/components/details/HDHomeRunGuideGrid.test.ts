@@ -189,6 +189,15 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 	});
 
 	it('jump-to control lets the user pick a loaded day', async () => {
+		// The guide window looks back 2 hours from "now", which rolls into the
+		// previous calendar day whenever the real clock is within 2 hours after
+		// midnight — splitting the ruler into two day segments and making
+		// options[1] "yesterday" instead of "Today". Pin to noon so this test
+		// doesn't depend on what time of day it happens to run.
+		const noon = new Date();
+		noon.setHours(12, 0, 0, 0);
+		vi.setSystemTime(noon);
+
 		render(HDHomeRunGuideGrid, {
 			props: {
 				channels: [mockChannel],
