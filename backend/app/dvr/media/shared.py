@@ -38,11 +38,14 @@ def safe_cache_path(recording_id: str, suffix: str) -> Path:
 
     Uses `os.path.realpath`/`str.startswith` rather than `Path.resolve`/
     `Path.is_relative_to` for the same check, since that's the idiom
-    CodeQL's `py/path-injection` query recognizes as a sanitizer.
+    CodeQL's `py/path-injection` query recognizes as a sanitizer - and as a
+    single bare `startswith` condition (not compounded with anything else),
+    since `suffix` is always a non-empty literal (e.g. ".live.vtt"), so
+    `candidate` can never actually collapse to exactly `base` itself.
     """
     base = os.path.realpath(_cache_dir())
     candidate = os.path.realpath(os.path.join(base, f"{recording_id}{suffix}"))
-    if candidate != base and not candidate.startswith(base + os.sep):
+    if not candidate.startswith(base + os.sep):
         raise ValueError(f"Invalid recording_id: {recording_id!r}")
     return Path(candidate)
 
