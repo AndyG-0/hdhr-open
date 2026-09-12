@@ -1,6 +1,6 @@
 [project]
 name = "hdhr-open-backend"
-version = "0.5.4"
+version = "0.5.5"
 description = "hdhr-open backend"
 readme = "README.md"
 license = "MIT"
