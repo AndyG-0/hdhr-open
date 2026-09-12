@@ -25,6 +25,7 @@ class SchedulesDirectError(Exception):
 
     def __init__(self, message: str, code: int | None = None, response_data: Any = None):
         super().__init__(message)
+        self.detail = message
         self.code = code
         self.response_data = response_data
 

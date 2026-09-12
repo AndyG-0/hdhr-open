@@ -138,6 +138,15 @@ class BaseAIClient(ABC):
         """
 
 
+class UnknownAIProviderError(ValueError):
+    """Raised by `get_ai_client` for an unrecognized provider name."""
+
+    def __init__(self, provider: str):
+        message = f"Unknown AI provider '{provider}'"
+        super().__init__(message)
+        self.detail = message
+
+
 def get_ai_client(provider: str, *, api_key: str, base_url: str | None, model: str) -> BaseAIClient:
     """Factory: resolves a configured provider name to a client instance.
 
@@ -158,4 +167,4 @@ def get_ai_client(provider: str, *, api_key: str, base_url: str | None, model: s
         from app.integrations.ai.gemini_client import GeminiClient
 
         return GeminiClient(api_key=api_key, base_url=base_url, model=model)
-    raise ValueError(f"Unknown AI provider '{provider}'")
+    raise UnknownAIProviderError(provider)

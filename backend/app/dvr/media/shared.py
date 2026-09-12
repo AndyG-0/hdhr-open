@@ -5,6 +5,7 @@ cleanup helpers used by both the static (whole-file) and live caption paths.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -22,6 +23,31 @@ _GENERATE_TIMEOUT_SECONDS = 600
 def _cache_dir() -> Path:
     HDHOMERUN_MEDIA_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return HDHOMERUN_MEDIA_CACHE_DIR
+
+
+def safe_cache_path(recording_id: str, suffix: str) -> Path:
+    """Resolve a cache-file path for `recording_id`, rejecting any path
+    traversal attempt.
+
+    `recording_id` is a self-generated UUID hex for builtin-DVR recordings,
+    but for an official HDHomeRun-DVR recording it's sourced verbatim from
+    the tuner's own API (see `hdhomerun_client`) in a format we don't
+    control - so this can't assume a fixed charset (e.g. UUID-hex-only) and
+    instead validates by containment: the resolved path must still live
+    inside the cache directory.
+
+    Uses `os.path.realpath`/`str.startswith` rather than `Path.resolve`/
+    `Path.is_relative_to` for the same check, since that's the idiom
+    CodeQL's `py/path-injection` query recognizes as a sanitizer - and as a
+    single bare `startswith` condition (not compounded with anything else),
+    since `suffix` is always a non-empty literal (e.g. ".live.vtt"), so
+    `candidate` can never actually collapse to exactly `base` itself.
+    """
+    base = os.path.realpath(_cache_dir())
+    candidate = os.path.realpath(os.path.join(base, f"{recording_id}{suffix}"))
+    if not candidate.startswith(base + os.sep):
+        raise ValueError(f"Invalid recording_id: {recording_id!r}")
+    return Path(candidate)
 
 
 async def _run_ffmpeg(argv: list[str], timeout: float | None = None) -> bool:

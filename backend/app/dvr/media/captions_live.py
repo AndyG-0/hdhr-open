@@ -53,7 +53,7 @@ from typing import Literal
 
 from app.async_utils import terminate_process
 from app.dvr.builtin.tail_follow import pump_tail_follow
-from app.dvr.media.shared import _append_live_cues, _cache_dir, _parse_srt_block
+from app.dvr.media.shared import _append_live_cues, _parse_srt_block, safe_cache_path
 
 logger = logging.getLogger(__name__)
 
@@ -171,8 +171,8 @@ def _live_caption_output_has_cues(path: Path) -> bool:
 
 def _live_caption_path(recording_id: str, channel: int = 1) -> Path:
     if channel == 1:
-        return _cache_dir() / f"{recording_id}.live.vtt"
-    return _cache_dir() / f"{recording_id}.cc{channel}.live.vtt"
+        return safe_cache_path(recording_id, ".live.vtt")
+    return safe_cache_path(recording_id, f".cc{channel}.live.vtt")
 
 
 def live_captions_path(recording_id: str, channel: int = 1) -> Path:
@@ -191,7 +191,10 @@ def live_caption_track2_status(recording_id: str) -> Literal["unknown", "availab
     still running and hasn't yet produced a cue or hit the grace period;
     "available"/"unavailable" are permanent for the rest of the capture."""
     key = (recording_id, 2)
-    path = _live_caption_path(recording_id, channel=2)
+    try:
+        path = _live_caption_path(recording_id, channel=2)
+    except ValueError:
+        return None
     if _live_caption_output_has_cues(path):
         return "available"
     if key in _live_caption_disabled:
@@ -244,7 +247,10 @@ async def _run_live_caption_loop(
     channel 2 only, after _LIVE_CAPTION_TRACK2_GRACE_SECONDS elapses with no
     cues at all (see _LIVE_CAPTION_TRACK2_GRACE_SECONDS)."""
     key = (recording_id, channel)
-    output_path = _live_caption_path(recording_id, channel)
+    try:
+        output_path = _live_caption_path(recording_id, channel)
+    except ValueError:
+        return
     consecutive_quick_failures = 0
 
     def _current_size() -> int:

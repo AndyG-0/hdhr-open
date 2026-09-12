@@ -651,8 +651,11 @@ async def recording_detail(
         # signal (has our own pipeline actually written a cue?) whenever
         # that's more current.
         if not cached.get("has_captions"):
-            live_vtt = captions_live.live_captions_path(recording_id)
-            if live_vtt.exists() and live_vtt.stat().st_size > len("WEBVTT\n\n"):
+            try:
+                live_vtt = captions_live.live_captions_path(recording_id)
+            except ValueError:
+                live_vtt = None
+            if live_vtt is not None and live_vtt.exists() and live_vtt.stat().st_size > len("WEBVTT\n\n"):
                 cached["has_captions"] = True
         return {
             "is_in_progress": True,
@@ -723,7 +726,10 @@ async def recording_captions(
             capture_start_ts=active_capture.start_ts,
             channel=track,
         )
-        live_path = captions_live.live_captions_path(recording_id, channel=track)
+        try:
+            live_path = captions_live.live_captions_path(recording_id, channel=track)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="No captions extracted yet") from None
         if not live_path.exists():
             # Nothing extracted yet - the client polls again shortly.
             raise HTTPException(status_code=404, detail="No captions extracted yet")

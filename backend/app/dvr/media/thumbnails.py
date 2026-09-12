@@ -6,7 +6,7 @@ import contextlib
 import math
 from pathlib import Path
 
-from app.dvr.media.shared import _cache_dir, _format_timestamp, _run_ffmpeg
+from app.dvr.media.shared import _format_timestamp, _run_ffmpeg, safe_cache_path
 
 _SPRITE_COLUMNS = 10
 _SPRITE_ROWS = 10
@@ -16,7 +16,7 @@ _MIN_SPRITE_INTERVAL_SECONDS = 2.0
 
 
 def _sprite_paths(recording_id: str) -> tuple[Path, Path]:
-    return _cache_dir() / f"{recording_id}.jpg", _cache_dir() / f"{recording_id}.thumbs.vtt"
+    return safe_cache_path(recording_id, ".jpg"), safe_cache_path(recording_id, ".thumbs.vtt")
 
 
 def _build_sprite_vtt(jpg_filename: str, interval_seconds: float, tile_count: int, grid_columns: int) -> str:
@@ -42,7 +42,10 @@ async def generate_thumbnail_sprite(url: str, recording_id: str, duration_second
     at a fixed interval, so a long recording doesn't lose thumbnail
     coverage past the first few minutes.
     """
-    jpg_path, vtt_path = _sprite_paths(recording_id)
+    try:
+        jpg_path, vtt_path = _sprite_paths(recording_id)
+    except ValueError:
+        return None
     if jpg_path.exists() and vtt_path.exists():
         return jpg_path, vtt_path
 
@@ -98,12 +101,15 @@ async def generate_thumbnail_sprite(url: str, recording_id: str, duration_second
 
 
 def _poster_path(recording_id: str) -> Path:
-    return _cache_dir() / f"{recording_id}.poster.jpg"
+    return safe_cache_path(recording_id, ".poster.jpg")
 
 
 async def generate_poster(url: str, recording_id: str, offset_seconds: float = 10.0) -> Path | None:
     """Extract a representative snapshot frame from `url` for `recording_id`."""
-    poster_path = _poster_path(recording_id)
+    try:
+        poster_path = _poster_path(recording_id)
+    except ValueError:
+        return None
     if poster_path.exists() and poster_path.stat().st_size > 0:
         return poster_path
 
