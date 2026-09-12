@@ -1,5 +1,10 @@
 # HDHR Open
 
+[![CI](https://github.com/AndyG-0/hdhr-open/actions/workflows/ci.yml/badge.svg)](https://github.com/AndyG-0/hdhr-open/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/AndyG-0/hdhr-open/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/AndyG-0/hdhr-open/security/code-scanning)
+[![License: MIT](https://img.shields.io/github/license/AndyG-0/hdhr-open)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/AndyG-0/hdhr-open)](https://github.com/AndyG-0/hdhr-open/releases/latest)
+
 A self-hosted server and web client for watching and recording live TV
 through an [HDHomeRun](https://www.silicondust.com/) network tuner. Point it
 at your tuner, get a channel guide and live player in your browser, and
