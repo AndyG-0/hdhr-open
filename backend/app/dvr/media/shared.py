@@ -5,6 +5,7 @@ cleanup helpers used by both the static (whole-file) and live caption paths.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -34,12 +35,16 @@ def safe_cache_path(recording_id: str, suffix: str) -> Path:
     control - so this can't assume a fixed charset (e.g. UUID-hex-only) and
     instead validates by containment: the resolved path must still live
     inside the cache directory.
+
+    Uses `os.path.realpath`/`str.startswith` rather than `Path.resolve`/
+    `Path.is_relative_to` for the same check, since that's the idiom
+    CodeQL's `py/path-injection` query recognizes as a sanitizer.
     """
-    base = _cache_dir().resolve()
-    candidate = (base / f"{recording_id}{suffix}").resolve()
-    if not candidate.is_relative_to(base):
+    base = os.path.realpath(_cache_dir())
+    candidate = os.path.realpath(os.path.join(base, f"{recording_id}{suffix}"))
+    if candidate != base and not candidate.startswith(base + os.sep):
         raise ValueError(f"Invalid recording_id: {recording_id!r}")
-    return candidate
+    return Path(candidate)
 
 
 async def _run_ffmpeg(argv: list[str], timeout: float | None = None) -> bool:
