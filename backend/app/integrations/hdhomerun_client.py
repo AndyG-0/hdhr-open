@@ -62,6 +62,10 @@ _FULL_GUIDE_MAX_REQUESTS = 20
 class HDHomeRunError(Exception):
     """Raised when an HDHomeRun device can't be reached or rejects a request."""
 
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.detail = message
+
 
 def is_tuner_configured(settings: dict[str, Any]) -> bool:
     return bool(settings.get("tuner_host"))

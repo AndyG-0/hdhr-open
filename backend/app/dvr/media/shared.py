@@ -24,6 +24,24 @@ def _cache_dir() -> Path:
     return HDHOMERUN_MEDIA_CACHE_DIR
 
 
+def safe_cache_path(recording_id: str, suffix: str) -> Path:
+    """Resolve a cache-file path for `recording_id`, rejecting any path
+    traversal attempt.
+
+    `recording_id` is a self-generated UUID hex for builtin-DVR recordings,
+    but for an official HDHomeRun-DVR recording it's sourced verbatim from
+    the tuner's own API (see `hdhomerun_client`) in a format we don't
+    control - so this can't assume a fixed charset (e.g. UUID-hex-only) and
+    instead validates by containment: the resolved path must still live
+    inside the cache directory.
+    """
+    base = _cache_dir().resolve()
+    candidate = (base / f"{recording_id}{suffix}").resolve()
+    if not candidate.is_relative_to(base):
+        raise ValueError(f"Invalid recording_id: {recording_id!r}")
+    return candidate
+
+
 async def _run_ffmpeg(argv: list[str], timeout: float | None = None) -> bool:
     # Read _GENERATE_TIMEOUT_SECONDS from the module namespace at call time
     # (not as a default-argument value bound at def time) so tests can

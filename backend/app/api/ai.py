@@ -36,7 +36,13 @@ from pydantic import BaseModel, Field
 
 from app.ai.tools import registry
 from app.auth import get_current_admin, get_current_user
-from app.integrations.ai import ChatMessage, ToolCallRequest, ToolCallResultMessage, get_ai_client
+from app.integrations.ai import (
+    ChatMessage,
+    ToolCallRequest,
+    ToolCallResultMessage,
+    UnknownAIProviderError,
+    get_ai_client,
+)
 from app.storage.db import get_network_integration
 
 router = APIRouter(prefix="/api/ai", tags=["ai"], dependencies=[Depends(get_current_user)])
@@ -223,8 +229,8 @@ async def _run_chat(
 
     try:
         client = get_ai_client(provider, api_key=api_key, base_url=base_url, model=model)
-    except ValueError as exc:
-        yield _sse({"type": "error", "message": str(exc)})
+    except UnknownAIProviderError as exc:
+        yield _sse({"type": "error", "message": exc.detail})
         yield _sse({"type": "done"})
         return
 
@@ -328,8 +334,8 @@ async def test_ai_connection(payload: dict[str, Any], admin: dict[str, Any] = De
 
     try:
         client = get_ai_client(provider, api_key=api_key, base_url=base_url, model=model)
-    except ValueError as exc:
-        return {"ok": False, "detail": None, "error": str(exc)}
+    except UnknownAIProviderError as exc:
+        return {"ok": False, "detail": None, "error": exc.detail}
 
     ok, detail = await client.test_connection()
     if ok:
@@ -351,8 +357,8 @@ async def list_ai_models(payload: dict[str, Any], admin: dict[str, Any] = Depend
         # Listing models never needs a model already chosen — that's the
         # whole point, so this doesn't require `model` the way test-connection does.
         client = get_ai_client(provider, api_key=api_key, base_url=base_url, model="")
-    except ValueError as exc:
-        return {"ok": False, "models": [], "error": str(exc)}
+    except UnknownAIProviderError as exc:
+        return {"ok": False, "models": [], "error": exc.detail}
 
     ok, models, error = await client.list_models()
     if ok:

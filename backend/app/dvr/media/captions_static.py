@@ -17,7 +17,7 @@ import asyncio
 import contextlib
 from pathlib import Path
 
-from app.dvr.media.shared import _cache_dir, _run_ffmpeg, _strip_cc_control_artifacts
+from app.dvr.media.shared import _run_ffmpeg, _strip_cc_control_artifacts, safe_cache_path
 
 
 def _escape_movie_filter_url(url: str) -> str:
@@ -49,7 +49,10 @@ async def generate_captions_vtt(url: str, recording_id: str) -> Path | None:
     on-request fetch racing the eager post-recording trigger) onto a single
     ffmpeg invocation rather than running it twice against the same file.
     """
-    cache_path = _cache_dir() / f"{recording_id}.vtt"
+    try:
+        cache_path = safe_cache_path(recording_id, ".vtt")
+    except ValueError:
+        return None
     if cache_path.exists():
         return cache_path if cache_path.stat().st_size > 0 else None
 

@@ -80,10 +80,12 @@ export function parseCaptionsVtt(text: string): CaptionCue[] {
 		// indentation that never got converted to real whitespace, so
 		// swap it for a real space so it reads as normal text instead of
 		// showing the literal escape code. Also strip any WebVTT tags.
-		const cleanedText = textLines
-			.join('\n')
-			.replace(/\\h/g, ' ')
-			.replace(/<[^>]+>/g, '');
+		let cleanedText = textLines.join('\n').replace(/\\h/g, ' ');
+		let previous: string;
+		do {
+			previous = cleanedText;
+			cleanedText = cleanedText.replace(/<[^>]+>/g, '');
+		} while (cleanedText !== previous);
 		if (!cleanedText.trim()) continue;
 		cues.push({ start, end, text: cleanedText });
 	}
