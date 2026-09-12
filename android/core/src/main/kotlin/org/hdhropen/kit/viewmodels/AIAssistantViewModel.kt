@@ -3,6 +3,7 @@ package org.hdhropen.kit.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +19,16 @@ import org.hdhropen.kit.networking.sendAIChat
 
 class AIAssistantViewModel(
     val apiClient: APIClient,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val externalScope: CoroutineScope? = null
 ) : ViewModel() {
+
+    // Defers to `externalScope` (e.g. a test's `TestScope`) when supplied, so the
+    // launched work is a structured child of that scope instead of the framework's
+    // own `viewModelScope` - keeps tests from having coroutines outlive the test
+    // lifecycle and touch `Dispatchers.Main` after it's been reset.
+    private val workScope: CoroutineScope
+        get() = externalScope ?: viewModelScope
 
     private val _turns = MutableStateFlow<List<AIChatTurn>>(emptyList())
     val turns: StateFlow<List<AIChatTurn>> = _turns.asStateFlow()
@@ -54,7 +63,7 @@ class AIAssistantViewModel(
         _isSending.value = true
 
         chatJob?.cancel()
-        chatJob = viewModelScope.launch {
+        chatJob = workScope.launch {
             try {
                 apiClient.sendAIChat(AIChatRequest(messages = wire), ioDispatcher = ioDispatcher) { event ->
                     val turnsList = _turns.value.toMutableList()
@@ -148,7 +157,7 @@ class AIAssistantViewModel(
             turnsList[turnIdx] = t.copy(actionPreview = t.actionPreview?.copy(resolution = AIActionResolution.CONFIRMING))
             _turns.value = turnsList
 
-            viewModelScope.launch {
+            workScope.launch {
                 try {
                     apiClient.confirmAIAction(actionId)
                     val updated = _turns.value.toMutableList()
@@ -179,7 +188,7 @@ class AIAssistantViewModel(
             turnsList[turnIdx] = t.copy(actionPreview = t.actionPreview?.copy(resolution = AIActionResolution.CANCELLED))
             _turns.value = turnsList
 
-            viewModelScope.launch {
+            workScope.launch {
                 try {
                     apiClient.cancelAIAction(actionId)
                 } catch (e: Exception) {

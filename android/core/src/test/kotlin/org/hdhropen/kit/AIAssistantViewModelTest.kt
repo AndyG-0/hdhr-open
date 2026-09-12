@@ -33,7 +33,7 @@ class AIAssistantViewModelTest {
         server.start()
         val url = server.url("/").toString().removeSuffix("/")
         apiClient = APIClient(baseURL = url, ioDispatcher = testDispatcher)
-        viewModel = AIAssistantViewModel(apiClient, ioDispatcher = testDispatcher)
+        viewModel = AIAssistantViewModel(apiClient, ioDispatcher = testDispatcher, externalScope = testScope)
     }
 
     @After
