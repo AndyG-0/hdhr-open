@@ -4,6 +4,7 @@
 [![CodeQL](https://github.com/AndyG-0/hdhr-open/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/AndyG-0/hdhr-open/security/code-scanning)
 [![License: MIT](https://img.shields.io/github/license/AndyG-0/hdhr-open)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/AndyG-0/hdhr-open)](https://github.com/AndyG-0/hdhr-open/releases/latest)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-donate-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/andyg0)
 
 A self-hosted server and web client for watching and recording live TV
 through an [HDHomeRun](https://www.silicondust.com/) network tuner. Point it
