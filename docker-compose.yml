@@ -1,3 +1,12 @@
+# podman-compose defaults to putting all services in a shared pod
+# (`in_pod: true`), but podman rejects `--userns` together with `--pod`
+# (see the commented `userns_mode: keep-id` block below) — disable the pod
+# project-wide. Nothing here relies on it: services reach each other over
+# published ports/LAN addresses, not pod-shared localhost. This key is
+# ignored (not an error) by plain `docker compose`.
+x-podman:
+  in_pod: false
+
 services:
   backend:
     build:
@@ -80,6 +89,22 @@ services:
     # applies and the open still fails.
     # group_add:
     #   - "${RENDER_GID:-108}"
+    #
+    # Rootless Podman instead of Docker: the container's fixed uid/gid 1000
+    # ("hdhropen") is NOT the invoking host user by default under rootless
+    # Podman — it's remapped into the subuid range — which breaks both the
+    # host-owned CONFIG_PATH/RECORDINGS_PATH bind mounts above and
+    # /dev/dri access. userns_mode: keep-id maps the invoking host user
+    # (uid/gid 1000) to itself inside the container instead. Once keep-id
+    # is set, the numeric group_add above stops working (that GID isn't
+    # part of the user-namespace mapping) — use Podman's keep-groups
+    # escape hatch instead, which passes the invoking user's real
+    # supplementary groups straight through. keep-groups requires the crun
+    # runtime and is exclusive: no other group_add entries may be combined
+    # with it. See docs/hardware-acceleration.md.
+    # userns_mode: keep-id
+    # group_add:
+    #   - keep-groups
     # Two more things that commonly go wrong once the device is mapped, both
     # reported by the hardware-acceleration diagnostics (Settings -> Edit
     # playback settings -> Run diagnostics):
