@@ -79,6 +79,10 @@ GPU) requires passing the right device through to the backend container —
 see [`docs/hardware-acceleration.md`](docs/hardware-acceleration.md) for the
 device-passthrough and permissions details for each.
 
+Both compose files also run under rootless `podman-compose`, but need a
+couple of settings Docker doesn't — see
+[`docs/hardware-acceleration.md`](docs/hardware-acceleration.md#podman-rootless).
+
 ### Local development
 
 ```sh

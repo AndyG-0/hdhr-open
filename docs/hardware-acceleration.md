@@ -87,6 +87,38 @@ builds, which does ship `h264_nvenc`.
 4. Set the widget's `hwaccel` setting to `nvenc` and confirm with **Run
    diagnostics**.
 
+## Podman (rootless)
+
+The `docker-compose.yml`/`.prod.yml` files also run under `podman-compose`,
+but rootless Podman needs a few settings that plain Docker doesn't — they're
+present in both files as no-ops (ignored by Docker) or comments (opt-in),
+never active by default:
+
+- **`x-podman: in_pod: false`** (top-level, active by default) — Podman
+  Compose normally puts every service in one shared pod. That's harmless on
+  its own, but it conflicts with `userns_mode: keep-id` below (Podman
+  rejects `--userns` combined with `--pod`), so it's disabled project-wide.
+  Services still reach each other fine over published ports/LAN addresses,
+  not pod-shared localhost, so nothing else changes.
+- **`userns_mode: keep-id`** (commented under `backend`) — the backend
+  container runs as a fixed uid/gid 1000 (`hdhropen`). Under Docker (rootful
+  or rootless), that's stable. Under *rootless Podman* without this setting,
+  container uid 1000 is remapped into the subuid range instead — it isn't
+  the invoking host user at all, which breaks both writing to a host-owned
+  `CONFIG_PATH`/`RECORDINGS_PATH` directory and opening `/dev/dri`.
+  `keep-id` maps the invoking host user's own uid/gid into the container as
+  1000, matching `hdhropen` exactly. Uncomment it any time you're deploying
+  with Podman instead of Docker, even without hardware acceleration.
+- **`group_add: [keep-groups]`** (commented under `backend`, alternative to
+  the numeric `group_add: ["${RENDER_GID:-108}"]` above it) — once
+  `keep-id` is active, the numeric-GID trick used for Docker GPU passthrough
+  stops working: that GID was never part of the user-namespace mapping to
+  begin with. `keep-groups` is Podman's dedicated escape hatch — it passes
+  the invoking host user's actual supplementary groups (e.g. `render`)
+  straight into the container process. It requires the `crun` runtime
+  (Podman's default) and is exclusive: don't combine it with any other
+  `group_add` entry.
+
 ## Barebones (non-Docker) install
 
 Running directly on the host has the same two requirements, just satisfied

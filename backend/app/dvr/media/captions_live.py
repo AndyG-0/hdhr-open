@@ -19,21 +19,20 @@ lag: ffmpeg's `movie`/`subcc` lavfi chain can't flush a WebVTT cue until
 the roll-up buffer advances, i.e. until the *next* line of dialogue starts
 pushing the current one up.
 
-CC-8 (2026-08-31, see backend/scripts/cc8_realtime_caption_spike.py)
-measured this precisely against a real local recording, paced to real time
-so the numbers reflect actual live latency: ffmpeg's avoidable flush lag
-averaged 1.96s (up to 7.7s on longer pauses between lines) on top of
-roll-up-format-inherent lag. `ccextractor`'s live/growing-file stream mode
-(`-s`) reads the raw CEA-608/708 byte pairs directly and flushes a line the
-instant its own carriage-return control code arrives, rather than waiting
-on ffmpeg's `subcc` muxer to notice the next line - measured avg delta
-~0.0s (noise-level) against a byte-level real-time reference decoder over
-the same window. So this now runs a single long-lived `ccextractor`
-process per active capture instead of ffmpeg, same pump_tail_follow feed,
-same restart-from-byte-0-on-death/hang supervision below - only the decode
-step changed. Output is still written as WebVTT (`_append_live_cues`), so
-nothing downstream of this file (clients, `live_captions_path`) needed to
-change for this swap.
+CC-8 (2026-08-31) measured this precisely against a real local recording,
+paced to real time so the numbers reflect actual live latency: ffmpeg's
+avoidable flush lag averaged 1.96s (up to 7.7s on longer pauses between
+lines) on top of roll-up-format-inherent lag. `ccextractor`'s
+live/growing-file stream mode (`-s`) reads the raw CEA-608/708 byte pairs
+directly and flushes a line the instant its own carriage-return control
+code arrives, rather than waiting on ffmpeg's `subcc` muxer to notice the
+next line - measured avg delta ~0.0s (noise-level) against a byte-level
+real-time reference decoder over the same window. So this now runs a
+single long-lived `ccextractor` process per active capture instead of
+ffmpeg, same pump_tail_follow feed, same restart-from-byte-0-on-death/hang
+supervision below - only the decode step changed. Output is still written
+as WebVTT (`_append_live_cues`), so nothing downstream of this file
+(clients, `live_captions_path`) needed to change for this swap.
 
 The residual lag inherent to CEA-608/708 roll-up encoding itself (a line
 isn't final, even at the broadcaster's encoder, until the next one starts)
