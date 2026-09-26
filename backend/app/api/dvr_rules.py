@@ -123,9 +123,14 @@ def _lookup_guide_title(series_id: str | None, channel: str | None, date_time: i
     all_ch_ids = [c["id"] for c in channels]
     id_by_number = {c["channel_number"]: c["id"] for c in channels if c.get("channel_number")}
     target_ch_id = id_by_number.get(channel) if channel else None
+    if channel and target_ch_id is None:
+        logger.warning("_lookup_guide_title: channel %r did not match any known channel_number", channel)
 
     if date_time:
-        ch_list = [target_ch_id] if target_ch_id else all_ch_ids
+        # A channel was requested but didn't resolve to a real one - don't
+        # widen to every channel, since that can pick up a same-time airing
+        # on an unrelated channel and mislabel the rule.
+        ch_list = [target_ch_id] if target_ch_id else (all_ch_ids if not channel else [])
         programs = db.list_guide_programs(ch_list, date_time - 300, date_time + 300)
         for p in programs:
             if abs(p["start_ts"] - date_time) < 300 and p.get("title"):
@@ -143,32 +148,67 @@ def _lookup_guide_title(series_id: str | None, channel: str | None, date_time: i
 
 
 def _lookup_hdhomerun_series_id(channel: str | None, date_time: int | None, title: str | None) -> str | None:
-    """Find a SiliconDust SeriesID from hdhomerun_cloud guide programs."""
+    """Find a SiliconDust SeriesID from hdhomerun_cloud guide programs.
+
+    A caller-supplied `channel` locks the search to that one channel. If it
+    doesn't resolve to a known channel_number, this must NOT widen to every
+    channel: a same-titled show airing on a different channel/affiliate can
+    carry a different SeriesID (SiliconDust IDs are often market-specific),
+    and submitting that mismatched SeriesID alongside the original
+    ChannelOnly would create a rule that can never match a real airing and
+    silently never records anything.
+    """
     channels = db.list_channels(True)
     all_ch_ids = [c["id"] for c in channels]
     id_by_number = {c["channel_number"]: c["id"] for c in channels if c.get("channel_number")}
     target_ch_id = id_by_number.get(channel) if channel else None
 
+    if channel and target_ch_id is None:
+        logger.warning(
+            "_lookup_hdhomerun_series_id: channel %r did not match any known channel_number; "
+            "refusing to search other channels for a SeriesID",
+            channel,
+        )
+        return None
+
+    ch_list = [target_ch_id] if target_ch_id else all_ch_ids
+
     # 1. Match by channel and airing timestamp
     if date_time:
-        ch_list = [target_ch_id] if target_ch_id else all_ch_ids
         programs = db.list_guide_programs(ch_list, date_time - 300, date_time + 300)
         for p in programs:
             if p.get("source_provider") == "hdhomerun_cloud" and p.get("external_program_id"):
                 if abs(p["start_ts"] - date_time) <= 120:
+                    logger.info(
+                        "_lookup_hdhomerun_series_id: resolved SeriesID %s from %r on channel %r via timestamp match",
+                        p["external_program_id"],
+                        p.get("title"),
+                        channel,
+                    )
                     return p["external_program_id"]
 
     # 2. Match by channel and title
     if title:
-        ch_list = [target_ch_id] if target_ch_id else all_ch_ids
         norm_target = title.strip().lower()
         programs = db.list_guide_programs(ch_list, time.time() - 86400, time.time() + 7 * 86400)
         for p in programs:
             if p.get("source_provider") == "hdhomerun_cloud" and p.get("external_program_id") and p.get("title"):
                 norm_p = p["title"].strip().lower()
                 if norm_target == norm_p or norm_target in norm_p or norm_p in norm_target:
+                    logger.info(
+                        "_lookup_hdhomerun_series_id: resolved SeriesID %s from %r on channel %r via title match",
+                        p["external_program_id"],
+                        p.get("title"),
+                        channel,
+                    )
                     return p["external_program_id"]
 
+    logger.info(
+        "_lookup_hdhomerun_series_id: no SeriesID found for channel=%r date_time=%r title=%r",
+        channel,
+        date_time,
+        title,
+    )
     return None
 
 
