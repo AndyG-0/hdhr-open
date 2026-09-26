@@ -18,6 +18,7 @@ jobs:
     outputs:
       workflow: ${{ steps.filter.outputs.workflow }}
       apple: ${{ steps.filter.outputs.apple }}
+      android: ${{ steps.filter.outputs.android }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -28,6 +29,8 @@ jobs:
               - '.github/workflows/**'
             apple:
               - 'apple/**'
+            android:
+              - 'android/**'
 
   analyze:
     strategy:
@@ -40,8 +43,6 @@ jobs:
             build-mode: none
           - language: python
             build-mode: none
-          - language: java-kotlin
-            build-mode: autobuild
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,3 +67,17 @@ jobs:
       - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:swift"
+
+  analyze-java:
+    needs: changes
+    if: needs.changes.outputs.android == 'true' || needs.changes.outputs.workflow == 'true' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: autobuild
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:java-kotlin"
