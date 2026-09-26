@@ -108,12 +108,12 @@ export interface RecordingRuleOptions {
 	startPadding?: number;
 	endPadding?: number;
 	recentOnly?: boolean;
-	maxEpisodesToKeep?: number;
+	maxEpisodesToKeep?: number | null;
 	server?: 'builtin' | 'hdhomerun';
 	title?: string;
 	titleMatchMode?: 'exact' | 'contains';
-	keywordQuery?: string;
-	channel?: string;
+	keywordQuery?: string | null;
+	channel?: string | null;
 }
 
 export interface HDHomeRunFullGuideChannel {
@@ -861,30 +861,30 @@ export const api = {
 	addHDHomeRunRecordingRule: (rule: {
 		series_id?: string;
 		date_time?: number;
-		channel?: string;
+		channel?: string | null;
 		recent_only?: boolean;
 		start_padding?: number;
 		end_padding?: number;
-		max_episodes_to_keep?: number;
+		max_episodes_to_keep?: number | null;
 		server?: 'builtin' | 'hdhomerun';
 		title?: string;
 		title_match_mode?: 'exact' | 'contains';
-		keyword_query?: string;
+		keyword_query?: string | null;
 	}) => postJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules', rule),
 	updateHDHomeRunRecordingRule: (
 		ruleId: string,
 		rule: {
 			series_id?: string;
 			date_time?: number;
-			channel?: string;
+			channel?: string | null;
 			recent_only?: boolean;
 			start_padding?: number;
 			end_padding?: number;
-			max_episodes_to_keep?: number;
+			max_episodes_to_keep?: number | null;
 			server?: 'builtin' | 'hdhomerun';
 			title?: string;
 			title_match_mode?: 'exact' | 'contains';
-			keyword_query?: string;
+			keyword_query?: string | null;
 		},
 	) => putJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`, rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>

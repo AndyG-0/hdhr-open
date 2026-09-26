@@ -42,12 +42,12 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('episode', {
 			title: 'Evening News',
 			titleMatchMode: 'exact',
-			keywordQuery: undefined,
+			keywordQuery: null,
 			channel: '4.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: undefined,
 		});
 	});
@@ -61,12 +61,12 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('series', {
 			title: 'Evening News',
 			titleMatchMode: 'exact',
-			keywordQuery: undefined,
+			keywordQuery: null,
 			channel: '4.1',
 			startPadding: 300,
-			endPadding: undefined,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: undefined,
 		});
 	});
@@ -80,10 +80,10 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('episode', {
 			title: 'Evening News',
 			titleMatchMode: 'exact',
-			keywordQuery: undefined,
+			keywordQuery: null,
 			channel: '4.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
 			maxEpisodesToKeep: 3,
 			server: undefined,
@@ -99,12 +99,12 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('series', {
 			title: 'Evening News',
 			titleMatchMode: 'exact',
-			keywordQuery: undefined,
-			channel: undefined,
-			startPadding: undefined,
-			endPadding: undefined,
+			keywordQuery: null,
+			channel: null,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: undefined,
 		});
 	});
@@ -122,12 +122,12 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('series', {
 			title: 'Evening News',
 			titleMatchMode: 'exact',
-			keywordQuery: undefined,
+			keywordQuery: null,
 			channel: '4.1|5.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: undefined,
 		});
 	});
@@ -145,10 +145,10 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			titleMatchMode: 'exact',
 			keywordQuery: 'Ohio State, Michigan',
 			channel: '4.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: 'builtin',
 		});
 	});
@@ -162,12 +162,12 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('series', {
 			title: 'Evening News',
 			titleMatchMode: 'contains',
-			keywordQuery: undefined,
+			keywordQuery: null,
 			channel: '4.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: 'builtin',
 		});
 	});
@@ -204,10 +204,10 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			titleMatchMode: 'exact',
 			keywordQuery: 'Ohio State vs Michigan',
 			channel: '4.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: 'builtin',
 		});
 	});
@@ -257,12 +257,12 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 		expect(onConfirm).toHaveBeenCalledWith('episode', {
 			title: 'Evening News',
 			titleMatchMode: 'exact',
-			keywordQuery: undefined,
+			keywordQuery: null,
 			channel: '4.1',
-			startPadding: undefined,
-			endPadding: undefined,
+			startPadding: 0,
+			endPadding: 0,
 			recentOnly: false,
-			maxEpisodesToKeep: undefined,
+			maxEpisodesToKeep: null,
 			server: 'builtin',
 		});
 	});
@@ -393,6 +393,167 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 
 		expect(onCancelRule).toHaveBeenCalledWith('rule_123');
 		expect(onClose).toHaveBeenCalled();
+	});
+
+	it('clears channel to "any" when updating an existing single-channel rule', async () => {
+		const onUpdateRule = vi.fn();
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing,
+			channelName: 'KDFW',
+			channelNumber: '4.1',
+			channels: [
+				{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1', now: null, next: null },
+				{ channel_number: '5.1', name: 'KXAS NBC', is_hd: true, is_drm: false, stream_url: '/stream/5.1', playback_url: '/play/5.1', now: null, next: null },
+			],
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			existingRule: {
+				RecordingRuleID: 'rule_555',
+				SeriesID: 'SH555',
+				Title: 'Nightly News',
+				ChannelOnly: '5.1',
+				provider: 'builtin',
+			},
+			onConfirm: vi.fn(),
+			onUpdateRule,
+			onClose: vi.fn(),
+		});
+
+		await fireEvent.click(screen.getByLabelText('Any channel'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Update Recording' }));
+
+		expect(onUpdateRule).toHaveBeenCalledWith('rule_555', 'series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: null,
+			channel: null,
+			startPadding: 0,
+			endPadding: 0,
+			recentOnly: false,
+			maxEpisodesToKeep: null,
+			server: 'builtin',
+		});
+	});
+
+	it('clears keyword query when updating an existing keyword rule', async () => {
+		const onUpdateRule = vi.fn();
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing,
+			channelName: 'KDFW',
+			channelNumber: '4.1',
+			channels: [{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1', now: null, next: null }],
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			existingRule: {
+				RecordingRuleID: 'rule_666',
+				SeriesID: 'SH666',
+				Title: 'Special Report Show',
+				KeywordQuery: 'special report',
+				ChannelOnly: '4.1',
+				provider: 'builtin',
+			},
+			onConfirm: vi.fn(),
+			onUpdateRule,
+			onClose: vi.fn(),
+		});
+
+		const keywordInput = screen.getByPlaceholderText('e.g. Ohio State, Michigan') as HTMLInputElement;
+		await fireEvent.input(keywordInput, { target: { value: '' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Update Recording' }));
+
+		expect(onUpdateRule).toHaveBeenCalledWith('rule_666', 'series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: null,
+			channel: '4.1',
+			startPadding: 0,
+			endPadding: 0,
+			recentOnly: false,
+			maxEpisodesToKeep: null,
+			server: 'builtin',
+		});
+	});
+
+	it('clears retention to "Unlimited" when updating an existing limited-retention rule', async () => {
+		const onUpdateRule = vi.fn();
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing,
+			channelName: 'KDFW',
+			channelNumber: '4.1',
+			channels: [{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1', now: null, next: null }],
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			existingRule: {
+				RecordingRuleID: 'rule_777',
+				SeriesID: 'SH777',
+				Title: 'Weekly Show',
+				MaxEpisodesToKeep: 5,
+				ChannelOnly: '4.1',
+				provider: 'builtin',
+			},
+			onConfirm: vi.fn(),
+			onUpdateRule,
+			onClose: vi.fn(),
+		});
+
+		await fireEvent.click(screen.getByLabelText('Unlimited'));
+		await fireEvent.click(screen.getByRole('button', { name: 'Update Recording' }));
+
+		expect(onUpdateRule).toHaveBeenCalledWith('rule_777', 'series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: null,
+			channel: '4.1',
+			startPadding: 0,
+			endPadding: 0,
+			recentOnly: false,
+			maxEpisodesToKeep: null,
+			server: 'builtin',
+		});
+	});
+
+	it('sends zero start padding when reducing an existing rule\'s padding to zero', async () => {
+		const onUpdateRule = vi.fn();
+		render(HDHomeRunRecordingOptionsDialog, {
+			airing,
+			channelName: 'KDFW',
+			channelNumber: '4.1',
+			channels: [{ channel_number: '4.1', name: 'KDFW FOX', is_hd: true, is_drm: false, stream_url: '/stream/4.1', playback_url: '/play/4.1', now: null, next: null }],
+			canRecordSeries: true,
+			officialDvrActive: false,
+			loading: false,
+			existingRule: {
+				RecordingRuleID: 'rule_888',
+				SeriesID: 'SH888',
+				Title: 'Morning Show',
+				StartPadding: 300,
+				ChannelOnly: '4.1',
+				provider: 'builtin',
+			},
+			onConfirm: vi.fn(),
+			onUpdateRule,
+			onClose: vi.fn(),
+		});
+
+		const startPaddingInput = screen.getByLabelText('Start early (minutes)') as HTMLInputElement;
+		expect(startPaddingInput.value).toBe('5');
+		await fireEvent.input(startPaddingInput, { target: { value: '0' } });
+		await fireEvent.click(screen.getByRole('button', { name: 'Update Recording' }));
+
+		expect(onUpdateRule).toHaveBeenCalledWith('rule_888', 'series', {
+			title: 'Evening News',
+			titleMatchMode: 'exact',
+			keywordQuery: null,
+			channel: '4.1',
+			startPadding: 0,
+			endPadding: 0,
+			recentOnly: false,
+			maxEpisodesToKeep: null,
+			server: 'builtin',
+		});
 	});
 
 	it('defaults server to builtin when airing lacks series_id', async () => {

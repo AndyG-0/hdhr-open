@@ -39,13 +39,13 @@ export interface PlaybackContext {
 	recordingLoading: string | null;
 	onRecordEpisode?: (
 		seriesId?: string | null,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		start?: number | null,
 		options?: RecordingRuleOptions,
 	) => Promise<void> | void;
 	onRecordSeries?: (
 		seriesId: string,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		options?: RecordingRuleOptions,
 	) => Promise<void> | void;
 	onUpdateRule?: (
