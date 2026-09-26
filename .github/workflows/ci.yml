@@ -9,7 +9,34 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      workflow: ${{ steps.filter.outputs.workflow }}
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      android: ${{ steps.filter.outputs.android }}
+      apple: ${{ steps.filter.outputs.apple }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workflow:
+              - '.github/workflows/**'
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            android:
+              - 'android/**'
+            apple:
+              - 'apple/**'
+
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,6 +52,8 @@ jobs:
       - run: uv run pytest
 
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,6 +72,8 @@ jobs:
       - run: npm run build
 
   android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -65,6 +96,8 @@ jobs:
             android/core/build/reports/
 
   apple-lint:
+    needs: changes
+    if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +105,8 @@ jobs:
       - run: bash apple/scripts/lint.sh
 
   apple-kit-tests:
+    needs: changes
+    if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +129,8 @@ jobs:
           path: apple/.build/results/
 
   apple-ios-tests:
+    needs: changes
+    if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -116,6 +153,8 @@ jobs:
           path: apple/.build/results/ios_test_results.xcresult
 
   apple-tv-tests:
+    needs: changes
+    if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -138,7 +177,8 @@ jobs:
           path: apple/.build/results/tv_test_results.xcresult
 
   apple-coverage-gate:
-    needs: [apple-kit-tests, apple-ios-tests, apple-tv-tests]
+    needs: [changes, apple-kit-tests, apple-ios-tests, apple-tv-tests]
+    if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
