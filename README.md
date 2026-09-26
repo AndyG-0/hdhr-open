@@ -137,3 +137,5 @@ Pushing the tag triggers `.github/workflows/publish-images.yml` (GHCR images for
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
+
+<!-- codeql-skip-test: verifying analyze-swift skips when apple/ is untouched -->
