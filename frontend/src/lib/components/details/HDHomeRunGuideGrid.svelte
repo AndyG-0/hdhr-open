@@ -1533,7 +1533,7 @@
 		padding: 0.25rem 0.5rem;
 		cursor: pointer;
 		user-select: none;
-		touch-action: pan-y;
+		touch-action: pan-x pan-y;
 		transition:
 			opacity 0.15s ease,
 			box-shadow 0.15s ease;
