@@ -545,6 +545,8 @@ async def delete_recording_rule(rule_id: str):
 
     # Otherwise forward to official DVR
     try:
-        return await hdhomerun_client.delete_recording_rule(settings, rule_id)
+        await hdhomerun_client.delete_recording_rule(settings, rule_id)
     except hdhomerun_client.HDHomeRunError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return await list_recording_rules()
