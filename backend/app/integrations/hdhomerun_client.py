@@ -847,6 +847,10 @@ async def add_recording_rule(settings: dict[str, Any], rule_data: dict[str, Any]
         raise HDHomeRunError(f"Could not post recording rule: {exc}") from exc
 
     rules = _rules_or_raise(rules)
+    logger.info(
+        "HDHomeRun recording rule created (params: %s)",
+        {k: v for k, v in post_data.items() if k != "DeviceAuth"},
+    )
     await trigger_dvr_sync(settings)
     return rules
 
