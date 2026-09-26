@@ -282,7 +282,7 @@
 
 	async function recordShowEpisode(
 		seriesId?: string | null,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		startTime?: number | null,
 		options?: RecordingRuleOptions,
 	) {
@@ -299,7 +299,7 @@
 		}
 	}
 
-	async function recordShowSeries(seriesId: string, channelNumber?: string, options?: RecordingRuleOptions) {
+	async function recordShowSeries(seriesId: string, channelNumber?: string | null, options?: RecordingRuleOptions) {
 		error = null;
 		const targetId = seriesId || channelNumber || options?.title || 'series';
 		recordingLoading = targetId;

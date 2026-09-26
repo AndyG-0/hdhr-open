@@ -457,7 +457,7 @@ async def update_recording_rule(rule_id: str, payload: RecordingRuleUpdateReques
 
     if rule:
         update_fields: dict[str, Any] = {}
-        if payload.channel is not None:
+        if "channel" in set_fields:
             update_fields["channel_id"] = payload.channel or None
         if payload.start_padding is not None:
             update_fields["start_padding_seconds"] = payload.start_padding

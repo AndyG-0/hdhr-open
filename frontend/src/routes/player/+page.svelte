@@ -319,7 +319,7 @@
 
 	async function recordEpisode(
 		seriesId?: string | null,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		start?: number | null,
 		options?: RecordingRuleOptions,
 	) {
@@ -336,7 +336,7 @@
 
 	async function recordSeries(
 		seriesId: string,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		options?: RecordingRuleOptions,
 	) {
 		await api.addHDHomeRunRecordingRule({

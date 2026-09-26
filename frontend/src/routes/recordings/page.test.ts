@@ -349,6 +349,26 @@ describe('recordings +page.svelte', () => {
 		expect(screen.queryByText(/Keeps last/)).not.toBeInTheDocument();
 	});
 
+	it('shows "Any channel" on a rule card when ChannelOnly is unset', async () => {
+		const rule = { RecordingRuleID: 'rule-1', SeriesID: 'SH123', Title: 'Evening News' };
+		listRecordingRules.mockResolvedValue([rule]);
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		expect(await screen.findByText('Evening News')).toBeInTheDocument();
+		expect(screen.getByText('Ch: Any channel')).toBeInTheDocument();
+	});
+
+	it('shows the specific channel on a rule card when ChannelOnly is set', async () => {
+		const rule = { RecordingRuleID: 'rule-1', SeriesID: 'SH123', Title: 'Evening News', ChannelOnly: '4.1' };
+		listRecordingRules.mockResolvedValue([rule]);
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		expect(await screen.findByText('Evening News')).toBeInTheDocument();
+		expect(screen.getByText('Ch: 4.1')).toBeInTheDocument();
+	});
+
 	it('shows a no-scheduled-recordings hint when there are none', async () => {
 		render(PlayerHostHarness, { props: { page: Page } });
 

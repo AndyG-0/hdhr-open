@@ -115,14 +115,14 @@
 		!isKeywordActive && (selectedServer === 'hdhomerun' || (selectedServer === 'default' && officialDvrActive)),
 	);
 
-	function getEffectiveChannel(): string | undefined {
-		if (channelMode === 'any') return undefined;
-		if (channelMode === 'current') return effectiveChannelNumber || undefined;
+	function getEffectiveChannel(): string | null {
+		if (channelMode === 'any') return null;
+		if (channelMode === 'current') return effectiveChannelNumber || null;
 		if (channelMode === 'custom') {
 			const selected = selectedCustomChannels.filter(Boolean);
-			return selected.length > 0 ? selected.join('|') : undefined;
+			return selected.length > 0 ? selected.join('|') : null;
 		}
-		return undefined;
+		return null;
 	}
 
 	function buildOptions(): RecordingRuleOptions {
@@ -136,15 +136,15 @@
 		return {
 			title: airing.title,
 			titleMatchMode: hasContainsMatch ? 'contains' : 'exact',
-			keywordQuery: hasKeywords ? trimmedKeywords : undefined,
+			keywordQuery: hasKeywords ? trimmedKeywords : null,
 			channel: getEffectiveChannel(),
-			startPadding: startPaddingMinutes ? startPaddingMinutes * 60 : undefined,
-			endPadding: endPaddingMinutes ? endPaddingMinutes * 60 : undefined,
+			startPadding: startPaddingMinutes * 60,
+			endPadding: endPaddingMinutes * 60,
 			recentOnly: Boolean(recentOnly),
 			maxEpisodesToKeep:
 				!isOfficialDvrTarget && retentionMode === 'limited' && retentionCount > 0
 					? retentionCount
-					: undefined,
+					: null,
 			server: serverToUse,
 		};
 	}

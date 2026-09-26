@@ -337,7 +337,7 @@ describe('home +page.svelte (guide)', () => {
 			channel: '4.1',
 			title: 'Evening News',
 			title_match_mode: 'exact',
-			keyword_query: undefined,
+			keyword_query: null,
 			start_padding: 300,
 			end_padding: 600,
 			recent_only: false,

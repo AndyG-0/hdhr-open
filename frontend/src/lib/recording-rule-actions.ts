@@ -2,14 +2,14 @@ import type { HDHomeRunRecordingRule, RecordingRuleOptions } from '$lib/api';
 
 export interface EpisodeRulePayloadParams {
 	seriesId?: string | null;
-	channel?: string;
+	channel?: string | null;
 	startTime?: number | null;
 	options?: RecordingRuleOptions;
 }
 
 export function buildEpisodeRulePayload(
 	paramsOrSeriesId?: EpisodeRulePayloadParams | string | null,
-	channelNumber?: string,
+	channelNumber?: string | null,
 	startTime?: number | null,
 	options?: RecordingRuleOptions,
 ) {
@@ -46,13 +46,13 @@ export function buildEpisodeRulePayload(
 
 export interface SeriesRulePayloadParams {
 	seriesId?: string | null;
-	channel?: string;
+	channel?: string | null;
 	options?: RecordingRuleOptions;
 }
 
 export function buildSeriesRulePayload(
 	paramsOrSeriesId?: SeriesRulePayloadParams | string | null,
-	channelNumber?: string,
+	channelNumber?: string | null,
 	options?: RecordingRuleOptions,
 ) {
 	if (paramsOrSeriesId && typeof paramsOrSeriesId === 'object') {

@@ -26,7 +26,7 @@ export interface RecordingActionsControllerOptions {
 	getOnRecordEpisode?: () =>
 		| ((
 				seriesId?: string | null,
-				channelNumber?: string,
+				channelNumber?: string | null,
 				start?: number | null,
 				options?: RecordingRuleOptions,
 		  ) => Promise<void> | void)
@@ -34,7 +34,7 @@ export interface RecordingActionsControllerOptions {
 	getOnRecordSeries?: () =>
 		| ((
 				seriesId: string,
-				channelNumber?: string,
+				channelNumber?: string | null,
 				options?: RecordingRuleOptions,
 		  ) => Promise<void> | void)
 		| undefined;
@@ -48,13 +48,13 @@ export interface RecordingActionsControllerOptions {
 		| undefined;
 	onRecordEpisode?: (
 		seriesId?: string | null,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		start?: number | null,
 		options?: RecordingRuleOptions,
 	) => Promise<void> | void;
 	onRecordSeries?: (
 		seriesId: string,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		options?: RecordingRuleOptions,
 	) => Promise<void> | void;
 	onCancelRule?: (ruleId: string) => Promise<void> | void;
