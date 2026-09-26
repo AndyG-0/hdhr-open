@@ -185,6 +185,30 @@ def test_create_and_delete_recording_rule_builtin(client, tmp_db, monkeypatch):
     assert db.get_recording_rule(rule_id) is None
 
 
+def test_delete_recording_rule_hdhomerun_returns_merged_list_with_builtin_rules(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    # A builtin rule that must survive deleting an unrelated official rule.
+    create_payload = {"title": "College Football", "keyword_query": "Ohio State"}
+    create_res = client.post("/api/dvr/recording-rules", json=create_payload)
+    builtin_rule_id = create_res.json()[0]["RecordingRuleID"]
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+    official_rule_id = "off_news_1"
+    mock_delete = AsyncMock(return_value=[])
+    monkeypatch.setattr(hdhomerun_client, "delete_recording_rule", mock_delete)
+    monkeypatch.setattr(hdhomerun_client, "fetch_dvr_recording_rules", AsyncMock(return_value=[]))
+
+    del_res = client.delete(f"/api/dvr/recording-rules/{official_rule_id}")
+    assert del_res.status_code == 200
+    mock_delete.assert_called_once()
+    assert mock_delete.call_args[0][1] == official_rule_id
+
+    rules = del_res.json()
+    assert len(rules) == 1
+    assert rules[0]["RecordingRuleID"] == builtin_rule_id
+
+
 def test_update_recording_rule_builtin(client, tmp_db):
     db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
     create_payload = {
