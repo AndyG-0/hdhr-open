@@ -234,6 +234,23 @@ def test_update_recording_rule_builtin(client, tmp_db):
     assert db_rule["keyword_query"] == "breaking, special"
 
 
+def test_update_recording_rule_clears_channel_to_any(client, tmp_db):
+    db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
+    create_payload = {"series_id": "EP_NEWS", "channel": "4.1", "title": "Evening News"}
+    create_res = client.post("/api/dvr/recording-rules", json=create_payload)
+    rule_id = create_res.json()[0]["RecordingRuleID"]
+
+    update_res = client.put(f"/api/dvr/recording-rules/{rule_id}", json={"channel": None})
+    assert update_res.status_code == 200
+    updated = update_res.json()[0]
+    assert updated["RecordingRuleID"] == rule_id
+    assert updated["ChannelOnly"] is None
+
+    db_rule = db.get_recording_rule(rule_id)
+    assert db_rule is not None
+    assert db_rule["channel_id"] is None
+
+
 def test_update_recording_rule_no_server_change_uses_in_place_update(client, tmp_db):
     db.upsert_channel("ch_4_1", "4.1", "FOX 4", True)
     create_payload = {"series_id": "EP_NEWS", "channel": "4.1", "title": "Evening News"}

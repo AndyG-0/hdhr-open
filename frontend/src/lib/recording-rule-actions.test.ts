@@ -95,6 +95,11 @@ describe('recording-rule-actions', () => {
 		});
 	});
 
+	it('preserves an explicit null channel through JSON serialization', () => {
+		const payload = buildUpdateRulePayload({ channel: null, title: 'Nightly Movie' });
+		expect(JSON.stringify(payload)).toContain('"channel":null');
+	});
+
 	it('findNewFallbackRule returns newly created fallback rule', () => {
 		const oldRules: HDHomeRunRecordingRule[] = [
 			{ RecordingRuleID: 'r1', SeriesID: 's1', Title: 'Rule 1' },

@@ -334,7 +334,7 @@
 
 	async function recordShowEpisode(
 		seriesId?: string | null,
-		channelNumber?: string,
+		channelNumber?: string | null,
 		startTime?: number | null,
 		options?: RecordingRuleOptions,
 	) {
@@ -359,7 +359,7 @@
 		}
 	}
 
-	async function recordShowSeries(seriesId: string, channelNumber?: string, options?: RecordingRuleOptions) {
+	async function recordShowSeries(seriesId: string, channelNumber?: string | null, options?: RecordingRuleOptions) {
 		error = null;
 		const targetId = seriesId || channelNumber || options?.title || 'series';
 		recordingLoading = targetId;
@@ -645,7 +645,7 @@
 							<span class="rule-badge">
 								{rule.DateTimeOnly ? $_('hdhomerun.detail.single_airing_rule') : $_('hdhomerun.detail.series_rule')}
 							</span>
-							{#if rule.ChannelOnly}<span class="rule-channel">Ch: {rule.ChannelOnly}</span>{/if}
+							<span class="rule-channel">Ch: {rule.ChannelOnly || $_('hdhomerun.detail.channel_mode_any')}</span>
 							{#if rule.DateTimeOnly}<span class="rule-time">{formatDate(rule.DateTimeOnly)}</span>{/if}
 							{#if rule.StartPadding || rule.EndPadding}
 								<span class="rule-padding">

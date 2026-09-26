@@ -28,11 +28,11 @@
 		onPopout?: (channel: HDHomeRunChannel) => void;
 		onRecordEpisode: (
 			seriesId: string | null | undefined,
-			channelNumber: string,
+			channelNumber: string | null,
 			start: number | null,
 			options?: RecordingRuleOptions,
 		) => void;
-		onRecordSeries: (seriesId: string, channelNumber: string, options?: RecordingRuleOptions) => void;
+		onRecordSeries: (seriesId: string, channelNumber: string | null, options?: RecordingRuleOptions) => void;
 		onUpdateRule?: (ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) => void;
 		onCancelRule: (ruleId: string) => void;
 		onToggleFavorite: (channelNumber: string) => void;
