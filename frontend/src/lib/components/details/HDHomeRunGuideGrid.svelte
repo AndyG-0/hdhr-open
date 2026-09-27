@@ -226,7 +226,7 @@
 		const date = new Date(seconds * 1000);
 		const startOfToday = new Date();
 		startOfToday.setHours(0, 0, 0, 0);
-		const diffDays = Math.round((date.getTime() - startOfToday.getTime()) / (DAY_SECONDS * 1000));
+		const diffDays = Math.floor((date.getTime() - startOfToday.getTime()) / (DAY_SECONDS * 1000));
 		if (diffDays === 0) return $_('hdhomerun.detail.guide_today');
 		if (diffDays === 1) return $_('hdhomerun.detail.guide_tomorrow');
 		return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
@@ -533,7 +533,7 @@
 		const startDate = new Date(start * 1000);
 		const startOfToday = new Date();
 		startOfToday.setHours(0, 0, 0, 0);
-		const diffDays = Math.round((startDate.getTime() - startOfToday.getTime()) / (DAY_SECONDS * 1000));
+		const diffDays = Math.floor((startDate.getTime() - startOfToday.getTime()) / (DAY_SECONDS * 1000));
 
 		const timeSpan = formatCellTime(start) + (end !== null ? ` – ${formatCellTime(end)}` : '');
 		if (diffDays === 0) return `${$_('hdhomerun.detail.guide_today')} · ${timeSpan}`;
