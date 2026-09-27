@@ -111,8 +111,8 @@ async def list_recording_rules():
                     off_copy.setdefault("Provider", "hdhomerun")
                     off_copy.setdefault("provider", "hdhomerun")
                     results.append(off_copy)
-        except Exception:
-            logger.debug("Could not fetch official DVR recording rules", exc_info=True)
+        except Exception as exc:
+            logger.warning("Could not fetch official DVR recording rules: %s", exc)
 
     return results
 

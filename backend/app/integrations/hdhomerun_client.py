@@ -697,8 +697,8 @@ async def fetch_dvr_recordings(settings: dict[str, Any]) -> list[dict[str, Any]]
         if not storage_url.startswith("http"):
             storage_url = f"{dvr_base}/{storage_url.lstrip('/')}"
         data = await _get_json(storage_url)
-    except HDHomeRunError:
-        logger.debug("Could not fetch DVR recordings", exc_info=True)
+    except HDHomeRunError as exc:
+        logger.warning("Could not fetch DVR recordings: %s", exc)
         return []
     if not isinstance(data, list):
         return []
@@ -734,16 +734,16 @@ async def fetch_dvr_recording_rules(settings: dict[str, Any]) -> list[dict[str, 
                     res = resp.json()
                     if isinstance(res, list):
                         return res
-        except Exception:
-            logger.debug("Could not fetch cloud recording rules", exc_info=True)
+        except Exception as exc:
+            logger.warning("Could not fetch cloud recording rules: %s", exc)
 
     if is_dvr_configured(settings):
         try:
             data = await _get_json(f"{_dvr_base_url(settings)}/recording_rules.json")
             if isinstance(data, list):
                 return data
-        except HDHomeRunError:
-            logger.debug("Could not fetch local DVR recording rules", exc_info=True)
+        except HDHomeRunError as exc:
+            logger.warning("Could not fetch local DVR recording rules: %s", exc)
 
     return []
 
@@ -758,8 +758,8 @@ async def trigger_dvr_sync(settings: dict[str, Any]) -> None:
         if storage_url:
             async with httpx.AsyncClient(timeout=5) as client:
                 await client.get(storage_url)
-    except (HDHomeRunError, httpx.HTTPError):
-        logger.debug("Could not send sync trigger to DVR StorageURL", exc_info=True)
+    except (HDHomeRunError, httpx.HTTPError) as exc:
+        logger.warning("Could not send sync trigger to DVR StorageURL: %s", exc)
 
 
 def _rules_or_raise(rules: Any) -> list[dict[str, Any]]:
