@@ -43,8 +43,8 @@ async def get_dvr_info():
     if hdhomerun_client.is_dvr_configured(settings):
         try:
             official_info = await hdhomerun_client.fetch_dvr_info(settings)
-        except Exception:
-            logger.debug("Could not fetch official DVR info", exc_info=True)
+        except Exception as exc:
+            logger.warning("Could not fetch official DVR info: %s", exc)
 
     # Builtin DVR info
     free_space = None

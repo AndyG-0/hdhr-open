@@ -82,7 +82,7 @@
 		const startDate = new Date(start * 1000);
 		const startOfToday = new Date();
 		startOfToday.setHours(0, 0, 0, 0);
-		const diffDays = Math.round((startDate.getTime() - startOfToday.getTime()) / (86400 * 1000));
+		const diffDays = Math.floor((startDate.getTime() - startOfToday.getTime()) / (86400 * 1000));
 
 		let dayStr: string;
 		if (diffDays === 0) {
