@@ -59,6 +59,33 @@ DEFAULT_PRESET = "software"
 DEFAULT_HWACCEL_DEVICE = "/dev/dri/renderD128"
 DEFAULT_FFMPEG_LOGLEVEL = "warning"
 
+# Sane ceiling for 1080i-equivalent ATSC OTA content - high enough that it's
+# never the limiting factor on a healthy connection, low enough to keep a
+# single stream from saturating a constrained one. Configurable per
+# deployment via the `max_bitrate_mbps` HDHomeRun setting (alongside
+# `hwaccel`/`custom_ffmpeg_args`), since "sane" depends on what's upstream of
+# the server (a Pi on a home LAN vs. a VPS serving remote viewers).
+DEFAULT_MAX_BITRATE_MBPS = 5.0
+
+# Manual quality tiers (frontend: PlayerSettingsMenu's "Quality" selector) -
+# (scale_height, bitrate_cap_mbps). `scale_height=None` leaves the source
+# resolution alone; `bitrate_cap_mbps=None` means "use the configured ceiling
+# with no extra tier-specific cap" (see resolve_bitrate_ceiling_mbps below).
+# "auto" isn't listed here - the frontend always resolves it to a concrete
+# tier (starting at "high", stepping down on repeated stalls) before it
+# reaches the backend, which has no adaptive-bitrate logic of its own.
+#
+# "minimal" isn't offered in the manual picker either - it's the auto
+# downgrade chain's floor below "low" for connections too slow even for
+# that (sub-3G-ish), so there's always *some* tier that can plausibly fit
+# instead of stalling forever at "low" with nowhere further to go.
+QUALITY_TIERS: dict[str, tuple[int | None, float | None]] = {
+    "high": (None, None),
+    "medium": (720, 3.0),
+    "low": (480, 1.5),
+    "minimal": (360, 0.7),
+}
+
 # What `ffmpeg_debug` raises the log level to. "verbose" is the lowest level
 # that includes hwaccel device init and filter-graph format negotiation —
 # the two things that actually explain a VAAPI/QSV failure. "debug" adds
@@ -156,6 +183,9 @@ TRANSCODE_PRESETS: dict[str, TranscodePreset] = {
         # but silently fail to decode frames from. Forcing 4.0 covers every
         # ATSC OTA resolution/frame-rate combination in practice (up to
         # 1080i/p at 30fps, or 720p at 60fps).
+        #
+        # Bitrate is capped uniformly for every preset by
+        # _apply_quality_and_bitrate() below, not hardcoded here.
         output_args=[
             "-c:v",
             "h264_videotoolbox",
@@ -165,8 +195,6 @@ TRANSCODE_PRESETS: dict[str, TranscodePreset] = {
             "high",
             "-level",
             "4.0",
-            "-b:v",
-            "6M",
             "-c:a",
             "aac",
             "-ac",
@@ -296,12 +324,82 @@ def _output_args(settings: dict[str, Any]) -> list[str]:
     return resolve_preset(hwaccel).output_args
 
 
+def resolve_bitrate_ceiling_mbps(settings: dict[str, Any]) -> float:
+    """The per-stream bitrate ceiling, from the `max_bitrate_mbps` setting.
+
+    Falls back to DEFAULT_MAX_BITRATE_MBPS for anything that isn't a
+    positive number (unset, blank, or a bad value saved before validation
+    existed) rather than raising - this runs on every /stream request, and a
+    stale/bad setting should degrade to a sane default, not break playback.
+    """
+    raw = settings.get("max_bitrate_mbps")
+    if raw in (None, ""):
+        return DEFAULT_MAX_BITRATE_MBPS
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_BITRATE_MBPS
+    return value if value > 0 else DEFAULT_MAX_BITRATE_MBPS
+
+
+def _build_scale_filter(preset_name: str, height: int) -> str:
+    # vaapi_full decodes straight to VAAPI hardware surfaces
+    # (-hwaccel_output_format vaapi) - the software `scale` filter can't
+    # touch those frames, so downscaling has to happen on the GPU via
+    # scale_vaapi instead. Every other preset's frames are still in system
+    # memory at the point the scale filter runs (even qsv/vaapi upload
+    # *after* their filter chain - see _HWUPLOAD_VF), so plain `scale` works.
+    if preset_name == "vaapi_full":
+        return f"scale_vaapi=-2:{height}"
+    return f"scale=-2:{height}"
+
+
+def _apply_quality_and_bitrate(
+    preset_name: str,
+    output_args: list[str],
+    *,
+    quality: str | None,
+    settings: dict[str, Any],
+) -> list[str]:
+    """Composes the manual quality tier (resolution) and bitrate ceiling into
+    a preset's output args.
+
+    Skipped entirely for "custom" - that preset is a deliberate raw-args
+    escape hatch, and silently rewriting a user's own ffmpeg arguments would
+    defeat the point of it.
+    """
+    if preset_name == "custom":
+        return output_args
+
+    scale_height, tier_cap_mbps = QUALITY_TIERS.get(quality or "high", QUALITY_TIERS["high"])
+    ceiling_mbps = resolve_bitrate_ceiling_mbps(settings)
+    effective_mbps = ceiling_mbps if tier_cap_mbps is None else min(ceiling_mbps, tier_cap_mbps)
+
+    result = list(output_args)
+    if scale_height is not None:
+        scale_filter = _build_scale_filter(preset_name, scale_height)
+        if "-vf" in result:
+            # qsv/vaapi already carry a -vf chain (deinterlace + hwupload) -
+            # the scale has to run *before* that chain, not after, so it
+            # operates on full-resolution frames still in system memory.
+            vf_index = result.index("-vf") + 1
+            result[vf_index] = f"{scale_filter},{result[vf_index]}"
+        else:
+            result[:0] = ["-vf", scale_filter]
+
+    bitrate = f"{effective_mbps:g}M"
+    bufsize = f"{effective_mbps * 2:g}M"
+    result += ["-b:v", bitrate, "-maxrate", bitrate, "-bufsize", bufsize]
+    return result
+
+
 def build_ffmpeg_args(
     settings: dict[str, Any],
     input_url: str,
     *,
     seek_seconds: float | None = None,
     audio_index: int | None = None,
+    quality: Literal["high", "medium", "low", "minimal"] | None = None,
     output_format: Literal["mpegts", "hls"] = "mpegts",
     hls_playlist_path: Path | None = None,
     hls_segment_pattern: str | None = None,
@@ -324,7 +422,8 @@ def build_ffmpeg_args(
     string on the playlist URL alone wouldn't propagate through that relative
     resolution).
     """
-    preset = resolve_preset(settings.get("hwaccel", DEFAULT_PRESET))
+    hwaccel = settings.get("hwaccel", DEFAULT_PRESET)
+    preset = resolve_preset(hwaccel)
     device = resolve_device(settings)
 
     input_options = [*_substitute_device(preset.input_args, device)]
@@ -345,6 +444,14 @@ def build_ffmpeg_args(
         input_options[:0] = ["-ss", f"{seek_seconds:.3f}"]
 
     output_args = _substitute_device(_output_args(settings), device)
+    # A blank custom_ffmpeg_args falls back to the software preset's own
+    # output args (see _output_args above) - that's the software preset in
+    # every way that matters, including the quality/bitrate ceiling, not a
+    # user's raw args. Only an actually-populated custom_ffmpeg_args counts
+    # as the "leave it alone" escape hatch.
+    has_raw_custom_args = hwaccel == "custom" and bool((settings.get("custom_ffmpeg_args") or "").strip())
+    quality_preset_name = DEFAULT_PRESET if hwaccel == "custom" and not has_raw_custom_args else hwaccel
+    output_args = _apply_quality_and_bitrate(quality_preset_name, output_args, quality=quality, settings=settings)
     if audio_index is not None and "-map" not in output_args:
         # Explicit stream mapping is only needed once we're picking a
         # specific audio stream (e.g. an ATSC SAP track) - ffmpeg's

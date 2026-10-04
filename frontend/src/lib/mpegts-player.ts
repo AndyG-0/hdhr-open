@@ -43,6 +43,30 @@ export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 		player = undefined;
 	}
 
+	// Live download-speed + decode telemetry from the MSE loader - `speed`
+	// (KB/s) feeds the throughput-based half of quality auto-adjustment (see
+	// sampleThroughput() in HDHomeRunPlayer.svelte), while decodedFrames/
+	// droppedFrames feed the "stats for nerds" panel. We always construct
+	// with `type: 'mse'`, so the runtime shape is always
+	// MSEPlayerStatisticsInfo even though `player`'s declared type permits
+	// NativePlayer's narrower one too; `speed` is only populated once a
+	// segment has actually loaded.
+	function getStatisticsInfo(): Partial<Mpegts.MSEPlayerStatisticsInfo> | null {
+		return (player?.statisticsInfo as Partial<Mpegts.MSEPlayerStatisticsInfo> | undefined) ?? null;
+	}
+
+	// Ground-truth info about the stream actually being decoded right now -
+	// used for the "stats for nerds" panel in HDHomeRunPlayer.svelte, as
+	// opposed to the server's probe of the *source* recording/tuner file
+	// (which never changes when a quality tier switch changes the real
+	// encode). width/height/fps/videoCodec come from real demuxed SPS/codec
+	// parsing in mpegts.js, not from container metadata, so they're reliable
+	// even for MPEG-TS (unlike videoDataRate/audioDataRate, which mpegts.js
+	// only ever populates from FLV metadata tags that MPEG-TS never carries).
+	function getMediaInfo(): Partial<Mpegts.MSEPlayerMediaInfo> | null {
+		return (player?.mediaInfo as Partial<Mpegts.MSEPlayerMediaInfo> | undefined) ?? null;
+	}
+
 	function createPlayerAt(node: HTMLVideoElement, url: string) {
 		options.setErrorMessage(null);
 		options.setErrorDetail(null);
@@ -54,13 +78,23 @@ export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 			if (options.getDestroyed()) return;
 			player = mpegts.createPlayer(
 				{ type: 'mse', isLive: true, url, withCredentials: true },
-				// liveBufferLatencyChasing auto-seeks forward whenever the playhead
-				// falls behind the live edge — which is exactly what a manual
-				// buffer-rewind (see rewind()/fastForward() in the component) does,
-				// so leaving it on snaps the video straight back to live the
-				// instant you scrub backward. Off, so a manual seek stays where
-				// you put it.
-				{ enableStashBuffer: false, liveBufferLatencyChasing: false },
+				{
+					// A small jitter cushion so a brief network hiccup drains the
+					// stash instead of starving the decoder outright - this is the
+					// client-side half of the stutter fix (the other half is the
+					// server-side bitrate ceiling in transcoding.py). Large enough to
+					// absorb a short stall, small enough not to add noticeable extra
+					// live latency.
+					enableStashBuffer: true,
+					stashInitialSize: 768 * 1024,
+					// liveBufferLatencyChasing auto-seeks forward whenever the playhead
+					// falls behind the live edge — which is exactly what a manual
+					// buffer-rewind (see rewind()/fastForward() in the component) does,
+					// so leaving it on snaps the video straight back to live the
+					// instant you scrub backward. Off, so a manual seek stays where
+					// you put it.
+					liveBufferLatencyChasing: false,
+				},
 			);
 			player.on(mpegts.Events.ERROR, (errorType: string) => {
 				options.setErrorMessage(options.genericHint());
@@ -75,5 +109,5 @@ export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 		});
 	}
 
-	return { createPlayerAt, teardownPlayer, fetchServerDetail };
+	return { createPlayerAt, teardownPlayer, fetchServerDetail, getStatisticsInfo, getMediaInfo };
 }

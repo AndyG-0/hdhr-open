@@ -239,6 +239,8 @@
 			"custom_ffmpeg_label": "Arguments ffmpeg personnalisés",
 			"hwaccel_device_label": "Périphérique de rendu",
 			"hwaccel_device_hint": "Le nœud GPU utilisé par les préréglages VAAPI/Quick Sync. Généralement /dev/dri/renderD128, mais une machine dotée d'un second périphérique graphique le décale vers renderD129 — lancez le diagnostic ci-dessous pour voir ce qui est réellement présent.",
+			"max_bitrate_label": "Débit maximal (Mbps)",
+			"max_bitrate_hint": "Plafonne le débit de chaque flux transcodé — réduisez cette valeur si les spectateurs sur un réseau lent ou saturé voient des saccades. S'applique à tous les préréglages sauf « Personnalisé ».",
 			"ffmpeg_debug_label": "Journalisation détaillée de ffmpeg",
 			"ffmpeg_debug_hint": "Augmente le niveau de journalisation de ffmpeg afin que l'initialisation matérielle et les détails des filtres apparaissent dans le journal du backend. Utile pour diagnostiquer une panne, bavard le reste du temps.",
 			"thumbnails_enabled_label": "Aperçus en vignette de la barre de défilement",

@@ -25,6 +25,12 @@ def test_build_ffmpeg_args_defaults_to_software_preset():
         "aac",
         "-ac",
         "2",
+        "-b:v",
+        "5M",
+        "-maxrate",
+        "5M",
+        "-bufsize",
+        "10M",
         "-f",
         "mpegts",
         "pipe:1",
@@ -337,6 +343,101 @@ def test_build_ffmpeg_args_hls_non_vod_mode_keeps_live_style_flags():
     assert "-hls_playlist_type" not in args
     assert args[args.index("-hls_list_size") + 1] == str(transcoding.HLS_LIST_SIZE)
     assert args[args.index("-hls_flags") + 1] == transcoding.HLS_FLAGS
+
+
+def test_bitrate_ceiling_applies_to_every_non_custom_preset():
+    for preset_id in transcoding.TRANSCODE_PRESETS:
+        if preset_id == "custom":
+            continue
+        args = transcoding.build_ffmpeg_args({"hwaccel": preset_id}, "url")
+        assert args[args.index("-b:v") + 1] == "5M", preset_id
+        assert args[args.index("-maxrate") + 1] == "5M", preset_id
+        assert args[args.index("-bufsize") + 1] == "10M", preset_id
+
+
+def test_bitrate_ceiling_is_configurable_via_settings():
+    args = transcoding.build_ffmpeg_args({"max_bitrate_mbps": 2.5}, "url")
+
+    assert args[args.index("-b:v") + 1] == "2.5M"
+    assert args[args.index("-bufsize") + 1] == "5M"
+
+
+def test_bitrate_ceiling_falls_back_to_default_for_bad_settings_values():
+    for bad in (None, "", "not-a-number", -1, 0):
+        args = transcoding.build_ffmpeg_args({"max_bitrate_mbps": bad}, "url")
+        assert args[args.index("-b:v") + 1] == "5M", bad
+
+
+def test_custom_preset_is_exempt_from_bitrate_ceiling():
+    args = transcoding.build_ffmpeg_args(
+        {"hwaccel": "custom", "custom_ffmpeg_args": "-c:v h264_v4l2m2m -c:a aac", "max_bitrate_mbps": 1},
+        "url",
+    )
+
+    assert "-b:v" not in args
+    assert "-maxrate" not in args
+
+
+def test_quality_medium_and_low_scale_resolution_and_lower_the_cap():
+    high = transcoding.build_ffmpeg_args({}, "url", quality="high")
+    medium = transcoding.build_ffmpeg_args({}, "url", quality="medium")
+    low = transcoding.build_ffmpeg_args({}, "url", quality="low")
+
+    assert "-vf" not in high
+    assert medium[medium.index("-vf") + 1] == "scale=-2:720"
+    assert medium[medium.index("-b:v") + 1] == "3M"
+    assert low[low.index("-vf") + 1] == "scale=-2:480"
+    assert low[low.index("-b:v") + 1] == "1.5M"
+
+
+def test_quality_minimal_scales_further_than_low():
+    # "minimal" is the auto-downgrade floor below "low" for connections too
+    # slow even for that - never offered in the manual picker, but still a
+    # real tier the backend must honor.
+    minimal = transcoding.build_ffmpeg_args({}, "url", quality="minimal")
+
+    assert minimal[minimal.index("-vf") + 1] == "scale=-2:360"
+    assert minimal[minimal.index("-b:v") + 1] == "0.7M"
+
+
+def test_quality_tier_bitrate_cap_still_respects_a_lower_ceiling():
+    # A deployment-configured ceiling below a tier's own cap should win -
+    # the tier cap is a ceiling too, not a floor.
+    args = transcoding.build_ffmpeg_args({"max_bitrate_mbps": 1}, "url", quality="medium")
+
+    assert args[args.index("-b:v") + 1] == "1M"
+
+
+def test_quality_scale_filter_inserts_before_existing_hwupload_chain():
+    # For qsv/vaapi, the scale must run before the deinterlace+hwupload
+    # chain so it operates on full-resolution system-memory frames, not
+    # whatever's already been uploaded to the GPU.
+    for preset_id in ("qsv", "vaapi"):
+        args = transcoding.build_ffmpeg_args({"hwaccel": preset_id}, "url", quality="low")
+        video_filter = args[args.index("-vf") + 1]
+        assert video_filter.startswith("scale=-2:480,"), preset_id
+        assert "hwupload" in video_filter, preset_id
+
+
+def test_quality_scale_filter_uses_hardware_scale_for_vaapi_full():
+    # vaapi_full's frames are already VAAPI hw surfaces at the point any
+    # filter would run (full hardware decode) - the software `scale` filter
+    # can't touch those, so this preset needs scale_vaapi instead.
+    args = transcoding.build_ffmpeg_args({"hwaccel": "vaapi_full"}, "url", quality="low")
+
+    assert args[args.index("-vf") + 1] == "scale_vaapi=-2:480"
+
+
+def test_videotoolbox_no_longer_hardcodes_its_own_bitrate():
+    # Regression guard: the bitrate ceiling is now applied uniformly by
+    # _apply_quality_and_bitrate, not hardcoded in the preset definition -
+    # there must be exactly one -b:v in the final args.
+    preset = transcoding.TRANSCODE_PRESETS["videotoolbox"]
+    assert "-b:v" not in preset.output_args
+
+    args = transcoding.build_ffmpeg_args({"hwaccel": "videotoolbox"}, "url")
+    assert args.count("-b:v") == 1
+    assert args[args.index("-b:v") + 1] == "5M"
 
 
 def test_build_ffmpeg_args_hls_keep_segments_mode_omits_delete_segments():

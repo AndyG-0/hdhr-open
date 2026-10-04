@@ -239,6 +239,8 @@
 			"custom_ffmpeg_label": "Argumentos personalizados de ffmpeg",
 			"hwaccel_device_label": "Dispositivo de renderizado",
 			"hwaccel_device_hint": "Qué nodo de GPU usan los ajustes de VAAPI/Quick Sync. Normalmente /dev/dri/renderD128, pero un equipo con un segundo dispositivo gráfico lo desplaza a renderD129: ejecuta el diagnóstico de abajo para ver qué hay realmente.",
+			"max_bitrate_label": "Bitrate máximo (Mbps)",
+			"max_bitrate_hint": "Limita el bitrate de cada transmisión transcodificada — redúcelo si los espectadores con redes lentas o congestionadas ven cortes. Se aplica a todos los ajustes salvo «Personalizado».",
 			"ffmpeg_debug_label": "Registro detallado de ffmpeg",
 			"ffmpeg_debug_hint": "Sube el nivel de registro de ffmpeg para que la inicialización del hardware y los detalles de los filtros aparezcan en el registro del backend. Útil al diagnosticar un fallo, ruidoso el resto del tiempo.",
 			"thumbnails_enabled_label": "Vistas previas en miniatura de la barra de progreso",

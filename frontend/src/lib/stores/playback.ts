@@ -81,7 +81,7 @@ function stopHeartbeat() {
 function startHeartbeat(sessionId: string) {
 	stopHeartbeat();
 	heartbeatHandle = setInterval(() => {
-		api.heartbeatWatch(sessionId);
+		api.heartbeatWatch(sessionId).catch(() => {});
 	}, WATCH_HEARTBEAT_INTERVAL_MS);
 }
 

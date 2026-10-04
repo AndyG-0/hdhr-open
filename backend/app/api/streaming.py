@@ -235,6 +235,7 @@ async def stream_channel(
     request: Request,
     direct: bool = False,
     audio_index: int | None = None,
+    quality: str | None = None,
 ):
     cache_key = str(request.url)
     cached_failure = get_recent_stream_failure(cache_key)
@@ -256,7 +257,7 @@ async def stream_channel(
         return await _proxy_raw_stream(raw_url, channel_number, request)
 
     try:
-        ffmpeg_args = transcoding.build_ffmpeg_args(settings, raw_url, audio_index=audio_index)
+        ffmpeg_args = transcoding.build_ffmpeg_args(settings, raw_url, audio_index=audio_index, quality=quality)
     except transcoding.InvalidCustomFfmpegArgsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -384,6 +385,7 @@ async def stream_channel_hls(
     request: Request,
     for_cast: bool = False,
     audio_index: int | None = None,
+    quality: str | None = None,
 ):
     """Busy-tuner-fallback HLS entry point for native (Apple) clients — the
     primary playback path is `/api/dvr/recording-stream-hls` (every live
@@ -432,6 +434,7 @@ async def stream_channel_hls(
             settings,
             input_url,
             audio_index=audio_index,
+            quality=quality,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),

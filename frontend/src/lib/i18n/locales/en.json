@@ -239,6 +239,8 @@
 			"custom_ffmpeg_label": "Custom ffmpeg arguments",
 			"hwaccel_device_label": "Render device",
 			"hwaccel_device_hint": "Which GPU node the VAAPI/Quick Sync presets use. Usually /dev/dri/renderD128, but a machine with a second graphics device shifts it to renderD129 — run the diagnostics below to see what is actually there.",
+			"max_bitrate_label": "Max bitrate (Mbps)",
+			"max_bitrate_hint": "Caps the bitrate of every transcoded stream — lower this if viewers on slow or congested networks see stuttering. Applies to all presets except Custom.",
 			"ffmpeg_debug_label": "Verbose ffmpeg logging",
 			"ffmpeg_debug_hint": "Raises ffmpeg's own log level so hardware setup and filter details show up in the backend log. Worth turning on while diagnosing a failure, noisy the rest of the time.",
 			"thumbnails_enabled_label": "Scrub bar thumbnail previews",

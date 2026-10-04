@@ -34,6 +34,7 @@
 		isLive?: boolean;
 		playbackRate?: number;
 		aspectRatio?: 'contain' | 'cover' | 'fill' | '16:9' | '4:3';
+		quality?: 'auto' | 'high' | 'medium' | 'low';
 		showAudioMenu?: boolean;
 		showSettingsMenu?: boolean;
 		onSeek: (targetSeconds: number) => void;
@@ -53,9 +54,11 @@
 		onSelectCaptionTrack: (track: 1 | 2) => void;
 		onPlaybackRateChange: (rate: number) => void;
 		onAspectRatioChange: (ratio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3') => void;
+		onQualityChange?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
 		onTogglePlaybackInfo: () => void;
 		channelSwitcherAvailable?: boolean;
 		onToggleChannelDrawer?: () => void;
+		onGoLive?: () => void;
 	}
 
 	let {
@@ -85,6 +88,7 @@
 		isLive = false,
 		playbackRate = 1.0,
 		aspectRatio = 'contain',
+		quality = 'auto',
 		showAudioMenu = $bindable(false),
 		showSettingsMenu = $bindable(false),
 		onSeek,
@@ -104,12 +108,23 @@
 		onSelectCaptionTrack,
 		onPlaybackRateChange,
 		onAspectRatioChange,
+		onQualityChange,
 		onTogglePlaybackInfo,
 		channelSwitcherAvailable = false,
 		onToggleChannelDrawer,
+		onGoLive,
 	}: Props = $props();
 
 	let showCaptionMenu = $state(false);
+
+	// How close to the growing recording's current end counts as "at the live
+	// edge" - small enough to not falsely show "Go Live" from normal playback
+	// lag, large enough to tolerate the ~1-2s polling granularity of duration.
+	const LIVE_EDGE_THRESHOLD_SECONDS = 8;
+
+	const isAtLiveEdge = $derived(
+		!duration || duration - displayedPosition <= LIVE_EDGE_THRESHOLD_SECONDS,
+	);
 
 	// Dynamic "Ends at hh:mm AM/PM" calculation
 	const endsAtText = $derived.by<string>(() => {
@@ -186,6 +201,20 @@
 				>
 					<PlayerIcon name="next" size={22} />
 				</button>
+			{/if}
+
+			{#if isInProgress && seekable}
+				{#if isAtLiveEdge}
+					<div class="live-pill" aria-label={$_('player.live', { default: 'Live' })}>
+						<span class="live-dot"></span>
+						{$_('player.live', { default: 'LIVE' })}
+					</div>
+				{:else if onGoLive}
+					<button type="button" class="live-pill live-pill-btn" onclick={onGoLive}>
+						<span class="live-dot"></span>
+						{$_('player.go_live', { default: 'Go Live' })}
+					</button>
+				{/if}
 			{/if}
 
 			{#if endsAtText}
@@ -299,6 +328,7 @@
 					bind:showMenu={showSettingsMenu}
 					{playbackRate}
 					{aspectRatio}
+					{quality}
 					{seekable}
 					{audioTracks}
 					{currentAudioIndex}
@@ -308,6 +338,7 @@
 					{captionsEnabled}
 					{onPlaybackRateChange}
 					{onAspectRatioChange}
+					{onQualityChange}
 					{onSelectAudioTrack}
 					{onSelectCaptionTrack}
 					{onToggleCaptions}
@@ -554,6 +585,44 @@
 
 	.play-pause-btn:hover {
 		background: rgba(255, 255, 255, 0.25);
+	}
+
+	.live-pill {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		margin-left: 0.75rem;
+		padding: 0.3rem 0.6rem;
+		border-radius: 9999px;
+		font-size: 0.78rem;
+		font-weight: 700;
+		letter-spacing: 0.03em;
+		white-space: nowrap;
+		color: rgba(255, 255, 255, 0.85);
+		background: rgba(255, 255, 255, 0.1);
+		border: none;
+	}
+
+	.live-dot {
+		width: 0.45rem;
+		height: 0.45rem;
+		border-radius: 50%;
+		background: #ef4444;
+	}
+
+	.live-pill-btn {
+		cursor: pointer;
+		color: #ffffff;
+		background: rgba(239, 68, 68, 0.22);
+		transition: background 0.15s ease;
+	}
+
+	.live-pill-btn:hover {
+		background: rgba(239, 68, 68, 0.38);
+	}
+
+	.live-pill-btn .live-dot {
+		background: #ffffff;
 	}
 
 	.ends-at-label {

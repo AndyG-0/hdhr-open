@@ -239,6 +239,8 @@
 			"custom_ffmpeg_label": "Benutzerdefinierte ffmpeg-Argumente",
 			"hwaccel_device_label": "Render-Gerät",
 			"hwaccel_device_hint": "Welchen GPU-Knoten die VAAPI-/Quick-Sync-Voreinstellungen verwenden. Normalerweise /dev/dri/renderD128, bei einem zweiten Grafikgerät jedoch renderD129 — die Diagnose unten zeigt, was tatsächlich vorhanden ist.",
+			"max_bitrate_label": "Maximale Bitrate (Mbps)",
+			"max_bitrate_hint": "Begrenzt die Bitrate jedes transkodierten Streams — bei Ruckeln durch langsame oder überlastete Netzwerke diesen Wert verringern. Gilt für alle Voreinstellungen außer „Benutzerdefiniert“.",
 			"ffmpeg_debug_label": "Ausführliche ffmpeg-Protokollierung",
 			"ffmpeg_debug_hint": "Erhöht die Protokollstufe von ffmpeg, sodass Hardware-Initialisierung und Filterdetails im Backend-Log erscheinen. Zur Fehlersuche sinnvoll, sonst sehr gesprächig.",
 			"thumbnails_enabled_label": "Vorschaubilder für die Suchleiste",
