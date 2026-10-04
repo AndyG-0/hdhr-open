@@ -86,6 +86,26 @@ QUALITY_TIERS: dict[str, tuple[int | None, float | None]] = {
     "minimal": (360, 0.7),
 }
 
+# Maps the same tiers to HDHomeRun's own hardware-transcode profile names
+# (https://info.hdhomerun.com/info/http_api#transcode_profiles), for the
+# EXTEND-only path where a single live viewer's capture is sourced directly
+# from the tuner's `?transcode=` output instead of raw + local ffmpeg - see
+# app.dvr.builtin.watch.start_watch and ActiveCapture.capture_quality.
+# Deliberately has no "high" entry: that tier doesn't need downgrading, so
+# it keeps the existing raw-capture path (full promote-to-recording quality,
+# no behavior change for the common case).
+#
+# HDHomeRun doesn't publish per-profile bitrates, so these are
+# resolution-based nearest matches rather than exact equivalents of
+# QUALITY_TIERS' bitrate caps - a starting point to retune after watching
+# real throughput on real EXTEND hardware. "internet540"/"internet360" are
+# available if "mobile"/"internet480" turn out to be the wrong aggressiveness.
+TUNER_TRANSCODE_PROFILES: dict[str, str] = {
+    "medium": "mobile",
+    "low": "internet480",
+    "minimal": "internet240",
+}
+
 # What `ffmpeg_debug` raises the log level to. "verbose" is the lowest level
 # that includes hwaccel device init and filter-graph format negotiation —
 # the two things that actually explain a VAAPI/QSV failure. "debug" adds
@@ -400,6 +420,7 @@ def build_ffmpeg_args(
     seek_seconds: float | None = None,
     audio_index: int | None = None,
     quality: Literal["high", "medium", "low", "minimal"] | None = None,
+    remux: bool = False,
     output_format: Literal["mpegts", "hls"] = "mpegts",
     hls_playlist_path: Path | None = None,
     hls_segment_pattern: str | None = None,
@@ -421,42 +442,60 @@ def build_ffmpeg_args(
     playlist URL lands on the token-authenticated path automatically (a query
     string on the playlist URL alone wouldn't propagate through that relative
     resolution).
+
+    `remux=True` skips the hwaccel preset and quality/bitrate shaping
+    entirely and just copies the input's existing streams into the
+    requested container (`-c copy`). For a source that's already at its
+    final resolution/bitrate - a capture backed by the HDHomeRun tuner's own
+    hardware transcoder, see `ActiveCapture.capture_quality` in
+    app.dvr.builtin.capture - re-encoding it again would cost real CPU for
+    no quality benefit. `quality` and `audio_index` are meaningless here
+    (ignored) since that source is already normalized to one video + one
+    audio stream at the tier it was captured at.
     """
-    hwaccel = settings.get("hwaccel", DEFAULT_PRESET)
-    preset = resolve_preset(hwaccel)
-    device = resolve_device(settings)
+    if remux:
+        input_options: list[str] = []
+        if ":5004/auto/v" not in input_url and input_url != "pipe:0" and not hls_vod:
+            input_options.insert(0, "-re")
+        if seek_seconds is not None and seek_seconds > 0:
+            input_options[:0] = ["-ss", f"{seek_seconds:.3f}"]
+        output_args = ["-c", "copy", "-map", "0"]
+    else:
+        hwaccel = settings.get("hwaccel", DEFAULT_PRESET)
+        preset = resolve_preset(hwaccel)
+        device = resolve_device(settings)
 
-    input_options = [*_substitute_device(preset.input_args, device)]
-    # Pace playback to 1x realtime for DVR recordings (files), which are served
-    # as fast as possible over HTTP. Live tuners pace themselves naturally, and
-    # so does a tail-follow pipe (app.dvr.builtin.tail_follow) feeding from a
-    # capture file that's itself being written in realtime from the tuner.
-    # A completed recording packaged as VOD HLS is transcoded ahead of time
-    # (not paced to real time) so the full seekable playlist is available as
-    # soon as possible.
-    if ":5004/auto/v" not in input_url and input_url != "pipe:0" and not hls_vod:
-        input_options.insert(0, "-re")
-    if seek_seconds is not None and seek_seconds > 0:
-        # Input-side -ss (before -i) is demuxer seeking - it jumps to the
-        # nearest keyframe before decoding starts, which is what makes
-        # "seeking" through a recording playable in real time instead of
-        # decoding and discarding everything up to the target.
-        input_options[:0] = ["-ss", f"{seek_seconds:.3f}"]
+        input_options = [*_substitute_device(preset.input_args, device)]
+        # Pace playback to 1x realtime for DVR recordings (files), which are served
+        # as fast as possible over HTTP. Live tuners pace themselves naturally, and
+        # so does a tail-follow pipe (app.dvr.builtin.tail_follow) feeding from a
+        # capture file that's itself being written in realtime from the tuner.
+        # A completed recording packaged as VOD HLS is transcoded ahead of time
+        # (not paced to real time) so the full seekable playlist is available as
+        # soon as possible.
+        if ":5004/auto/v" not in input_url and input_url != "pipe:0" and not hls_vod:
+            input_options.insert(0, "-re")
+        if seek_seconds is not None and seek_seconds > 0:
+            # Input-side -ss (before -i) is demuxer seeking - it jumps to the
+            # nearest keyframe before decoding starts, which is what makes
+            # "seeking" through a recording playable in real time instead of
+            # decoding and discarding everything up to the target.
+            input_options[:0] = ["-ss", f"{seek_seconds:.3f}"]
 
-    output_args = _substitute_device(_output_args(settings), device)
-    # A blank custom_ffmpeg_args falls back to the software preset's own
-    # output args (see _output_args above) - that's the software preset in
-    # every way that matters, including the quality/bitrate ceiling, not a
-    # user's raw args. Only an actually-populated custom_ffmpeg_args counts
-    # as the "leave it alone" escape hatch.
-    has_raw_custom_args = hwaccel == "custom" and bool((settings.get("custom_ffmpeg_args") or "").strip())
-    quality_preset_name = DEFAULT_PRESET if hwaccel == "custom" and not has_raw_custom_args else hwaccel
-    output_args = _apply_quality_and_bitrate(quality_preset_name, output_args, quality=quality, settings=settings)
-    if audio_index is not None and "-map" not in output_args:
-        # Explicit stream mapping is only needed once we're picking a
-        # specific audio stream (e.g. an ATSC SAP track) - ffmpeg's
-        # default stream selection is otherwise left alone.
-        output_args = ["-map", "0:v:0", "-map", f"0:a:{audio_index}", *output_args]
+        output_args = _substitute_device(_output_args(settings), device)
+        # A blank custom_ffmpeg_args falls back to the software preset's own
+        # output args (see _output_args above) - that's the software preset in
+        # every way that matters, including the quality/bitrate ceiling, not a
+        # user's raw args. Only an actually-populated custom_ffmpeg_args counts
+        # as the "leave it alone" escape hatch.
+        has_raw_custom_args = hwaccel == "custom" and bool((settings.get("custom_ffmpeg_args") or "").strip())
+        quality_preset_name = DEFAULT_PRESET if hwaccel == "custom" and not has_raw_custom_args else hwaccel
+        output_args = _apply_quality_and_bitrate(quality_preset_name, output_args, quality=quality, settings=settings)
+        if audio_index is not None and "-map" not in output_args:
+            # Explicit stream mapping is only needed once we're picking a
+            # specific audio stream (e.g. an ATSC SAP track) - ffmpeg's
+            # default stream selection is otherwise left alone.
+            output_args = ["-map", "0:v:0", "-map", f"0:a:{audio_index}", *output_args]
 
     if output_format == "hls":
         if hls_playlist_path is None or hls_segment_pattern is None:

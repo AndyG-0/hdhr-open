@@ -689,5 +689,73 @@ def test_resolve_account_tier_ignores_non_cloud_guide_data(tmp_db):
     assert hdhomerun_client.resolve_account_tier() == "unknown"
 
 
+def test_tuner_transcode_url_appends_profile_query():
+    url = hdhomerun_client.tuner_transcode_url(TUNER_SETTINGS, "7.1", "mobile")
+
+    assert url == "http://hdhr.local:5004/auto/v7.1?transcode=mobile"
+    assert hdhomerun_client.raw_stream_url(TUNER_SETTINGS, "7.1") in url
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_true_for_extend_model_number():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDTC-2US"})
+    )
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_false_for_non_extend_model_number():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDFX-4K"})
+    )
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is False
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_false_when_discover_unreachable():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(return_value=httpx.Response(500))
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is False
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_caches_positive_result():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    route = respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDTC-2US"})
+    )
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+    # Second call must be served from cache, not a second discover.json fetch.
+    assert route.call_count == 1
+
+
+def test_record_tuner_transcode_failure_caches_negative_result():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    hdhomerun_client.record_tuner_transcode_failure(TUNER_SETTINGS)
+
+    assert cache.get("tuner_transcode_support:hdhr.local") is False
+
+
+@respx.mock
+async def test_record_tuner_transcode_failure_overrides_cached_probe():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDTC-2US"})
+    )
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+
+    hdhomerun_client.record_tuner_transcode_failure(TUNER_SETTINGS)
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is False
+
+
 
 

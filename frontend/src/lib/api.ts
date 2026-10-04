@@ -1032,8 +1032,12 @@ export const api = {
 	// streaming. session_id identifies this viewer's own lifecycle for
 	// heartbeat/stop/promote, distinct from the shared recording_id. See
 	// backend/app/api/watch.py.
-	startWatch: (channelNumber: string) =>
-		postJSON<HDHomeRunRecording | { recording_id: null; session_id: null }>(`/api/watch/${channelNumber}/start`),
+	startWatch: (channelNumber: string, quality?: string | null) => {
+		const params = quality ? `?${new URLSearchParams({ quality }).toString()}` : '';
+		return postJSON<HDHomeRunRecording | { recording_id: null; session_id: null }>(
+			`/api/watch/${channelNumber}/start${params}`,
+		);
+	},
 	heartbeatWatch: (sessionId: string) => postJSON<void>(`/api/watch/${sessionId}/heartbeat`),
 	promoteWatch: (
 		sessionId: string,

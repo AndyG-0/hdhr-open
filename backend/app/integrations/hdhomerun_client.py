@@ -119,6 +119,71 @@ def raw_stream_url(settings: dict[str, Any], channel_number: str) -> str:
     return f"http://{host}:5004/auto/v{channel_number}"
 
 
+def tuner_transcode_url(settings: dict[str, Any], channel_number: str, profile: str) -> str:
+    """The tuner's *hardware-transcoded* stream URL for a channel — same
+    endpoint as `raw_stream_url`, with HDHomeRun's own `?transcode=<profile>`
+    appended (https://info.hdhomerun.com/info/http_api#transcode_profiles).
+
+    Only EXTEND-model tuners have the transcoder chip behind this; see
+    `probe_tuner_transcode_support`. `profile` is one of HDHomeRun's own
+    profile names (`heavy`, `mobile`, `internet540`, `internet480`,
+    `internet360`, `internet240`), not validated here — an unsupported
+    profile string just fails the same way an unsupported device does (the
+    caller's real capture attempt fails to produce data).
+    """
+    return f"{raw_stream_url(settings, channel_number)}?transcode={profile}"
+
+
+# discover.json has no documented "can this unit hardware-transcode" flag -
+# only a `ModelNumber` string. EXTEND units are the HDTC-* family ("TC" for
+# TransCode), which is enough to skip the real probe below on hardware
+# that's obviously not EXTEND (Connect/Flex/Flex 4K) without ever touching
+# the tuner. It's a heuristic, not a documented guarantee — a genuinely
+# unsupported unit that happens to pass this prefilter still gets caught by
+# the real-attempt failure path in app/dvr/builtin/capture.py, which is what
+# actually proves support one way or the other.
+_EXTEND_MODEL_PREFIX = "HDTC"
+_TUNER_TRANSCODE_CACHE_PREFIX = "tuner_transcode_support:"
+# How long a prefilter result (from discover.json alone) is trusted before
+# re-checking - cheap to redo, but no reason to hit discover.json on every
+# single watch-session start.
+_TUNER_TRANSCODE_CACHE_TTL_SECONDS = 3600
+# A *real* failed transcode attempt (the unit claimed EXTEND-like naming but
+# the actual `?transcode=` request never produced data) is trusted for
+# longer before retrying - avoids repeatedly wasting a tuning attempt on
+# hardware that's already proven not to support this.
+_TUNER_TRANSCODE_NEGATIVE_TTL_SECONDS = 6 * 3600
+
+
+async def probe_tuner_transcode_support(settings: dict[str, Any]) -> bool:
+    """Best-effort "can this tuner hardware-transcode" check, cached per
+    tuner host. Never raises - any failure to even reach discover.json is
+    treated as "no", consistent with every other HDHomeRun capability check
+    in this module degrading to unavailable rather than surfacing an error
+    for what's always an optional code path."""
+    host = _normalize_host(settings.get("tuner_host", ""))
+    cache_key = f"{_TUNER_TRANSCODE_CACHE_PREFIX}{host}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return bool(cached)
+    try:
+        discover = await fetch_discover(settings)
+    except HDHomeRunError:
+        return False
+    model = str(discover.get("ModelNumber") or "")
+    supported = model.upper().startswith(_EXTEND_MODEL_PREFIX)
+    cache.set(cache_key, supported, _TUNER_TRANSCODE_CACHE_TTL_SECONDS)
+    return supported
+
+
+def record_tuner_transcode_failure(settings: dict[str, Any]) -> None:
+    """A real `?transcode=` capture attempt failed to produce data - cache a
+    longer-lived negative result so the next watch-session start doesn't
+    immediately retry the same losing attempt against this tuner host."""
+    host = _normalize_host(settings.get("tuner_host", ""))
+    cache.set(f"{_TUNER_TRANSCODE_CACHE_PREFIX}{host}", False, _TUNER_TRANSCODE_NEGATIVE_TTL_SECONDS)
+
+
 def _dvr_base_url(settings: dict[str, Any]) -> str:
     host = settings.get("dvr_host") or settings.get("tuner_host", "")
     port = settings.get("dvr_port") or 59090

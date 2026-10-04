@@ -38,6 +38,7 @@ from typing import Any
 from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
 from app.dvr.builtin.retention import delete_local_recording
 from app.dvr.builtin.tuner_allocator import tuner_allocator
+from app.integrations import hdhomerun_client
 from app.storage import db
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,14 @@ WATCH_MAX_DURATION_SECONDS = 4 * 3600
 # DVREngine.tick(). Comfortably more than one missed heartbeat interval
 # (frontend pings roughly every 20s).
 WATCH_HEARTBEAT_TIMEOUT_SECONDS = 60
+
+# How long start_watch waits for a tuner-hardware-transcode capture to prove
+# itself (produce real bytes) before giving up on it and falling back to a
+# plain raw capture for this channel open. Short relative to
+# dvr_streaming._LIVE_CAPTURE_READY_TIMEOUT_SECONDS (20s) since this blocks
+# the viewer's channel-open request itself rather than a background wait.
+_TUNER_TRANSCODE_READY_MIN_BYTES = 32 * 1024
+_TUNER_TRANSCODE_READY_TIMEOUT_SECONDS = 8
 
 
 @dataclass
@@ -86,11 +95,16 @@ async def get_all_watch_sessions() -> list[_WatchSession]:
         return list(_sessions.values())
 
 
-async def _build_capture_for_channel(channel_number: str, settings: dict[str, Any], now: float) -> ActiveCapture | None:
+async def _build_capture_for_channel(
+    channel_number: str, settings: dict[str, Any], now: float, quality: str | None = None
+) -> ActiveCapture | None:
     """Look up channel_number's current airing (for rich metadata) and start
     a temporary capture for it. Deliberately does not touch tuner_allocator -
     reservation is the caller's responsibility (see start_watch and
-    start_fallback_capture, which reserve it differently)."""
+    start_fallback_capture, which reserve it differently). `quality`, when
+    given, is passed straight through to capture_pipeline.start_capture -
+    see its docstring for how that engages the tuner's own hardware
+    transcoder."""
     channel = await asyncio.to_thread(db.get_channel_by_number, channel_number)
     channel_name = channel["name"] if channel else channel_number
 
@@ -135,6 +149,7 @@ async def _build_capture_for_channel(channel_number: str, settings: dict[str, An
         end_ts=now + WATCH_MAX_DURATION_SECONDS,
         settings=settings,
         is_temporary=True,
+        quality=quality,
     )
 
 
@@ -144,20 +159,52 @@ async def start_watch(
     user_id: str | None = None,
     user_name: str | None = None,
     client_ip: str | None = None,
+    quality: str | None = None,
 ) -> dict[str, str] | None:
     """Start (or attach to) a live-watch session for channel_number. Returns
     {"recording_id", "session_id"}, or None if no tuner is available and no
     capture already exists for this channel - callers should fall back to
-    plain live streaming (no pause/rewind) in that case."""
+    plain live streaming (no pause/rewind) in that case.
+
+    `quality`, this viewer's current playback tier, only ever matters here
+    because of what get_or_start_capture's `created` return already tells
+    us: `_create_capture` only ever runs (and so `quality` only ever
+    reaches it) when nothing is running on this channel yet, i.e. this
+    viewer is the sole one. A second viewer (or a scheduled recording)
+    attaches to whatever capture is already there, at whatever quality it
+    was started with, exactly as before this feature existed - the tuner's
+    hardware transcoder can only serve one profile per tuning session, so
+    there's no way to honor a second viewer's own tier independently.
+    """
     session_id = uuid.uuid4().hex
     now = time.time()
 
     async def _create_capture() -> ActiveCapture | None:
         if not await tuner_allocator.acquire_tuner(session_id, channel_number, settings):
             return None
-        capture = await _build_capture_for_channel(channel_number, settings, now)
+        capture = await _build_capture_for_channel(channel_number, settings, now, quality=quality)
         if capture is None:
             await tuner_allocator.release_tuner(session_id)
+            return None
+        if capture.capture_quality and not await capture_pipeline.wait_for_data(
+            capture.recording_id, _TUNER_TRANSCODE_READY_MIN_BYTES, _TUNER_TRANSCODE_READY_TIMEOUT_SECONDS
+        ):
+            # The tuner accepted the ?transcode= request but never actually
+            # produced data (e.g. it claims EXTEND hardware but this
+            # particular profile/channel combination doesn't work) - cache
+            # that as a capability failure so we stop trying it against this
+            # tuner, and fall back to a plain raw capture for this viewer.
+            logger.warning(
+                "Tuner hardware-transcode capture on channel %s produced no data within %ss - "
+                "falling back to a raw capture",
+                channel_number,
+                _TUNER_TRANSCODE_READY_TIMEOUT_SECONDS,
+            )
+            hdhomerun_client.record_tuner_transcode_failure(settings)
+            await capture_pipeline.stop_capture(capture.recording_id)
+            capture = await _build_capture_for_channel(channel_number, settings, now, quality=None)
+            if capture is None:
+                await tuner_allocator.release_tuner(session_id)
         return capture
 
     capture, created = await capture_pipeline.get_or_start_capture(channel_number, _create_capture)
@@ -309,7 +356,22 @@ async def promote_watch(
     row = await asyncio.to_thread(db.get_recording, recording_id)
     if row is None or not row.get("is_temporary"):
         return None
-    if await capture_pipeline.get_active_capture(recording_id) is None:
+    capture = await capture_pipeline.get_active_capture(recording_id)
+    if capture is None:
+        return None
+
+    if capture.capture_quality and not await capture_pipeline.retune_to_raw(recording_id, settings):
+        # A recording the user explicitly chose to keep should never be
+        # silently stuck at a reduced tuner profile just because their
+        # *playback* connection was struggling at the moment they hit
+        # Record - but if the re-tune itself fails (tuner unreachable,
+        # ffmpeg unspawnable), the capture's writer is now gone, so there's
+        # nothing left to promote.
+        logger.error(
+            "Could not promote watch session [%s]: failed to retune capture %s back to raw quality",
+            session_id,
+            recording_id,
+        )
         return None
 
     if not await tuner_allocator.acquire_tuner(recording_id, session.channel_number, settings):

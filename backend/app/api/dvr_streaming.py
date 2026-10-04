@@ -340,9 +340,25 @@ async def stream_recording(
         # instead handled by starting the tail-follow pump at an estimated
         # byte offset (below).
         seek_seconds = None if active_capture is not None else start
+        # A capture sourced from the tuner's own hardware transcoder (see
+        # ActiveCapture.capture_quality) is already at its final
+        # resolution/bitrate - remux it as-is instead of re-encoding it
+        # again through this request's own ffmpeg. audio_index is
+        # meaningless against it too: that source was already normalized to
+        # one AAC stereo track at capture time (see capture.py's
+        # start_capture), not the multi-track raw tuner feed audio_index
+        # would otherwise pick a specific SAP/alternate track out of.
+        remux = bool(active_capture is not None and active_capture.capture_quality)
+        if remux:
+            audio_index = None
         try:
             ffmpeg_args = transcoding.build_ffmpeg_args(
-                settings, input_url, seek_seconds=seek_seconds, audio_index=audio_index, quality=quality
+                settings,
+                input_url,
+                seek_seconds=seek_seconds,
+                audio_index=audio_index,
+                quality=quality,
+                remux=remux,
             )
         except transcoding.InvalidCustomFfmpegArgsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -523,6 +539,12 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request
     # instead handled by starting the tail-follow pump at an estimated byte
     # offset (below) - same split as /recording-stream.
     seek_seconds = None if active_capture is not None else body.start
+    # See the matching comment in /recording-stream above: a tuner-hardware-
+    # transcoded capture is already at its final resolution/bitrate and down
+    # to one normalized AAC stereo track, so remux it as-is and ignore the
+    # request's own quality/audio_index.
+    remux = bool(active_capture is not None and active_capture.capture_quality)
+    audio_index = None if remux else body.audio_index
 
     session_id, tmp_dir = hls_streaming.allocate_session_dir()
     cast_token = hls_streaming.new_cast_token() if body.for_cast else None
@@ -531,8 +553,9 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request
             settings,
             input_url,
             seek_seconds=seek_seconds,
-            audio_index=body.audio_index,
+            audio_index=audio_index,
             quality=body.quality,
+            remux=remux,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),

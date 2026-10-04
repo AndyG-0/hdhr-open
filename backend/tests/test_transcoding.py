@@ -460,3 +460,77 @@ def test_build_ffmpeg_args_hls_keep_segments_mode_omits_delete_segments():
     assert "delete_segments" not in flags
     assert flags == transcoding.HLS_FLAGS_ACTIVE_CAPTURE
 
+
+def test_tuner_transcode_profiles_has_no_high_entry():
+    # "high" deliberately stays on the raw-capture path - see the comment on
+    # TUNER_TRANSCODE_PROFILES.
+    assert "high" not in transcoding.TUNER_TRANSCODE_PROFILES
+    assert set(transcoding.TUNER_TRANSCODE_PROFILES) == {"medium", "low", "minimal"}
+    assert all(isinstance(v, str) and v for v in transcoding.TUNER_TRANSCODE_PROFILES.values())
+
+
+def test_build_ffmpeg_args_remux_uses_stream_copy():
+    args = transcoding.build_ffmpeg_args({"hwaccel": "vaapi"}, "pipe:0", remux=True)
+
+    assert args == [
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-nostats",
+        "-i",
+        "pipe:0",
+        "-c",
+        "copy",
+        "-map",
+        "0",
+        "-f",
+        "mpegts",
+        "pipe:1",
+    ]
+
+
+def test_build_ffmpeg_args_remux_ignores_quality_and_audio_index():
+    remuxed = transcoding.build_ffmpeg_args(
+        {"hwaccel": "vaapi", "max_bitrate_mbps": "2"},
+        "pipe:0",
+        quality="low",
+        audio_index=1,
+        remux=True,
+    )
+    plain = transcoding.build_ffmpeg_args({}, "pipe:0", remux=True)
+
+    assert remuxed == plain
+    assert "-b:v" not in remuxed
+    assert "-vf" not in remuxed
+    assert "0:a:1" not in remuxed
+
+
+def test_build_ffmpeg_args_remux_respects_seek_and_re():
+    args = transcoding.build_ffmpeg_args(
+        {}, "http://192.168.50.197:50000/recorded/play?id=123", seek_seconds=12.5, remux=True
+    )
+
+    assert "-re" in args
+    assert "-ss" in args
+    assert args.index("-ss") < args.index("-i")
+    assert args[args.index("-ss") + 1] == "12.500"
+
+    # A live tuner URL / pipe still omits -re even under remux.
+    args_pipe = transcoding.build_ffmpeg_args({}, "pipe:0", remux=True)
+    assert "-re" not in args_pipe
+
+
+def test_build_ffmpeg_args_remux_supports_hls_output():
+    args = transcoding.build_ffmpeg_args(
+        {},
+        "pipe:0",
+        remux=True,
+        output_format="hls",
+        hls_playlist_path=Path("/tmp/hls-session/stream.m3u8"),
+        hls_segment_pattern="/tmp/hls-session/segment%05d.ts",
+        hls_keep_segments=True,
+    )
+
+    assert "-c" in args and args[args.index("-c") + 1] == "copy"
+    assert "-f" in args and args[args.index("-f") + 1] == "hls"
+
