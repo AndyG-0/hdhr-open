@@ -91,6 +91,18 @@ def list_guide_programs(channel_ids: list[str], start_ts: float, end_ts: float) 
     return [dict(row) for row in rows]
 
 
+def get_max_guide_start_ts(source_provider: str) -> float | None:
+    """The furthest-out `start_ts` cached for a given guide provider, or None
+    if nothing's cached yet. Used as a proxy for how far ahead that provider's
+    own API actually returns data (see hdhomerun_client.resolve_account_tier)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT MAX(start_ts) AS max_start_ts FROM guide_programs WHERE source_provider = ?",
+            (source_provider,),
+        ).fetchone()
+    return row["max_start_ts"] if row and row["max_start_ts"] is not None else None
+
+
 def delete_future_guide_programs(channel_id: str, source_provider: str, after_ts: float) -> None:
     """Used by providers with no incremental API to full-replace a channel's upcoming grid per refresh."""
     with _connect() as conn:

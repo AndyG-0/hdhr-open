@@ -155,6 +155,8 @@
 			"server_hdhomerun": "Serveur HDHomeRun DVR",
 			"server_badge_builtin": "Intégré",
 			"server_badge_hdhomerun": "HDHomeRun",
+			"server_badge_series_watch": "HDHomeRun (compte gratuit)",
+			"server_badge_series_watch_tooltip": "Votre compte HDHomeRun ne prend pas en charge les règles d'enregistrement automatique de séries. Cette série est donc suivie localement et programmée diffusion par diffusion sur le DVR officiel à mesure que chaque épisode approche.",
 			"server_fallback_hint": "HDHomeRun DVR nécessite un Series ID de SiliconDust. Si aucune correspondance n'est trouvée, cet enregistrement basculera automatiquement vers le DVR intégré.",
 			"fallback_notification": "Programmé sur le DVR intégré : \"{title}\" n'a pas de Series ID SiliconDust pour HDHomeRun DVR.",
 			"fallback_badge": "Intégré (Secours)",

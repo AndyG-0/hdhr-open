@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from app.integrations import hdhomerun_client
+from app.storage import db
 from app.storage.cache import cache
 
 TUNER_SETTINGS = {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 50000}
@@ -626,6 +627,66 @@ async def test_add_recording_rule_requires_channel_for_datetime_only():
             TUNER_SETTINGS, {"series_id": "EP123", "date_time": 1725465600}
         )
     assert "requires a channel" in str(exc_info.value)
+
+
+def test_resolve_account_tier_unknown_with_no_cached_guide_data(tmp_db):
+    assert hdhomerun_client.resolve_account_tier() == "unknown"
+
+
+def test_resolve_account_tier_free_when_cloud_guide_window_is_narrow(tmp_db):
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_1",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP1",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 3600,
+                "end_ts": time.time() + 5400,
+            }
+        ]
+    )
+    assert hdhomerun_client.resolve_account_tier() == "free"
+
+
+def test_resolve_account_tier_paid_when_cloud_guide_window_is_wide(tmp_db):
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_1",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP1",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 10 * 86400,
+                "end_ts": time.time() + 10 * 86400 + 1800,
+            }
+        ]
+    )
+    assert hdhomerun_client.resolve_account_tier() == "paid"
+
+
+def test_resolve_account_tier_ignores_non_cloud_guide_data(tmp_db):
+    # A wide xmltv/Schedules Direct guide window says nothing about the
+    # HDHomeRun cloud account's own subscription tier.
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_1",
+                "channel_id": "ch_41",
+                "source_provider": "xmltv",
+                "external_program_id": "EP1",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 10 * 86400,
+                "end_ts": time.time() + 10 * 86400 + 1800,
+            }
+        ]
+    )
+    assert hdhomerun_client.resolve_account_tier() == "unknown"
 
 
 

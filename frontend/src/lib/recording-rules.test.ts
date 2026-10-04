@@ -84,6 +84,15 @@ describe('findMatchingRecordingRule', () => {
 		expect(findMatchingRecordingRule([r], undefined, { title: 'College Football: Ohio State at Michigan' })).toBe(r);
 		expect(findMatchingRecordingRule([r], undefined, { title: 'NFL Football' })).toBeNull();
 	});
+
+	it('never matches a hdhomerun_series_watch rule, even though it carries a bare SeriesID', () => {
+		const watch = rule({ SeriesID: 'series-1', provider: 'hdhomerun_series_watch' });
+		expect(findMatchingRecordingRule([watch], undefined, { series_id: 'series-1' })).toBeNull();
+
+		// A real single-airing rule the watch spawned (Provider "hdhomerun") still matches normally.
+		const spawned = rule({ RecordingRuleID: 'rule-2', DateTimeOnly: 1000, SeriesID: undefined, Provider: 'hdhomerun' });
+		expect(findMatchingRecordingRule([watch, spawned], undefined, { start: 1000 })).toBe(spawned);
+	});
 });
 
 describe('findMatchingRecordingRuleIndexed', () => {
@@ -200,5 +209,11 @@ describe('findMatchingRecordingRuleIndexed', () => {
 		expect(find([r], '4.1', { title: 'Doctor Who' })).toBe(r);
 		expect(findMatchingRecordingRule([r], '4.1', { title: 'Doctor Who' })).toBe(r);
 		expect(find([r], '5.1', { title: 'Doctor Who' })).toBeNull();
+	});
+
+	it('never matches a hdhomerun_series_watch rule, even though it carries a bare SeriesID', () => {
+		const watch = rule({ SeriesID: 'series-1', Provider: 'hdhomerun_series_watch' });
+		expect(find([watch], undefined, { series_id: 'series-1' })).toBeNull();
+		expect(findMatchingRecordingRule([watch], undefined, { series_id: 'series-1' })).toBeNull();
 	});
 });

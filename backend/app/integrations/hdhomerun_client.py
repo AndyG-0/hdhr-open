@@ -58,6 +58,20 @@ _FULL_GUIDE_PAGE_HOURS = 24
 _FULL_GUIDE_MAX_DAYS = 14
 _FULL_GUIDE_MAX_REQUESTS = 20
 
+# Per SiliconDust's own docs (info.hdhomerun.com/info/app:recording), a free
+# account can schedule single/one-time recordings but not auto-record (series)
+# rules — those require a full guide/DVR subscription. A free-tier series
+# rule is accepted by the recording_rules API (200 OK, appears in the rules
+# list) and then silently never executes upstream, with no error anywhere
+# this client can see. There is likewise no API field that reports account
+# tier directly. The cloud guide window is the one observable side effect of
+# tier (free accounts' guide.php stops returning new data ~3 days out; DVR
+# subscribers get the full 14 — see _FULL_GUIDE_MAX_DAYS above), so
+# resolve_account_tier uses it as a proxy. The threshold sits well above the
+# free ceiling and well below the paid one so ordinary day-boundary jitter on
+# either side doesn't misclassify.
+_FREE_TIER_GUIDE_WINDOW_THRESHOLD_DAYS = 7
+
 
 class HDHomeRunError(Exception):
     """Raised when an HDHomeRun device can't be reached or rejects a request."""
@@ -409,6 +423,23 @@ def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[s
         "is_new": is_new,
         "has_cc": has_cc,
     }
+
+
+def resolve_account_tier() -> str:
+    """Best-effort "free" | "paid" | "unknown" classification of the
+    configured HDHomeRun account's DVR subscription tier — see
+    _FREE_TIER_GUIDE_WINDOW_THRESHOLD_DAYS above for why/how. "unknown" means
+    no hdhomerun_cloud guide data is cached yet (e.g. right after setup,
+    before the first guide refresh has run); callers should treat that the
+    same as "paid" (don't block anything) rather than guess from no data.
+    """
+    from app.storage import db
+
+    max_start_ts = db.get_max_guide_start_ts("hdhomerun_cloud")
+    if max_start_ts is None:
+        return "unknown"
+    days_out = (max_start_ts - time.time()) / 86400
+    return "free" if days_out < _FREE_TIER_GUIDE_WINDOW_THRESHOLD_DAYS else "paid"
 
 
 async def fetch_full_guide(settings: dict[str, Any], widget_id: str) -> list[dict[str, Any]] | None:

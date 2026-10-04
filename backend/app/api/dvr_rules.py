@@ -19,7 +19,7 @@ from app.api._dvr_shared import _get_hdhomerun_settings_safe
 from app.async_utils import run_in_background
 from app.config import resolve_dvr_server_priority
 from app.dvr.builtin.rule_expander import expand_rules
-from app.integrations import hdhomerun_client
+from app.integrations import hdhomerun_client, hdhomerun_series_watch
 from app.storage import db
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,11 @@ class RecordingRuleUpdateRequest(BaseModel):
     keyword_query: str | None = None
 
 
-def _format_builtin_rule(rule: dict[str, Any]) -> dict[str, Any]:
+def _format_local_rule(rule: dict[str, Any]) -> dict[str, Any]:
+    """Formats a `recording_rules` row (provider "builtin" or
+    "hdhomerun_series_watch" - both are local SQLite rows, just owned by
+    different engines) into the same shape official HDHomeRun DVR rules use.
+    """
     rule_type = rule.get("type", "series")
     series_key = rule.get("series_match_key")
     dt_only = None
@@ -84,8 +88,8 @@ def _format_builtin_rule(rule: dict[str, Any]) -> dict[str, Any]:
         "KeywordQuery": rule.get("keyword_query"),
         "FallbackReason": rule.get("fallback_reason"),
         "fallback_reason": rule.get("fallback_reason"),
-        "Provider": "builtin",
-        "provider": "builtin",
+        "Provider": rule.get("provider") or "builtin",
+        "provider": rule.get("provider") or "builtin",
     }
 
 
@@ -97,9 +101,18 @@ async def list_recording_rules():
     # 1. Builtin recording rules from SQLite
     builtin_rules = await asyncio.to_thread(db.list_recording_rules, "builtin")
     for rule in builtin_rules:
-        results.append(_format_builtin_rule(rule))
+        results.append(_format_local_rule(rule))
 
-    # 2. Official HDHomeRun DVR recording rules (if configured)
+    # 2. Free-tier "series watch" intents tracked locally because the
+    # official engine's auto-record API doesn't work for this account (see
+    # app.integrations.hdhomerun_series_watch) - each one periodically
+    # materializes as a real single-airing rule on the official engine below,
+    # but the watch's own standing intent is always local.
+    watch_rules = await asyncio.to_thread(db.list_recording_rules, "hdhomerun_series_watch")
+    for rule in watch_rules:
+        results.append(_format_local_rule(rule))
+
+    # 3. Official HDHomeRun DVR recording rules (if configured)
     if hdhomerun_client.is_dvr_configured(settings) or hdhomerun_client.is_tuner_configured(settings):
         try:
             official_rules = await hdhomerun_client.fetch_dvr_recording_rules(settings)
@@ -243,6 +256,40 @@ async def _create_hdhomerun_recording_rule(
     await hdhomerun_client.add_recording_rule(settings, rule_data)
 
 
+async def _create_hdhomerun_series_watch_rule(
+    *,
+    series_id: str,
+    channel: str | None,
+    recent_only: bool | None,
+    start_padding: int | None,
+    end_padding: int | None,
+    title: str | None,
+) -> dict[str, Any]:
+    """Track a free-account series intent locally instead of submitting a
+    real auto-record rule the official DVR engine would silently never
+    execute - see app.integrations.hdhomerun_series_watch."""
+    rule_id = f"rule_{uuid.uuid4().hex[:12]}"
+    resolved_title = title or await asyncio.to_thread(_lookup_guide_title, series_id, channel, None)
+
+    rule_entry = {
+        "id": rule_id,
+        "provider": "hdhomerun_series_watch",
+        "type": "series",
+        "title": resolved_title or "Untitled",
+        "series_match_key": series_id,
+        "channel_id": channel,
+        "start_padding_seconds": start_padding or 0,
+        "end_padding_seconds": end_padding or 0,
+        "new_only": 1 if recent_only else 0,
+        "priority": 0,
+    }
+    await asyncio.to_thread(db.create_recording_rule, rule_entry)
+    # Don't make the user wait up to an hour for the next scheduled sync to
+    # pick up the first occurrence.
+    run_in_background(hdhomerun_series_watch.sync_series_watches())
+    return rule_entry
+
+
 async def _create_builtin_recording_rule(
     *,
     series_id: str | None,
@@ -311,6 +358,28 @@ async def _attempt_migrate_builtin_fallback_rule(rule: dict[str, Any], settings:
     resolved_series_id = await _resolve_hdhomerun_series_id(series_id, channel, date_time, title)
     if not resolved_series_id:
         return False
+
+    # A series (auto-record) rule would be silently accepted and never
+    # executed on a free account - see
+    # app.integrations.hdhomerun_series_watch. Single/one-time rules
+    # (date_time set) aren't gated, so only the series case needs the detour.
+    if date_time is None and hdhomerun_client.resolve_account_tier() == "free":
+        await _create_hdhomerun_series_watch_rule(
+            series_id=resolved_series_id,
+            channel=channel,
+            recent_only=bool(rule.get("new_only")),
+            start_padding=rule.get("start_padding_seconds"),
+            end_padding=rule.get("end_padding_seconds"),
+            title=title,
+        )
+        await asyncio.to_thread(db.delete_recording_rule, rule["id"])
+        await asyncio.to_thread(db.delete_scheduled_recordings_for_rule, rule["id"])
+        logger.info(
+            "Reconciliation: migrated fallback rule %r from builtin to a hdhomerun_series_watch "
+            "(free-tier account, SeriesID now available)",
+            rule.get("title"),
+        )
+        return True
 
     try:
         await _create_hdhomerun_recording_rule(
@@ -395,6 +464,30 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest, response: R
                 series_id = await _resolve_hdhomerun_series_id(
                     payload.series_id, payload.channel, payload.date_time, payload.title
                 )
+
+                # A series (auto-record) rule on a free HDHomeRun account is
+                # accepted by SiliconDust's API but never actually executed -
+                # see app.integrations.hdhomerun_series_watch. Single/one-time
+                # rules (date_time set) have no such restriction, so only
+                # series rules need the detour. "unknown" tier (no cached
+                # cloud guide data yet) falls through to the normal attempt
+                # below rather than guessing.
+                if payload.date_time is None and hdhomerun_client.resolve_account_tier() == "free":
+                    if series_id and series_id != "auto":
+                        await _create_hdhomerun_series_watch_rule(
+                            series_id=series_id,
+                            channel=payload.channel,
+                            recent_only=payload.recent_only,
+                            start_padding=payload.start_padding,
+                            end_padding=payload.end_padding,
+                            title=payload.title,
+                        )
+                        return await list_recording_rules()
+                    # No SeriesID to track a watch against either - fall back
+                    # to builtin same as the no-SeriesID case below.
+                    fallback_reason = "guide_series_id_missing"
+                    continue
+
                 try:
                     await _create_hdhomerun_recording_rule(
                         settings,
@@ -489,7 +582,7 @@ async def update_recording_rule(rule_id: str, payload: RecordingRuleUpdateReques
             raise HTTPException(status_code=400, detail="HDHomeRun DVR is not configured")
 
         # series_match_key overloads three meanings depending on rule type -
-        # see _format_builtin_rule, which decodes it the same way.
+        # see _format_local_rule, which decodes it the same way.
         cur_date_time: int | None = None
         cur_series_id: str | None = None
         series_match_key = rule.get("series_match_key")
@@ -510,6 +603,38 @@ async def update_recording_rule(rule_id: str, payload: RecordingRuleUpdateReques
         merged_title = payload.title if "title" in set_fields else rule.get("title")
 
         series_id = await _resolve_hdhomerun_series_id(merged_series_id, merged_channel, merged_date_time, merged_title)
+
+        # Same free-tier detour as create_recording_rule: a series rule
+        # would be silently accepted and never executed on a free account.
+        if merged_date_time is None and hdhomerun_client.resolve_account_tier() == "free":
+            if not series_id or series_id == "auto":
+                raise HTTPException(
+                    status_code=400, detail="Could not resolve a SiliconDust SeriesID for this show"
+                )
+            if rule.get("provider") == "hdhomerun_series_watch":
+                await asyncio.to_thread(
+                    db.update_recording_rule,
+                    rule_id,
+                    series_match_key=series_id,
+                    channel_id=merged_channel,
+                    start_padding_seconds=merged_start_padding or 0,
+                    end_padding_seconds=merged_end_padding or 0,
+                    new_only=1 if merged_recent_only else 0,
+                )
+            else:
+                await _create_hdhomerun_series_watch_rule(
+                    series_id=series_id,
+                    channel=merged_channel,
+                    recent_only=merged_recent_only,
+                    start_padding=merged_start_padding,
+                    end_padding=merged_end_padding,
+                    title=merged_title,
+                )
+                await asyncio.to_thread(db.delete_recording_rule, rule_id)
+                await asyncio.to_thread(db.delete_scheduled_recordings_for_rule, rule_id)
+                run_in_background(expand_rules())
+            return await list_recording_rules()
+
         try:
             await _create_hdhomerun_recording_rule(
                 settings,

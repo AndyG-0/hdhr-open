@@ -98,8 +98,8 @@ export interface HDHomeRunRecordingRule {
 	MaxEpisodesToKeep?: number | null;
 	TitleMatchMode?: 'exact' | 'contains';
 	KeywordQuery?: string | null;
-	Provider?: 'builtin' | 'hdhomerun';
-	provider?: 'builtin' | 'hdhomerun';
+	Provider?: 'builtin' | 'hdhomerun' | 'hdhomerun_series_watch';
+	provider?: 'builtin' | 'hdhomerun' | 'hdhomerun_series_watch';
 	FallbackReason?: string | null;
 	fallback_reason?: string | null;
 }

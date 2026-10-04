@@ -155,6 +155,8 @@
 			"server_hdhomerun": "HDHomeRun DVR Server",
 			"server_badge_builtin": "Built-in",
 			"server_badge_hdhomerun": "HDHomeRun",
+			"server_badge_series_watch": "HDHomeRun (free account)",
+			"server_badge_series_watch_tooltip": "Your HDHomeRun account doesn't support auto-record series rules, so this series is tracked locally and scheduled one airing at a time on the official DVR as each episode approaches.",
 			"server_fallback_hint": "HDHomeRun DVR requires a SiliconDust Series ID. If no match is found, this recording will automatically use the Built-in DVR.",
 			"fallback_notification": "Scheduled on Built-in DVR: \"{title}\" lacks a SiliconDust Series ID for HDHomeRun DVR.",
 			"fallback_badge": "Built-in (Fallback)",

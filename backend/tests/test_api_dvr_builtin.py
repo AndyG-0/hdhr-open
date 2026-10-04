@@ -684,6 +684,9 @@ async def test_reconcile_hdhomerun_fallback_rules_migrates_once_series_id_appear
         return_value=[{"RecordingRuleID": "rule_off_jeop", "SeriesID": "EP_JEOP_999", "Provider": "hdhomerun"}]
     )
     monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+    # This test is about a paid account's migration path specifically; the
+    # free-tier redirect to hdhomerun_series_watch is covered separately below.
+    monkeypatch.setattr(hdhomerun_client, "resolve_account_tier", lambda: "paid")
 
     await dvr_rules.reconcile_hdhomerun_fallback_rules()
 
@@ -693,6 +696,51 @@ async def test_reconcile_hdhomerun_fallback_rules_migrates_once_series_id_appear
 
     rules = db.list_recording_rules(provider="builtin")
     assert rules == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hdhomerun_fallback_rules_redirects_to_series_watch_on_free_account(
+    client, tmp_db, monkeypatch
+):
+    from app.api import dvr_rules
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Jeopardy!"}
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.json()[0]["fallback_reason"] == "guide_series_id_missing"
+
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_jeop",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP_JEOP_999",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 3600,
+                "end_ts": time.time() + 5400,
+            }
+        ]
+    )
+
+    mock_add = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+    monkeypatch.setattr(hdhomerun_client, "resolve_account_tier", lambda: "free")
+
+    await dvr_rules.reconcile_hdhomerun_fallback_rules()
+
+    # A free account's auto-record API would silently accept-but-never-execute
+    # this, so reconciliation must not call it directly - it should instead
+    # hand off to a local hdhomerun_series_watch row.
+    assert not mock_add.called
+
+    assert db.list_recording_rules(provider="builtin") == []
+    watch_rules = db.list_recording_rules(provider="hdhomerun_series_watch")
+    assert len(watch_rules) == 1
+    assert watch_rules[0]["series_match_key"] == "EP_JEOP_999"
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,19 @@ function isKeywordRule(r: HDHomeRunRecordingRule): boolean {
 	return r.TitleMatchMode === 'contains' || !!r.KeywordQuery;
 }
 
+/**
+ * A "series watch" row only tracks a *standing intent* for a free HDHomeRun
+ * account (see app.integrations.hdhomerun_series_watch on the backend) - it
+ * is not itself a guarantee any given future airing will record. Only the
+ * single-occurrence official DateTimeOnly rule it periodically creates (a
+ * separate array entry, Provider "hdhomerun") is. Matching this row's bare
+ * SeriesID here would wrongly badge *every* future airing of the series as
+ * "recording" when in reality only the next one has actually been scheduled.
+ */
+function isSeriesWatchRule(r: HDHomeRunRecordingRule): boolean {
+	return (r.Provider ?? r.provider) === 'hdhomerun_series_watch';
+}
+
 function keywordRuleMatchesAiring(r: HDHomeRunRecordingRule, channelNumber: string | undefined, airing: MatchableAiring | null | undefined): boolean {
 	const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
 	if (!channelMatches || !airing) return false;
@@ -67,6 +80,7 @@ export function findMatchingRecordingRule(
 	if (!rules || rules.length === 0 || !airing) return null;
 	return (
 		rules.find((r) => {
+			if (isSeriesWatchRule(r)) return false;
 			const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
 			if (!channelMatches) return false;
 			if (isKeywordRule(r)) {
@@ -118,6 +132,8 @@ export function buildRecordingRuleIndex(rules: HDHomeRunRecordingRule[] | undefi
 
 	rules.forEach((rule, i) => {
 		index.order.set(rule.RecordingRuleID, i);
+
+		if (isSeriesWatchRule(rule)) return;
 
 		if (isKeywordRule(rule)) {
 			index.keywordRules.push(rule);
