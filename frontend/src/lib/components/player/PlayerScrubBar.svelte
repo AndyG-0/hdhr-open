@@ -31,9 +31,28 @@
 	let hoverPreview = $state<{ x: number; cue: ThumbnailCue; time: number } | null>(null);
 	let showRemaining = $state(true);
 	let isDragging = $state(false);
+	// Tracks the pointer during a drag so the thumb/time move smoothly even
+	// though the actual onSeek() call is throttled (see scheduleThrottledSeek) -
+	// null outside of a drag, when displayedPosition is the source of truth.
+	let dragPreviewSeconds = $state<number | null>(null);
+
+	// Every onSeek() tears down and recreates the whole backend transcode
+	// pipeline (a fresh ffmpeg process). Calling it on every pointermove during
+	// a drag can spawn a dozen overlapping ffmpeg processes within a second,
+	// which exhausts hardware encoder sessions (e.g. macOS VideoToolbox allows
+	// only a few concurrent sessions) and makes most of them fail outright -
+	// surfacing to the client as a 502. Throttling keeps at most one real seek
+	// in flight per window, while still always landing on the final released
+	// position.
+	const SEEK_THROTTLE_MS = 400;
+	let pendingSeekTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastSeekAt = 0;
+	let latestDragTarget: number | null = null;
+
+	const displayPosition = $derived(dragPreviewSeconds ?? displayedPosition);
 
 	const progressPercent = $derived(
-		duration && duration > 0 ? Math.min(100, Math.max(0, (displayedPosition / duration) * 100)) : 0,
+		duration && duration > 0 ? Math.min(100, Math.max(0, (displayPosition / duration) * 100)) : 0,
 	);
 
 	function formatTime(seconds: number): string {
@@ -54,7 +73,7 @@
 		}
 		if (duration === null || duration <= 0) return '0:00';
 		if (showRemaining) {
-			const remaining = Math.max(0, duration - displayedPosition);
+			const remaining = Math.max(0, duration - displayPosition);
 			return `-${formatTime(remaining)}`;
 		}
 		return formatTime(duration);
@@ -70,11 +89,44 @@
 		return found;
 	}
 
-	function updateSeek(clientX: number) {
-		if (!seekable || duration === null || !scrubBarEl) return;
+	function targetSecondsAt(clientX: number): number | null {
+		if (!seekable || duration === null || !scrubBarEl) return null;
 		const rect = scrubBarEl.getBoundingClientRect();
 		const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-		onSeek(fraction * duration);
+		return fraction * duration;
+	}
+
+	function clearPendingSeek() {
+		if (pendingSeekTimer !== null) {
+			clearTimeout(pendingSeekTimer);
+			pendingSeekTimer = null;
+		}
+	}
+
+	// Fires onSeek() right away - for a discrete click/tap and for the final
+	// position on drag release, both of which must take effect immediately.
+	function commitSeek(targetSeconds: number) {
+		clearPendingSeek();
+		lastSeekAt = Date.now();
+		onSeek(targetSeconds);
+	}
+
+	// Fires onSeek() at most once per SEEK_THROTTLE_MS while dragging. Repeated
+	// calls just update latestDragTarget/dragPreviewSeconds cheaply; only one
+	// timer is ever pending, and it always reads the latest target rather than
+	// whichever position was current when it was scheduled.
+	function scheduleThrottledSeek(targetSeconds: number) {
+		latestDragTarget = targetSeconds;
+		const elapsed = Date.now() - lastSeekAt;
+		if (elapsed >= SEEK_THROTTLE_MS) {
+			commitSeek(targetSeconds);
+			return;
+		}
+		if (pendingSeekTimer !== null) return;
+		pendingSeekTimer = setTimeout(() => {
+			pendingSeekTimer = null;
+			if (latestDragTarget !== null) commitSeek(latestDragTarget);
+		}, SEEK_THROTTLE_MS - elapsed);
 	}
 
 	function updateHover(clientX: number) {
@@ -100,13 +152,18 @@
 	}
 
 	function handleClick(e: MouseEvent) {
-		updateSeek(e.clientX);
+		const target = targetSecondsAt(e.clientX);
+		if (target !== null) commitSeek(target);
 	}
 
 	function handleMouseMove(e: MouseEvent) {
 		updateHover(e.clientX);
 		if (isDragging) {
-			updateSeek(e.clientX);
+			const target = targetSecondsAt(e.clientX);
+			if (target !== null) {
+				dragPreviewSeconds = target;
+				scheduleThrottledSeek(target);
+			}
 		}
 	}
 
@@ -118,13 +175,21 @@
 		} catch {
 			// ignore
 		}
-		updateSeek(e.clientX);
+		const target = targetSecondsAt(e.clientX);
+		if (target !== null) {
+			dragPreviewSeconds = target;
+			commitSeek(target);
+		}
 	}
 
 	function handlePointerMove(e: PointerEvent) {
 		updateHover(e.clientX);
 		if (isDragging) {
-			updateSeek(e.clientX);
+			const target = targetSecondsAt(e.clientX);
+			if (target !== null) {
+				dragPreviewSeconds = target;
+				scheduleThrottledSeek(target);
+			}
 		}
 	}
 
@@ -138,6 +203,10 @@
 				// ignore
 			}
 		}
+		// Always land exactly where the drag was released, even if a throttled
+		// seek for an earlier point in the drag is still pending.
+		if (dragPreviewSeconds !== null) commitSeek(dragPreviewSeconds);
+		dragPreviewSeconds = null;
 	}
 
 	function handleMouseLeave() {
@@ -150,10 +219,10 @@
 		if (!seekable || duration === null) return;
 		if (e.key === 'ArrowLeft') {
 			e.preventDefault();
-			onSeek(Math.max(0, displayedPosition - 10));
+			commitSeek(Math.max(0, displayedPosition - 10));
 		} else if (e.key === 'ArrowRight') {
 			e.preventDefault();
-			onSeek(Math.min(duration, displayedPosition + 10));
+			commitSeek(Math.min(duration, displayedPosition + 10));
 		}
 	}
 
@@ -163,7 +232,7 @@
 </script>
 
 <div class="scrub-container">
-	<span class="scrub-time left">{formatTime(displayedPosition)}</span>
+	<span class="scrub-time left">{formatTime(displayPosition)}</span>
 
 	<div
 		class="scrub-bar"
@@ -181,7 +250,7 @@
 		aria-label={$_('player.playback_info', { default: 'Playback Seek' })}
 		aria-valuemin="0"
 		aria-valuemax={duration ?? 0}
-		aria-valuenow={displayedPosition}
+		aria-valuenow={displayPosition}
 		tabindex="0"
 	>
 		<div class="scrub-track">
