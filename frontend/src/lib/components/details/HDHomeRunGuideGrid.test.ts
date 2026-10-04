@@ -266,4 +266,63 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 
 		expect(onCancelRule).toHaveBeenCalledWith('rule_1');
 	});
+
+	it('shows a fallback badge on a cell whose rule fell back from the official DVR to builtin', () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [
+					{
+						RecordingRuleID: 'rule_1',
+						Title: 'Daytime Talk',
+						ChannelOnly: '4.1',
+						provider: 'builtin',
+						fallback_reason: 'guide_series_id_missing',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.getByText('Built-in (Fallback)')).toBeInTheDocument();
+	});
+
+	it('does not show a fallback badge for a rule with no fallback_reason', () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [
+					{
+						RecordingRuleID: 'rule_1',
+						Title: 'Daytime Talk',
+						ChannelOnly: '4.1',
+						provider: 'hdhomerun',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.queryByText('Built-in (Fallback)')).not.toBeInTheDocument();
+	});
 });

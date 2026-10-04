@@ -651,6 +651,72 @@ def test_create_recording_rule_hdhomerun_fallback_on_client_error(client, tmp_db
     assert "Airing not found" in rules[0]["fallback_reason"]
 
 
+@pytest.mark.asyncio
+async def test_reconcile_hdhomerun_fallback_rules_migrates_once_series_id_appears(client, tmp_db, monkeypatch):
+    from app.api import dvr_rules
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    # Series rule created when no cloud-guide SeriesID could be resolved yet -
+    # falls back to builtin, same as test_create_recording_rule_hdhomerun_fallback_when_series_id_missing.
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Jeopardy!"}
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.json()[0]["fallback_reason"] == "guide_series_id_missing"
+
+    # More cloud-guide data has since arrived, covering this show's SeriesID.
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_jeop",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP_JEOP_999",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 3600,
+                "end_ts": time.time() + 5400,
+            }
+        ]
+    )
+
+    mock_add = AsyncMock(
+        return_value=[{"RecordingRuleID": "rule_off_jeop", "SeriesID": "EP_JEOP_999", "Provider": "hdhomerun"}]
+    )
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    await dvr_rules.reconcile_hdhomerun_fallback_rules()
+
+    assert mock_add.called
+    passed_rule_data = mock_add.call_args[0][1]
+    assert passed_rule_data["series_id"] == "EP_JEOP_999"
+
+    rules = db.list_recording_rules(provider="builtin")
+    assert rules == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hdhomerun_fallback_rules_leaves_rule_in_place_when_still_unresolved(
+    client, tmp_db, monkeypatch
+):
+    from app.api import dvr_rules
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Jeopardy!"}
+    client.post("/api/dvr/recording-rules", json=payload)
+
+    mock_add = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    await dvr_rules.reconcile_hdhomerun_fallback_rules()
+
+    assert not mock_add.called
+    rules = db.list_recording_rules(provider="builtin")
+    assert len(rules) == 1
+    assert rules[0]["fallback_reason"] == "guide_series_id_missing"
+
 
 def test_create_keyword_recording_rule_with_no_series_id_or_date_time(client, tmp_db):
     payload = {

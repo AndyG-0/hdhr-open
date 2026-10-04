@@ -884,6 +884,16 @@
 								<span class="cell-live-badge cell-pending-badge">{$_('hdhomerun.detail.pending_recording_badge')}</span>
 							{:else if existingRule}
 								<span class="cell-live-badge">{$_('hdhomerun.tile.recording_badge')}</span>
+								{#if existingRule.fallback_reason || existingRule.FallbackReason}
+									<span
+										class="cell-live-badge cell-fallback-badge"
+										title={existingRule.fallback_reason ||
+											existingRule.FallbackReason ||
+											$_('hdhomerun.detail.fallback_tooltip')}
+									>
+										{$_('hdhomerun.detail.fallback_badge')}
+									</span>
+								{/if}
 							{/if}
 						</div>
 					{/each}
@@ -1595,5 +1605,11 @@
 
 	.cell-pending-badge {
 		color: var(--color-warning, #d9a441);
+	}
+
+	.cell-fallback-badge {
+		margin-left: 0.25rem;
+		color: var(--color-warning, #d9a441);
+		border-bottom: 1px dotted var(--color-warning, #d9a441);
 	}
 </style>

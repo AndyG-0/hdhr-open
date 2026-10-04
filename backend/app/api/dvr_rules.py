@@ -289,6 +289,87 @@ async def _create_builtin_recording_rule(
     return rule_entry
 
 
+async def _attempt_migrate_builtin_fallback_rule(rule: dict[str, Any], settings: dict[str, Any]) -> bool:
+    """Retry resolving a SiliconDust SeriesID for a builtin rule that fell back
+    from the official HDHomeRun DVR due to a missing SeriesID, and migrate it
+    to that engine if one can now be found. Returns True if migrated."""
+    if rule.get("title_match_mode") == "contains" or rule.get("keyword_query"):
+        return False  # keyword/contains matching has no official-DVR equivalent
+
+    date_time: int | None = None
+    series_id: str | None = None
+    series_match_key = rule.get("series_match_key")
+    if rule.get("type") == "single" and series_match_key:
+        with contextlib.suppress(ValueError, TypeError):
+            date_time = int(float(series_match_key))
+    elif series_match_key and series_match_key != rule.get("title"):
+        series_id = series_match_key
+
+    channel = rule.get("channel_id")
+    title = rule.get("title")
+
+    resolved_series_id = await _resolve_hdhomerun_series_id(series_id, channel, date_time, title)
+    if not resolved_series_id:
+        return False
+
+    try:
+        await _create_hdhomerun_recording_rule(
+            settings,
+            series_id=resolved_series_id,
+            channel=channel,
+            date_time=date_time,
+            recent_only=bool(rule.get("new_only")),
+            start_padding=rule.get("start_padding_seconds"),
+            end_padding=rule.get("end_padding_seconds"),
+        )
+    except hdhomerun_client.HDHomeRunError as exc:
+        logger.info(
+            "Reconciliation: found a SeriesID for fallback rule %r but official DVR still rejected it: %s",
+            rule.get("title"),
+            exc,
+        )
+        return False
+
+    await asyncio.to_thread(db.delete_recording_rule, rule["id"])
+    await asyncio.to_thread(db.delete_scheduled_recordings_for_rule, rule["id"])
+    logger.info(
+        "Reconciliation: migrated fallback rule %r from builtin to the official HDHomeRun DVR "
+        "now that a SeriesID is available",
+        rule.get("title"),
+    )
+    return True
+
+
+async def reconcile_hdhomerun_fallback_rules() -> None:
+    """Retry builtin rules that fell back from the official HDHomeRun DVR
+    engine because no SiliconDust SeriesID could be resolved yet. Intended to
+    be called after each guide refresh: the cloud guide's window advances
+    over time (bounded by SiliconDust's subscription-tier ceiling), so a
+    rule stuck on the weaker builtin matcher at creation time can often be
+    promoted to the official engine once the relevant airing's SeriesID
+    actually shows up.
+    """
+    settings = await _get_hdhomerun_settings_safe()
+    if not (hdhomerun_client.is_dvr_configured(settings) or hdhomerun_client.is_tuner_configured(settings)):
+        return
+
+    rules = await asyncio.to_thread(db.list_recording_rules, "builtin")
+    fallback_rules = [r for r in rules if r.get("fallback_reason") == "guide_series_id_missing"]
+    if not fallback_rules:
+        return
+
+    migrated_any = False
+    for rule in fallback_rules:
+        try:
+            if await _attempt_migrate_builtin_fallback_rule(rule, settings):
+                migrated_any = True
+        except Exception:
+            logger.warning("Reconciliation: error retrying fallback rule %r", rule.get("title"), exc_info=True)
+
+    if migrated_any:
+        run_in_background(expand_rules())
+
+
 @router.post("/recording-rules")
 async def create_recording_rule(payload: RecordingRuleCreateRequest, response: Response = None):
     settings = await _get_hdhomerun_settings_safe()
