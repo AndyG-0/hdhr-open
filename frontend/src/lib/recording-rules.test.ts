@@ -211,6 +211,20 @@ describe('findMatchingRecordingRuleIndexed', () => {
 		expect(find([r], '5.1', { title: 'Doctor Who' })).toBeNull();
 	});
 
+	it('does not match a RecentOnly rule against a known rerun airing (is_new: false), but still matches the original', () => {
+		// A guide can list the same new episode twice in one night around a
+		// local news break; only the is_new:true one is the real recording a
+		// "new episodes only" rule will actually capture.
+		const r = rule({ SeriesID: 'series-1', RecentOnly: 1 });
+		expect(find([r], undefined, { series_id: 'series-1', is_new: true })).toBe(r);
+		expect(find([r], undefined, { series_id: 'series-1', is_new: false })).toBeNull();
+		expect(findMatchingRecordingRule([r], undefined, { series_id: 'series-1', is_new: true })).toBe(r);
+		expect(findMatchingRecordingRule([r], undefined, { series_id: 'series-1', is_new: false })).toBeNull();
+		// Freshness unknown (no guide source reported is_new) still matches —
+		// only an explicit rerun (is_new === false) should suppress it.
+		expect(find([r], undefined, { series_id: 'series-1' })).toBe(r);
+	});
+
 	it('never matches a hdhomerun_series_watch rule, even though it carries a bare SeriesID', () => {
 		const watch = rule({ SeriesID: 'series-1', Provider: 'hdhomerun_series_watch' });
 		expect(find([watch], undefined, { series_id: 'series-1' })).toBeNull();

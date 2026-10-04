@@ -1,5 +1,8 @@
 package org.hdhropen.app.ui.screens.player
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,12 +40,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.hdhropen.app.ui.theme.BluePrimary
 import org.hdhropen.app.ui.theme.GreenActive
+import org.hdhropen.app.ui.theme.OrangeCommercial
 import org.hdhropen.app.ui.theme.RedLive
+import org.hdhropen.kit.models.CommercialSegment
 import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
 import org.hdhropen.kit.models.HDHomeRunRecordingAudioInfo
 import org.hdhropen.kit.models.HDHomeRunRecordingRule
 import org.hdhropen.kit.playback.ThumbnailCue
+import androidx.compose.material.icons.filled.FastForward
 
 @Composable
 fun PlayerBottomBar(
@@ -59,6 +65,8 @@ fun PlayerBottomBar(
     availableAudioTracks: List<HDHomeRunRecordingAudioInfo>,
     currentAudioTrack: HDHomeRunRecordingAudioInfo?,
     isSwitchingAudioTrack: Boolean,
+    commercialSegments: List<CommercialSegment>,
+    activeCommercialSegment: CommercialSegment?,
     onSeek: (Double) -> Unit,
     onScrubbingStateChange: (Boolean) -> Unit,
     onPromoteToRecording: () -> Unit,
@@ -67,6 +75,7 @@ fun PlayerBottomBar(
     onCancelRule: (String) -> Unit,
     onOpenRecordingOptions: () -> Unit,
     onSelectAudioTrack: (HDHomeRunRecordingAudioInfo) -> Unit,
+    onSkipCommercial: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showRecordMenu by remember { mutableStateOf(false) }
@@ -77,6 +86,31 @@ fun PlayerBottomBar(
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 20.dp)
     ) {
+        AnimatedVisibility(
+            visible = activeCommercialSegment != null,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Button(
+                onClick = onSkipCommercial,
+                colors = ButtonDefaults.buttonColors(containerColor = OrangeCommercial),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.padding(bottom = 12.dp)
+            ) {
+                Icon(
+                    Icons.Default.FastForward,
+                    contentDescription = null,
+                    tint = Color.Black,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Skip Commercial",
+                    style = MaterialTheme.typography.labelMedium.copy(color = Color.Black, fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+
         ScrubBar(
             currentTime = currentTime,
             duration = duration,
@@ -84,6 +118,7 @@ fun PlayerBottomBar(
             isSeekable = isSeekable,
             thumbnailCues = thumbnailCues,
             onSeek = onSeek,
+            commercialSegments = commercialSegments,
             onScrubbingStateChange = onScrubbingStateChange
         )
 

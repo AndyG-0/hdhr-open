@@ -8,6 +8,7 @@ public struct iOSScrubBarView: View {
     let isSeekable: Bool
     let thumbnailCues: [ThumbnailCue]
     let spriteURL: URL?
+    let commercialSegments: [HDHomeRunCommercialSegment]
     let onScrubbingChanged: ((Bool) -> Void)?
     let onSeek: (Double) -> Void
 
@@ -21,6 +22,7 @@ public struct iOSScrubBarView: View {
         isSeekable: Bool,
         thumbnailCues: [ThumbnailCue] = [],
         spriteURL: URL? = nil,
+        commercialSegments: [HDHomeRunCommercialSegment] = [],
         onScrubbingChanged: ((Bool) -> Void)? = nil,
         onSeek: @escaping (Double) -> Void
     ) {
@@ -30,6 +32,7 @@ public struct iOSScrubBarView: View {
         self.isSeekable = isSeekable
         self.thumbnailCues = thumbnailCues
         self.spriteURL = spriteURL
+        self.commercialSegments = commercialSegments
         self.onScrubbingChanged = onScrubbingChanged
         self.onSeek = onSeek
     }
@@ -99,6 +102,17 @@ public struct iOSScrubBarView: View {
                     Capsule()
                         .fill(Color.white.opacity(0.3))
                         .frame(height: 6)
+
+                    if duration > 0 {
+                        ForEach(Array(commercialSegments.enumerated()), id: \.offset) { _, segment in
+                            let startFraction = max(0, min(1, segment.startSeconds / duration))
+                            let endFraction = max(0, min(1, segment.endSeconds / duration))
+                            Capsule()
+                                .fill(Color.orange.opacity(0.6))
+                                .frame(width: max(0, geo.size.width * CGFloat(endFraction - startFraction)), height: 6)
+                                .offset(x: geo.size.width * CGFloat(startFraction))
+                        }
+                    }
 
                     Capsule()
                         .fill(isLive ? Color.red : Color.blue)

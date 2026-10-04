@@ -136,6 +136,45 @@ final class ModelsSerializationTests: XCTestCase {
         XCTAssertEqual(rule.provider, "builtin")
     }
 
+    func testDecodeRecordingDetailWithCommercialSegments() throws {
+        let json = """
+        {
+            "is_in_progress": false,
+            "duration_seconds": 1800.0,
+            "video": null,
+            "audio": [],
+            "has_captions": false,
+            "transcode": { "transcoding": false, "hardware": false },
+            "commercial_segments": [
+                { "start_seconds": 120.0, "end_seconds": 180.0 },
+                { "start_seconds": 900.0, "end_seconds": 960.0 }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try JSONDecoder().decode(HDHomeRunRecordingDetail.self, from: json)
+        XCTAssertEqual(detail.commercialSegments.count, 2)
+        XCTAssertEqual(detail.commercialSegments[0].startSeconds, 120.0)
+        XCTAssertEqual(detail.commercialSegments[0].endSeconds, 180.0)
+        XCTAssertEqual(detail.commercialSegments[1].startSeconds, 900.0)
+    }
+
+    func testDecodeRecordingDetailWithoutCommercialSegmentsDefaultsToEmpty() throws {
+        let json = """
+        {
+            "is_in_progress": true,
+            "duration_seconds": null,
+            "video": null,
+            "audio": [],
+            "has_captions": false,
+            "transcode": { "transcoding": false, "hardware": false }
+        }
+        """.data(using: .utf8)!
+
+        let detail = try JSONDecoder().decode(HDHomeRunRecordingDetail.self, from: json)
+        XCTAssertTrue(detail.commercialSegments.isEmpty)
+    }
+
     func testEncodeAddRecordingRulePayloadExactTitle() throws {
         let payload = AddRecordingRulePayload(
             seriesId: "auto",

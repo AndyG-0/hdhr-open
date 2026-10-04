@@ -109,6 +109,21 @@ public struct HDHomeRunTranscodeInfo: Codable, Sendable {
     }
 }
 
+public struct HDHomeRunCommercialSegment: Codable, Sendable, Hashable {
+    public let startSeconds: Double
+    public let endSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case startSeconds = "start_seconds"
+        case endSeconds = "end_seconds"
+    }
+
+    public init(startSeconds: Double, endSeconds: Double) {
+        self.startSeconds = startSeconds
+        self.endSeconds = endSeconds
+    }
+}
+
 public struct HDHomeRunRecordingDetail: Codable, Sendable {
     public let isInProgress: Bool
     public let durationSeconds: Double?
@@ -116,6 +131,7 @@ public struct HDHomeRunRecordingDetail: Codable, Sendable {
     public let audio: [HDHomeRunRecordingAudioInfo]
     public let hasCaptions: Bool
     public let transcode: HDHomeRunTranscodeInfo
+    public let commercialSegments: [HDHomeRunCommercialSegment]
 
     enum CodingKeys: String, CodingKey {
         case isInProgress = "is_in_progress"
@@ -124,6 +140,36 @@ public struct HDHomeRunRecordingDetail: Codable, Sendable {
         case audio
         case hasCaptions = "has_captions"
         case transcode
+        case commercialSegments = "commercial_segments"
+    }
+
+    public init(
+        isInProgress: Bool,
+        durationSeconds: Double?,
+        video: HDHomeRunRecordingVideoInfo?,
+        audio: [HDHomeRunRecordingAudioInfo],
+        hasCaptions: Bool,
+        transcode: HDHomeRunTranscodeInfo,
+        commercialSegments: [HDHomeRunCommercialSegment] = []
+    ) {
+        self.isInProgress = isInProgress
+        self.durationSeconds = durationSeconds
+        self.video = video
+        self.audio = audio
+        self.hasCaptions = hasCaptions
+        self.transcode = transcode
+        self.commercialSegments = commercialSegments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isInProgress = try container.decode(Bool.self, forKey: .isInProgress)
+        durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
+        video = try container.decodeIfPresent(HDHomeRunRecordingVideoInfo.self, forKey: .video)
+        audio = try container.decode([HDHomeRunRecordingAudioInfo].self, forKey: .audio)
+        hasCaptions = try container.decode(Bool.self, forKey: .hasCaptions)
+        transcode = try container.decode(HDHomeRunTranscodeInfo.self, forKey: .transcode)
+        commercialSegments = try container.decodeIfPresent([HDHomeRunCommercialSegment].self, forKey: .commercialSegments) ?? []
     }
 }
 

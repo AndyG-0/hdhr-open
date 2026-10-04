@@ -427,6 +427,20 @@ def _migration_9(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE recording_rules ADD COLUMN fallback_reason TEXT")
 
 
+def _migration_10(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recording_rules" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recording_rules)").fetchall()}
+        if "comskip_override" not in cols:
+            conn.execute(
+                "ALTER TABLE recording_rules ADD COLUMN comskip_override TEXT NOT NULL DEFAULT 'default'"
+            )
+    if "recordings" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "comskip_status" not in cols:
+            conn.execute("ALTER TABLE recordings ADD COLUMN comskip_status TEXT")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -437,6 +451,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _migration_7,
     _migration_8,
     _migration_9,
+    _migration_10,
 )
 
 

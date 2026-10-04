@@ -28,6 +28,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
     @Published public private(set) var videoSpecs: HDHomeRunRecordingVideoInfo?
     @Published public private(set) var transcodeInfo: HDHomeRunTranscodeInfo?
     @Published public private(set) var observedBitrate: Double?
+    @Published public private(set) var commercialSegments: [HDHomeRunCommercialSegment] = []
     /// Whether AirPlay (or another external-playback route) is currently
     /// active - the app shell (`HDHROpeniOSApp`/`HDHROpenTVApp`) reads this
     /// to skip tearing the player down on `scenePhase == .background`, since
@@ -288,6 +289,16 @@ public final class PlayerEngine: NSObject, ObservableObject {
         return false
     }
 
+    public func setCommercialSegments(_ segments: [HDHomeRunCommercialSegment]) {
+        commercialSegments = segments
+    }
+
+    /// The commercial segment `currentTime` currently falls inside, if any -
+    /// drives the "Skip Commercial" affordance on every playback surface.
+    public var activeCommercialSegment: HDHomeRunCommercialSegment? {
+        commercialSegments.first { currentTime >= $0.startSeconds && currentTime < $0.endSeconds }
+    }
+
     public func skipForward(seconds: Double = 10.0) {
         seek(to: currentTime + seconds)
     }
@@ -385,6 +396,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
         videoSpecs = nil
         transcodeInfo = nil
         observedBitrate = nil
+        commercialSegments = []
     }
 
     #if os(iOS)

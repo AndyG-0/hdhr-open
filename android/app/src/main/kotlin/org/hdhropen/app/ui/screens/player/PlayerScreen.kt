@@ -88,6 +88,8 @@ fun PlayerScreen(
     val observedBitrateBps by playerEngine.observedBitrateBps.collectAsState()
     val playbackMode by playerViewModel.playbackMode.collectAsState()
     val isCasting by playerEngine.isCasting.collectAsState()
+    val commercialSegments by playerEngine.commercialSegments.collectAsState()
+    val activeCommercialSegment by playerViewModel.activeCommercialSegment.collectAsState()
 
     val captionController = playerViewModel.captionController
     val activeCaptionText by captionController.activeCueText.collectAsState()
@@ -310,6 +312,9 @@ fun PlayerScreen(
                     availableAudioTracks = availableAudioTracks,
                     currentAudioTrack = currentAudioTrack,
                     isSwitchingAudioTrack = isSwitchingAudioTrack,
+                    commercialSegments = commercialSegments,
+                    activeCommercialSegment = activeCommercialSegment,
+                    onSkipCommercial = { playerViewModel.skipActiveCommercial() },
                     onSeek = { target -> playerViewModel.seek(target) },
                     onScrubbingStateChange = { isUserScrubbing = it },
                     onPromoteToRecording = { playerViewModel.promoteToRecording() },

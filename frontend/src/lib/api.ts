@@ -11,6 +11,7 @@ export interface AppSettings {
 	dvr_server_priority: string;
 	sports_extension_enabled: string;
 	sports_extension_max_minutes: string;
+	comskip_mode: string;
 }
 
 // A Google Cast receiver device fetches this playlist directly over HTTP
@@ -98,6 +99,7 @@ export interface HDHomeRunRecordingRule {
 	MaxEpisodesToKeep?: number | null;
 	TitleMatchMode?: 'exact' | 'contains';
 	KeywordQuery?: string | null;
+	ComskipOverride?: 'default' | 'always' | 'never';
 	Provider?: 'builtin' | 'hdhomerun' | 'hdhomerun_series_watch';
 	provider?: 'builtin' | 'hdhomerun' | 'hdhomerun_series_watch';
 	FallbackReason?: string | null;
@@ -114,6 +116,7 @@ export interface RecordingRuleOptions {
 	titleMatchMode?: 'exact' | 'contains';
 	keywordQuery?: string | null;
 	channel?: string | null;
+	comskipOverride?: 'default' | 'always' | 'never';
 }
 
 export interface HDHomeRunFullGuideChannel {
@@ -289,6 +292,7 @@ export interface HDHomeRunRecording {
 	category_type?: 'shows' | 'movies' | 'sports';
 	is_dvr_file?: boolean;
 	provider?: 'builtin' | 'hdhomerun';
+	status?: string;
 }
 
 export interface HDHomeRunRecordingVideoInfo {
@@ -886,6 +890,7 @@ export const api = {
 		title?: string;
 		title_match_mode?: 'exact' | 'contains';
 		keyword_query?: string | null;
+		comskip_override?: 'default' | 'always' | 'never';
 	}) => postJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules', rule),
 	updateHDHomeRunRecordingRule: (
 		ruleId: string,
@@ -901,6 +906,7 @@ export const api = {
 			title?: string;
 			title_match_mode?: 'exact' | 'contains';
 			keyword_query?: string | null;
+			comskip_override?: 'default' | 'always' | 'never';
 		},
 	) => putJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`, rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>

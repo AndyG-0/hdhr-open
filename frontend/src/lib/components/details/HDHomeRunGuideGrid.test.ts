@@ -325,4 +325,74 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 
 		expect(screen.queryByText('Built-in (Fallback)')).not.toBeInTheDocument();
 	});
+
+	it('shows a recording badge for an active capture with no backing rule', () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [],
+				activeRecordings: [
+					{
+						title: 'Morning News',
+						channel_number: '4.1',
+						channel_name: 'KDFW',
+						start: mockChannel.now!.start,
+						record_end: mockChannel.now!.end,
+						status: 'recording',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.getByText('● Recording')).toBeInTheDocument();
+	});
+
+	it('flags only the airing the capture started during, even when record_end is padded into the next slot', () => {
+		// A live sports capture's record_end gets pushed forward by the
+		// backend's overrun-extension logic (to avoid cutting off a close
+		// game), well past the airing's own guide end time. The badge should
+		// still only land on "Morning News" (where the capture began), not
+		// bleed into "Daytime Talk" just because the padded record_end now
+		// reaches into its guide slot too.
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [],
+				activeRecordings: [
+					{
+						title: 'Morning News',
+						channel_number: '4.1',
+						channel_name: 'KDFW',
+						start: mockChannel.now!.start,
+						record_end: Math.floor(Date.now() / 1000) + 3300,
+						status: 'recording',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.getAllByText('● Recording')).toHaveLength(1);
+	});
 });

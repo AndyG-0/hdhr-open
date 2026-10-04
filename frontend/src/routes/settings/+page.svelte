@@ -15,6 +15,7 @@
 	import AppearanceSection from '$lib/components/settings/AppearanceSection.svelte';
 	import TimezoneSection from '$lib/components/settings/TimezoneSection.svelte';
 	import SportsExtensionSection from '$lib/components/settings/SportsExtensionSection.svelte';
+	import ComskipSection from '$lib/components/settings/ComskipSection.svelte';
 	import HDHomeRunNetworkSection from '$lib/components/settings/HDHomeRunNetworkSection.svelte';
 	import PlaybackSection from '$lib/components/settings/PlaybackSection.svelte';
 	import XmltvFeedSection from '$lib/components/settings/XmltvFeedSection.svelte';
@@ -274,6 +275,8 @@
 				initialEnabled={settings?.sports_extension_enabled ?? null}
 				initialMaxMinutes={settings?.sports_extension_max_minutes ?? null}
 			/>
+
+			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
 
 			<JobsSection />
 

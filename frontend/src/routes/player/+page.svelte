@@ -330,6 +330,7 @@
 			title: options?.title,
 			start_padding: options?.startPadding,
 			end_padding: options?.endPadding,
+			comskip_override: options?.comskipOverride,
 		});
 		recordingRules = await api.listRecordingRules();
 	}
@@ -346,6 +347,7 @@
 			recent_only: options?.recentOnly,
 			start_padding: options?.startPadding,
 			end_padding: options?.endPadding,
+			comskip_override: options?.comskipOverride,
 		});
 		recordingRules = await api.listRecordingRules();
 	}
@@ -362,6 +364,7 @@
 			end_padding: options.endPadding,
 			recent_only: options.recentOnly,
 			server: options.server,
+			comskip_override: options.comskipOverride,
 		});
 		recordingRules = await api.listRecordingRules();
 	}

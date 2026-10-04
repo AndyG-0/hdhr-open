@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.hdhropen.kit.models.*
@@ -112,6 +113,9 @@ class PlayerViewModel(
     private val _fallbackNotice = MutableStateFlow<String?>(null)
     val fallbackNotice: StateFlow<String?> = _fallbackNotice.asStateFlow()
 
+    private val _activeCommercialSegment = MutableStateFlow<CommercialSegment?>(null)
+    val activeCommercialSegment: StateFlow<CommercialSegment?> = _activeCommercialSegment.asStateFlow()
+
     fun clearFallbackNotice() {
         _fallbackNotice.value = null
     }
@@ -141,6 +145,16 @@ class PlayerViewModel(
         viewModelScope.launch {
             playerEngine.currentTime.collect { time ->
                 captionController.updatePlaybackTime(time)
+            }
+        }
+
+        // Derive the commercial segment (if any) containing the current playback
+        // position, driving the "Skip Commercial" affordance on every surface.
+        viewModelScope.launch {
+            combine(playerEngine.currentTime, playerEngine.commercialSegments) { time, segments ->
+                segments.firstOrNull { time >= it.startSeconds && time < it.endSeconds }
+            }.collect { segment ->
+                _activeCommercialSegment.value = segment
             }
         }
 
@@ -519,6 +533,7 @@ class PlayerViewModel(
                 playerEngine.setAudioTracks(detail.audio)
                 playerEngine.setVideoSpecs(detail.video)
                 playerEngine.setTranscodeInfo(detail.transcode)
+                playerEngine.setCommercialSegments(detail.commercialSegments)
                 detail.durationSeconds?.let { dur ->
                     if (dur > 0) playerEngine.setDuration(dur)
                 }
@@ -622,6 +637,7 @@ class PlayerViewModel(
         val previousTrack = playerEngine.currentAudioTrack.value
         val previousVideoSpecs = playerEngine.videoSpecs.value
         val previousTranscodeInfo = playerEngine.transcodeInfo.value
+        val previousCommercialSegments = playerEngine.commercialSegments.value
         val totalDuration = if (playerEngine.duration.value > 0) playerEngine.duration.value else (recording.durationSeconds ?: 0.0)
         val isLive = recording.isInProgress
         val isSeekable = playerEngine.isSeekable.value
@@ -667,6 +683,7 @@ class PlayerViewModel(
                 playerEngine.setAudioTracks(previousAudioTracks, selectedTrack = previousTrack)
                 playerEngine.setVideoSpecs(previousVideoSpecs)
                 playerEngine.setTranscodeInfo(previousTranscodeInfo)
+                playerEngine.setCommercialSegments(previousCommercialSegments)
 
                 if (previousSessionId != null) {
                     viewModelScope.launch(NonCancellable) {
@@ -693,6 +710,11 @@ class PlayerViewModel(
     fun skipBackward(seconds: Double = 10.0) {
         val target = (playerEngine.currentTime.value - seconds).coerceAtLeast(0.0)
         seek(target)
+    }
+
+    fun skipActiveCommercial() {
+        val segment = _activeCommercialSegment.value ?: return
+        seek(segment.endSeconds)
     }
 
     fun createSyncPlayRoom(userName: String, onComplete: ((Result<SyncPlayRoom>) -> Unit)? = null) {

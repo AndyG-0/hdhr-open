@@ -26,6 +26,7 @@ export function buildEpisodeRulePayload(
 			recent_only: effectiveOptions.recentOnly,
 			max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
 			server: effectiveOptions.server,
+			comskip_override: effectiveOptions.comskipOverride,
 		};
 	}
 
@@ -41,6 +42,7 @@ export function buildEpisodeRulePayload(
 		recent_only: effectiveOptions.recentOnly,
 		max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
 		server: effectiveOptions.server,
+		comskip_override: effectiveOptions.comskipOverride,
 	};
 }
 
@@ -69,6 +71,7 @@ export function buildSeriesRulePayload(
 			recent_only: effectiveOptions.recentOnly,
 			max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
 			server: effectiveOptions.server,
+			comskip_override: effectiveOptions.comskipOverride,
 		};
 	}
 
@@ -85,6 +88,7 @@ export function buildSeriesRulePayload(
 		recent_only: effectiveOptions.recentOnly,
 		max_episodes_to_keep: effectiveOptions.maxEpisodesToKeep,
 		server: effectiveOptions.server,
+		comskip_override: effectiveOptions.comskipOverride,
 	};
 }
 
@@ -99,6 +103,7 @@ export function buildUpdateRulePayload(options: RecordingRuleOptions) {
 		recent_only: options.recentOnly,
 		max_episodes_to_keep: options.maxEpisodesToKeep,
 		server: options.server,
+		comskip_override: options.comskipOverride,
 	};
 }
 

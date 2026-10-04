@@ -76,6 +76,43 @@ final class iOSScrubBarViewTests: XCTestCase {
         XCTAssertEqual(seekableShapes, nonSeekableShapes)
     }
 
+    func testCommercialBandAddsOneShapePerSegmentWhenDurationKnown() throws {
+        let withoutSegments = iOSScrubBarView(currentTime: 10, duration: 100, isLive: false, isSeekable: true, onSeek: { _ in })
+        let withSegments = iOSScrubBarView(
+            currentTime: 10,
+            duration: 100,
+            isLive: false,
+            isSeekable: true,
+            commercialSegments: [
+                HDHomeRunCommercialSegment(startSeconds: 20, endSeconds: 40),
+                HDHomeRunCommercialSegment(startSeconds: 60, endSeconds: 70),
+            ],
+            onSeek: { _ in }
+        )
+
+        let shapesWithout = try withoutSegments.inspect().findAll(ViewType.Shape.self).count
+        let shapesWith = try withSegments.inspect().findAll(ViewType.Shape.self).count
+
+        XCTAssertEqual(shapesWith - shapesWithout, 2)
+    }
+
+    func testCommercialBandOmittedWhenDurationUnknown() throws {
+        let baseline = iOSScrubBarView(currentTime: 10, duration: 0, isLive: false, isSeekable: false, onSeek: { _ in })
+        let withSegmentButNoDuration = iOSScrubBarView(
+            currentTime: 10,
+            duration: 0,
+            isLive: false,
+            isSeekable: false,
+            commercialSegments: [HDHomeRunCommercialSegment(startSeconds: 20, endSeconds: 40)],
+            onSeek: { _ in }
+        )
+
+        let baselineShapes = try baseline.inspect().findAll(ViewType.Shape.self).count
+        let shapes = try withSegmentButNoDuration.inspect().findAll(ViewType.Shape.self).count
+
+        XCTAssertEqual(shapes, baselineShapes)
+    }
+
     func testAcceptsOnScrubbingChangedCallback() {
         var scrubbingChangedCalled = false
         let view = iOSScrubBarView(

@@ -127,6 +127,41 @@ class ModelsSerializationTest {
     }
 
     @Test
+    fun testDecodeRecordingDetailCommercialSegments() {
+        val jsonString = """
+        {
+            "recording_id": "rec_999",
+            "title": "Cosmos: A Spacetime Odyssey",
+            "play_url": "/api/dvr/rec_999.mpg",
+            "commercial_segments": [
+                {"start_seconds": 120.0, "end_seconds": 180.5},
+                {"start_seconds": 900.0, "end_seconds": 962.25}
+            ]
+        }
+        """.trimIndent()
+
+        val detail = json.decodeFromString<HDHomeRunRecordingDetail>(jsonString)
+        assertEquals(2, detail.commercialSegments.size)
+        assertEquals(120.0, detail.commercialSegments[0].startSeconds, 0.001)
+        assertEquals(180.5, detail.commercialSegments[0].endSeconds, 0.001)
+        assertEquals(962.25, detail.commercialSegments[1].endSeconds, 0.001)
+    }
+
+    @Test
+    fun testDecodeRecordingDetailDefaultsToEmptyCommercialSegments() {
+        val jsonString = """
+        {
+            "recording_id": "rec_998",
+            "title": "No Commercials",
+            "play_url": "/api/dvr/rec_998.mpg"
+        }
+        """.trimIndent()
+
+        val detail = json.decodeFromString<HDHomeRunRecordingDetail>(jsonString)
+        assertTrue(detail.commercialSegments.isEmpty())
+    }
+
+    @Test
     fun testDecodeTunerStatus() {
         val jsonString = """
         {

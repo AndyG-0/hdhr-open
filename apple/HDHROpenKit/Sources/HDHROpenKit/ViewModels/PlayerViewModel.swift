@@ -119,6 +119,7 @@ public final class PlayerViewModel: ObservableObject {
             playerEngine.setAudioTracks(detail.audio)
             playerEngine.setVideoSpecs(detail.video)
             playerEngine.setTranscodeInfo(detail.transcode)
+            playerEngine.setCommercialSegments(detail.commercialSegments)
             if let dur = detail.durationSeconds, dur > 0 {
                 playerEngine.setDuration(dur)
             }
@@ -601,6 +602,11 @@ public final class PlayerViewModel: ObservableObject {
     public func skipBackward(seconds: Double = 10.0) {
         let target = max(0, playerEngine.currentTime - seconds)
         seek(to: target)
+    }
+
+    public func skipActiveCommercial() {
+        guard let segment = playerEngine.activeCommercialSegment else { return }
+        seek(to: segment.endSeconds)
     }
 
     public func createSyncPlayRoom(userName: String) async throws -> SyncPlayRoom {

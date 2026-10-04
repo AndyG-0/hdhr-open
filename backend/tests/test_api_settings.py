@@ -25,6 +25,7 @@ def test_get_settings_returns_env_default(client, tmp_db):
         "dvr_server_priority": "builtin,hdhomerun",
         "sports_extension_enabled": "false",
         "sports_extension_max_minutes": "240",
+        "comskip_mode": "all",
     }
 
 

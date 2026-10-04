@@ -5,6 +5,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -225,6 +226,41 @@ class PlayerViewModelSeekResyncTest {
         vm.skipBackward(10.0)
         assertEquals(20.0, vm.playerEngine.currentTime.value, 0.001)
         assertEquals(1, vm.captionController.cues.value.size)
+    }
+
+    @Test
+    fun `skipActiveCommercial seeks to segment end and resyncs captions`() = runTest {
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/live.m3u8", isLive = true, isSeekable = true)
+
+        val recording = inProgressRecording(startedSecondsAgo = 100.0)
+        setActiveRecording(vm, recording)
+        setLastRawCues(vm, listOf(CaptionCue(start = 95.0, end = 98.0, text = "Hello")))
+
+        vm.playerEngine.setCommercialSegments(
+            listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 40.0))
+        )
+        vm.seek(20.0)
+        advanceUntilIdle()
+        assertEquals(20.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 40.0)), vm.playerEngine.commercialSegments.value)
+        assertEquals(CommercialSegment(startSeconds = 10.0, endSeconds = 40.0), vm.activeCommercialSegment.value)
+
+        vm.skipActiveCommercial()
+
+        assertEquals(40.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(1, vm.captionController.cues.value.size)
+    }
+
+    @Test
+    fun `skipActiveCommercial is a no-op when no segment is active`() {
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/vod.m3u8", isLive = false, isSeekable = true)
+        vm.seek(5.0)
+
+        vm.skipActiveCommercial()
+
+        assertEquals(5.0, vm.playerEngine.currentTime.value, 0.001)
     }
 
     @Test

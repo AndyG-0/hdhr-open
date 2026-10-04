@@ -57,6 +57,14 @@ data class HDHomeRunTranscodeInfo(
 )
 
 @Serializable
+data class CommercialSegment(
+    @SerialName("start_seconds")
+    val startSeconds: Double,
+    @SerialName("end_seconds")
+    val endSeconds: Double
+)
+
+@Serializable
 data class HDHomeRunRecordingDetail(
     @SerialName("is_in_progress")
     val isInProgress: Boolean = false,
@@ -66,7 +74,9 @@ data class HDHomeRunRecordingDetail(
     val audio: List<HDHomeRunRecordingAudioInfo> = emptyList(),
     @SerialName("has_captions")
     val hasCaptions: Boolean = false,
-    val transcode: HDHomeRunTranscodeInfo? = null
+    val transcode: HDHomeRunTranscodeInfo? = null,
+    @SerialName("commercial_segments")
+    val commercialSegments: List<CommercialSegment> = emptyList()
 )
 
 @Serializable

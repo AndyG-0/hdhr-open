@@ -37,6 +37,7 @@ _RECORDING_UPDATABLE_COLUMNS = frozenset(
         "media_info",
         "is_temporary",
         "last_heartbeat_at",
+        "comskip_status",
     }
 )
 
@@ -53,6 +54,7 @@ _RECORDING_RULE_UPDATABLE_COLUMNS = frozenset(
         "title_match_mode",
         "keyword_query",
         "fallback_reason",
+        "comskip_override",
     }
 )
 
@@ -62,8 +64,8 @@ def create_recording_rule(rule: dict[str, Any]) -> None:
         conn.execute(
             "INSERT INTO recording_rules (id, provider, type, title, series_match_key, channel_id, "
             "start_padding_seconds, end_padding_seconds, new_only, priority, max_episodes_to_keep, "
-            "title_match_mode, keyword_query, fallback_reason, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "title_match_mode, keyword_query, fallback_reason, comskip_override, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 rule["id"],
                 rule["provider"],
@@ -79,6 +81,7 @@ def create_recording_rule(rule: dict[str, Any]) -> None:
                 rule.get("title_match_mode") or "exact",
                 rule.get("keyword_query"),
                 rule.get("fallback_reason"),
+                rule.get("comskip_override") or "default",
                 rule.get("created_at") or datetime.now(UTC).isoformat(),
             ),
         )
@@ -196,6 +199,21 @@ def get_recording(recording_id: str) -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute("SELECT * FROM recordings WHERE id = ?", (recording_id,)).fetchone()
     return None if row is None else dict(row)
+
+
+def get_comskip_override_for_recording(recording_id: str) -> str:
+    """'default'|'always'|'never' from the recording_rule that produced
+    recording_id, or 'default' for a manual/one-off recording.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT rr.comskip_override FROM recordings r "
+            "JOIN scheduled_recordings sr ON sr.id = r.scheduled_recording_id "
+            "JOIN recording_rules rr ON rr.id = sr.rule_id "
+            "WHERE r.id = ?",
+            (recording_id,),
+        ).fetchone()
+    return row[0] if row else "default"
 
 
 def delete_recording(recording_id: str) -> None:

@@ -26,6 +26,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.hdhropen.kit.models.CommercialSegment
 import org.hdhropen.kit.models.HDHomeRunRecordingAudioInfo
 import org.hdhropen.kit.models.HDHomeRunRecordingVideoInfo
 import org.hdhropen.kit.models.HDHomeRunTranscodeInfo
@@ -92,6 +93,9 @@ class PlayerEngine(
 
     private val _isCasting = MutableStateFlow(false)
     val isCasting: StateFlow<Boolean> = _isCasting.asStateFlow()
+
+    private val _commercialSegments = MutableStateFlow<List<CommercialSegment>>(emptyList())
+    val commercialSegments: StateFlow<List<CommercialSegment>> = _commercialSegments.asStateFlow()
 
     var exoPlayer: ExoPlayer? = null
         private set
@@ -426,6 +430,10 @@ class PlayerEngine(
         _transcodeInfo.value = info
     }
 
+    fun setCommercialSegments(segments: List<CommercialSegment>) {
+        _commercialSegments.value = segments
+    }
+
     fun setDuration(dur: Double) {
         _duration.value = dur
     }
@@ -466,6 +474,7 @@ class PlayerEngine(
         _videoSpecs.value = null
         _transcodeInfo.value = null
         _observedBitrateBps.value = null
+        _commercialSegments.value = emptyList()
     }
 
     private fun startTimeTracking() {

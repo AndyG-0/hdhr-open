@@ -49,6 +49,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: undefined,
+			comskipOverride: 'default',
 		});
 	});
 
@@ -68,6 +69,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: undefined,
+			comskipOverride: 'default',
 		});
 	});
 
@@ -87,6 +89,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: 3,
 			server: undefined,
+			comskipOverride: 'default',
 		});
 	});
 
@@ -106,6 +109,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: undefined,
+			comskipOverride: 'default',
 		});
 	});
 
@@ -129,6 +133,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: undefined,
+			comskipOverride: 'default',
 		});
 	});
 
@@ -150,6 +155,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -169,6 +175,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -209,6 +216,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -264,6 +272,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -378,6 +387,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: true,
 			maxEpisodesToKeep: 5,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 
 		await fireEvent.click(cancelBtn);
@@ -433,6 +443,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -473,6 +484,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -512,6 +524,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 
@@ -553,6 +566,7 @@ describe('HDHomeRunRecordingOptionsDialog', () => {
 			recentOnly: false,
 			maxEpisodesToKeep: null,
 			server: 'builtin',
+			comskipOverride: 'default',
 		});
 	});
 

@@ -14,7 +14,7 @@ public struct TVPlaybackControlsView: View {
     @FocusState private var focusedControl: ControlFocus?
 
     private enum ControlFocus {
-        case skipBack, playPause, skipForward, record, syncplay, shareplay, multiview, audio, captions, close
+        case skipBack, playPause, skipForward, skipCommercial, record, syncplay, shareplay, multiview, audio, captions, close
     }
 
     public init(
@@ -66,6 +66,25 @@ public struct TVPlaybackControlsView: View {
                 }
                 .buttonStyle(.plain)
                 .focused($focusedControl, equals: .skipForward)
+            }
+
+            // Skip Commercial
+            if let segment = playerViewModel.playerEngine.activeCommercialSegment {
+                Button(action: { playerViewModel.skipActiveCommercial() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "forward.fill")
+                        Text("Skip Commercial")
+                            .font(.callout.bold())
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.orange)
+                    .foregroundColor(.black)
+                    .cornerRadius(12)
+                }
+                .buttonStyle(.plain)
+                .focused($focusedControl, equals: .skipCommercial)
+                .id(segment.endSeconds)
             }
 
             Spacer()

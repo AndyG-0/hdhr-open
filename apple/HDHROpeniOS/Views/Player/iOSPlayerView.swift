@@ -287,6 +287,20 @@ public struct iOSPlayerView: View {
 
                     // Bottom Timeline & Actions
                     VStack(spacing: 12) {
+                        if let segment = playerViewModel.playerEngine.activeCommercialSegment {
+                            Button(action: { playerViewModel.skipActiveCommercial() }) {
+                                Label("Skip Commercial", systemImage: "forward.fill")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.orange)
+                                    .cornerRadius(8)
+                            }
+                            .accessibilityLabel("Skip Commercial")
+                            .id(segment.endSeconds)
+                        }
+
                         iOSScrubBarView(
                             currentTime: playerViewModel.playerEngine.currentTime,
                             duration: playerViewModel.playerEngine.duration,
@@ -294,6 +308,7 @@ public struct iOSPlayerView: View {
                             isSeekable: playerViewModel.playerEngine.isSeekable,
                             thumbnailCues: playerViewModel.thumbnailCues,
                             spriteURL: playerViewModel.thumbnailSpriteURL,
+                            commercialSegments: playerViewModel.playerEngine.commercialSegments,
                             onScrubbingChanged: { isScrubbing in
                                 if isScrubbing {
                                     controlsTimer?.cancel()

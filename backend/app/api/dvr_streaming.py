@@ -298,6 +298,7 @@ async def stream_recording(
     audio_index: int | None = None,
     recording_id: str | None = None,
     provider: str | None = None,
+    quality: str | None = None,
 ):
     cache_key = str(request.url)
     cached_failure = get_recent_stream_failure(cache_key)
@@ -341,7 +342,7 @@ async def stream_recording(
         seek_seconds = None if active_capture is not None else start
         try:
             ffmpeg_args = transcoding.build_ffmpeg_args(
-                settings, input_url, seek_seconds=seek_seconds, audio_index=audio_index
+                settings, input_url, seek_seconds=seek_seconds, audio_index=audio_index, quality=quality
             )
         except transcoding.InvalidCustomFfmpegArgsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -474,6 +475,7 @@ class RecordingStreamHLSRequest(BaseModel):
     audio_index: int | None = None
     provider: str | None = None
     for_cast: bool = False
+    quality: str | None = None
 
 
 @router.post("/recording-stream-hls")
@@ -530,6 +532,7 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request
             input_url,
             seek_seconds=seek_seconds,
             audio_index=body.audio_index,
+            quality=body.quality,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),

@@ -44,6 +44,9 @@ class RecordingRuleCreateRequest(BaseModel):
     title: str | None = None
     title_match_mode: str | None = None
     keyword_query: str | None = None
+    # 'default' (follow the global comskip_mode setting), 'always', or
+    # 'never' — see app.dvr.builtin.comskip.resolve_comskip_enabled.
+    comskip_override: str | None = None
 
 
 class RecordingRuleUpdateRequest(BaseModel):
@@ -58,6 +61,7 @@ class RecordingRuleUpdateRequest(BaseModel):
     title: str | None = None
     title_match_mode: str | None = None
     keyword_query: str | None = None
+    comskip_override: str | None = None
 
 
 def _format_local_rule(rule: dict[str, Any]) -> dict[str, Any]:
@@ -86,6 +90,7 @@ def _format_local_rule(rule: dict[str, Any]) -> dict[str, Any]:
         "MaxEpisodesToKeep": rule.get("max_episodes_to_keep"),
         "TitleMatchMode": rule.get("title_match_mode") or "exact",
         "KeywordQuery": rule.get("keyword_query"),
+        "ComskipOverride": rule.get("comskip_override") or "default",
         "FallbackReason": rule.get("fallback_reason"),
         "fallback_reason": rule.get("fallback_reason"),
         "Provider": rule.get("provider") or "builtin",
@@ -303,6 +308,7 @@ async def _create_builtin_recording_rule(
     title_match_mode: str | None,
     keyword_query: str | None,
     fallback_reason: str | None = None,
+    comskip_override: str | None = None,
 ) -> dict[str, Any]:
     rule_id = f"rule_{uuid.uuid4().hex[:12]}"
     rule_type = "single" if date_time is not None else "series"
@@ -329,6 +335,7 @@ async def _create_builtin_recording_rule(
         "title_match_mode": title_match_mode if title_match_mode == "contains" else "exact",
         "keyword_query": keyword_query,
         "fallback_reason": fallback_reason,
+        "comskip_override": comskip_override if comskip_override in ("always", "never") else "default",
     }
 
     await asyncio.to_thread(db.create_recording_rule, rule_entry)
@@ -523,6 +530,7 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest, response: R
                 title_match_mode=payload.title_match_mode,
                 keyword_query=payload.keyword_query,
                 fallback_reason=fallback_reason,
+                comskip_override=payload.comskip_override,
             )
 
             if fallback_reason and response is not None:
@@ -544,6 +552,7 @@ async def create_recording_rule(payload: RecordingRuleCreateRequest, response: R
             title_match_mode=payload.title_match_mode,
             keyword_query=payload.keyword_query,
             fallback_reason=fallback_reason,
+            comskip_override=payload.comskip_override,
         )
         if response is not None:
             response.headers["X-DVR-Fallback"] = "true"
@@ -689,6 +698,7 @@ async def update_recording_rule(rule_id: str, payload: RecordingRuleUpdateReques
             title=merged_title,
             title_match_mode=payload.title_match_mode,
             keyword_query=payload.keyword_query,
+            comskip_override=payload.comskip_override,
         )
 
         try:
@@ -719,6 +729,10 @@ async def update_recording_rule(rule_id: str, payload: RecordingRuleUpdateReques
             )
         if "keyword_query" in set_fields:
             update_fields["keyword_query"] = payload.keyword_query
+        if "comskip_override" in set_fields:
+            update_fields["comskip_override"] = (
+                payload.comskip_override if payload.comskip_override in ("always", "never") else "default"
+            )
         if payload.title is not None:
             update_fields["title"] = payload.title
 

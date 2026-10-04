@@ -16,12 +16,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.hdhropen.app.ui.theme.*
+import org.hdhropen.kit.models.CommercialSegment
 import org.hdhropen.kit.playback.ThumbnailCue
 import org.hdhropen.kit.utilities.TimeFormatting
+
+val CommercialSegmentCountKey = SemanticsPropertyKey<Int>("CommercialSegmentCount")
+var SemanticsPropertyReceiver.commercialSegmentCount by CommercialSegmentCountKey
 
 @Composable
 fun ScrubBar(
@@ -32,6 +39,7 @@ fun ScrubBar(
     thumbnailCues: List<ThumbnailCue>,
     onSeek: (Double) -> Unit,
     modifier: Modifier = Modifier,
+    commercialSegments: List<CommercialSegment> = emptyList(),
     onScrubbingStateChange: ((Boolean) -> Unit)? = null
 ) {
     var isDragging by remember { mutableStateOf(false) }
@@ -71,6 +79,7 @@ fun ScrubBar(
                 .fillMaxWidth()
                 .height(32.dp)
                 .testTag("ScrubBarTrack")
+                .semantics { commercialSegmentCount = commercialSegments.size }
                 .pointerInput(isSeekable, duration) {
                     if (!isSeekable || duration <= 0.0) return@pointerInput
                     awaitEachGesture {
@@ -111,6 +120,19 @@ fun ScrubBar(
                     color = Color.White.copy(alpha = 0.3f),
                     size = size
                 )
+
+                // Commercial segment bands
+                if (duration > 0) {
+                    for (segment in commercialSegments) {
+                        val startRatio = (segment.startSeconds / duration).coerceIn(0.0, 1.0).toFloat()
+                        val endRatio = (segment.endSeconds / duration).coerceIn(0.0, 1.0).toFloat()
+                        drawRect(
+                            color = OrangeCommercial.copy(alpha = 0.6f),
+                            topLeft = Offset(barWidth * startRatio, 0f),
+                            size = androidx.compose.ui.geometry.Size(barWidth * (endRatio - startRatio), barHeight)
+                        )
+                    }
+                }
 
                 // Played track
                 drawRect(
