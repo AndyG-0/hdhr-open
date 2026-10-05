@@ -24,6 +24,8 @@ from app.storage import db
 
 logger = logging.getLogger(__name__)
 
+COMSKIP_INI_PATH = Path(__file__).parent / "comskip.ini"
+
 JOB_ID = "comskip_sweep"
 SWEEP_INTERVAL_SECONDS = 24 * 3600  # 24 hours (daily)
 COMSKIP_TIMEOUT_SECONDS = 2 * 3600  # generous ceiling for a single recording
@@ -57,7 +59,10 @@ async def run_comskip(file_path: Path) -> bool:
             _warned_missing_binary = True
         return False
 
-    argv = [binary, "--output_edl", str(file_path), str(file_path.parent)]
+    # comskip has no "--output_edl" CLI flag - EDL output is an ini-only
+    # setting, so it's enabled via a packaged ini (see comskip.ini) rather
+    # than a bare flag that comskip would otherwise reject outright.
+    argv = [binary, f"--ini={COMSKIP_INI_PATH}", str(file_path), str(file_path.parent)]
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,

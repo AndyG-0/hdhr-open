@@ -1,11 +1,58 @@
 from __future__ import annotations
 
+import asyncio
 import itertools
 
 import pytest
 
 from app.dvr.builtin import comskip
 from app.storage import db
+
+
+class _FakeProcess:
+    def __init__(self, returncode: int = 0):
+        self.returncode = returncode
+        self.killed = False
+
+    async def communicate(self):
+        return b"", b""
+
+    def kill(self) -> None:
+        self.killed = True
+
+    async def wait(self) -> None:
+        pass
+
+
+async def test_run_comskip_invokes_binary_with_ini_flag_not_bare_output_edl(monkeypatch, tmp_path):
+    """Regression test: comskip has no "--output_edl" CLI flag at all (it's
+    ini-only); passing it as a bare flag makes comskip reject the args and
+    exit immediately before writing anything. EDL output must be requested
+    via "--ini=<comskip.ini>" instead.
+    """
+    monkeypatch.setattr(comskip.shutil, "which", lambda name: "/usr/local/bin/comskip")
+
+    captured_argv: list[tuple] = []
+
+    async def fake_exec(*argv, **kwargs):
+        captured_argv.append(argv)
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+    video_path = tmp_path / "recording.ts"
+    video_path.write_bytes(b"")
+
+    ok = await comskip.run_comskip(video_path)
+
+    assert ok is True
+    assert len(captured_argv) == 1
+    argv = captured_argv[0]
+    assert argv[0] == "/usr/local/bin/comskip"
+    assert "--output_edl" not in argv
+    assert f"--ini={comskip.COMSKIP_INI_PATH}" in argv
+    assert str(video_path) in argv
+    assert str(video_path.parent) in argv
 
 
 @pytest.mark.parametrize(
