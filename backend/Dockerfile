@@ -134,8 +134,13 @@ RUN apt-get update \
         libargtable2-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Pinned to the commit behind upstream's V0.83 tag so a moved branch or
+# re-tagged release upstream can't change what gets compiled and executed.
 WORKDIR /root
-RUN git clone --depth 1 https://github.com/erikkaashoek/Comskip.git
+RUN git init -q Comskip \
+    && git -C Comskip fetch --depth 1 https://github.com/erikkaashoek/Comskip.git 55b0bcd018ddb9dacfad79addc48df55c1411073 \
+    && git -C Comskip checkout --detach FETCH_HEAD \
+    && test "$(git -C Comskip rev-parse HEAD)" = "55b0bcd018ddb9dacfad79addc48df55c1411073"
 WORKDIR /root/Comskip
 
 COPY backend/docker/comskip-ffmpeg-ticks-compat.h ./comskip-ffmpeg-ticks-compat.h
