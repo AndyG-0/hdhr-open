@@ -111,6 +111,40 @@ RUN BLD_FLAGS="-std=gnu99 -Wno-write-strings -Wno-pointer-sign -D_FILE_OFFSET_BI
     BLD_SOURCES="../src/ccextractor.c $SRC_CCX $SRC_GPAC $SRC_ZLIB $SRC_LIBPNG $SRC_HASH $SRC_UTF8PROC $SRC_FREETYPE" && \
     gcc $BLD_FLAGS $BLD_INCLUDE -o ccextractor $BLD_SOURCES $BLD_LINKER
 
+# --- comskip builder stage ---------------------------------------------------
+#
+# DVR-COMSKIP: post-recording commercial detection (app/dvr/builtin/comskip.py)
+# shells out to a bare `comskip` on PATH, writing a `.edl` sidecar next to the
+# finished recording. comskip isn't in Debian's apt repos (like ccextractor
+# above) and ships no Linux binary releases at all, so it's built from source
+# here, from erikkaashoek/Comskip's own autoconf build (./autogen.sh &&
+# ./configure && make) - built with --disable-gui since the sweep only ever
+# needs the CLI binary, which drops the SDL2 dependency entirely.
+#
+# comskip 0.83's mpeg2dec.c reads AVCodecContext.ticks_per_frame, a field
+# newer ffmpeg (7/8+) removed; Debian bookworm's ffmpeg (5.1) still has it
+# today, but the sed patch below is applied unconditionally so this stage
+# doesn't silently break on a future Debian bump. See
+# comskip-ffmpeg-ticks-compat.h for the replacement macro and rationale.
+FROM debian:bookworm-slim AS comskip-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git ca-certificates autoconf automake libtool pkg-config build-essential \
+        libargtable2-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /root
+RUN git clone --depth 1 https://github.com/erikkaashoek/Comskip.git
+WORKDIR /root/Comskip
+
+COPY backend/docker/comskip-ffmpeg-ticks-compat.h ./comskip-ffmpeg-ticks-compat.h
+RUN sed -i 's/is->dec_ctx->ticks_per_frame = 1;//' mpeg2dec.c \
+    && sed -i 's/is->dec_ctx->ticks_per_frame/COMSKIP_TICKS(is->dec_ctx)/g' mpeg2dec.c \
+    && sed -i '/#include <libavcodec\/avcodec.h>/a #include "comskip-ffmpeg-ticks-compat.h"' mpeg2dec.c
+
+RUN ./autogen.sh && ./configure --disable-gui && make -j"$(nproc)"
+
 # --- runtime image -----------------------------------------------------------
 # Pinned to bookworm (not the floating "slim" tag) so this stays on the same
 # Debian release as the jellyfin-ffmpeg7 apt repo below — "slim" has drifted
@@ -178,15 +212,20 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 
 # ccextractor's own runtime shared-lib deps for a BUILD_TYPE=minimal build
 # (docker/Dockerfile's `final` stage) — libgpac itself comes from the
-# builder stage below since it's not an apt package.
+# builder stage below since it's not an apt package. libargtable2-0 is
+# comskip's one runtime shared-lib dependency not already pulled in by the
+# `ffmpeg` apt package installed above (comskip links dynamically against
+# libavformat/libavcodec/libavutil/libswscale, which that package already
+# provides).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libpng16-16 libjpeg62-turbo zlib1g libssl3 libcurl4 \
+        libpng16-16 libjpeg62-turbo zlib1g libssl3 libcurl4 libargtable2-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ccextractor-builder /usr/local/lib/libgpac.so* /usr/local/lib/
 RUN ldconfig
 COPY --from=ccextractor-builder /root/ccextractor/linux/ccextractor /usr/local/bin/ccextractor
+COPY --from=comskip-builder /root/Comskip/comskip /usr/local/bin/comskip
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
