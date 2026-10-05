@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 JOB_ID = "comskip_sweep"
 SWEEP_INTERVAL_SECONDS = 24 * 3600  # 24 hours (daily)
 COMSKIP_TIMEOUT_SECONDS = 2 * 3600  # generous ceiling for a single recording
+MAX_COMSKIP_ATTEMPTS = 3  # stop retrying a recording that keeps failing on its own merits
 
 _warned_missing_binary = False
 
@@ -97,7 +98,9 @@ async def run_comskip_sweep() -> None:
 
     recordings = await asyncio.to_thread(db.list_completed_recordings)
     for recording in recordings:
-        if recording.get("comskip_status") is not None:
+        status = recording.get("comskip_status")
+        attempts = recording.get("comskip_attempts") or 0
+        if status is not None and not (status == "failed" and attempts < MAX_COMSKIP_ATTEMPTS):
             continue
 
         rule_override = await asyncio.to_thread(db.get_comskip_override_for_recording, recording["id"])
@@ -111,7 +114,12 @@ async def run_comskip_sweep() -> None:
 
         await asyncio.to_thread(db.update_recording, recording["id"], comskip_status="running")
         ok = await run_comskip(path)
-        await asyncio.to_thread(db.update_recording, recording["id"], comskip_status="done" if ok else "failed")
+        await asyncio.to_thread(
+            db.update_recording,
+            recording["id"],
+            comskip_status="done" if ok else "failed",
+            comskip_attempts=attempts + 1,
+        )
 
 
 def register(scheduler: AsyncIOScheduler) -> None:

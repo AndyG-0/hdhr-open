@@ -102,3 +102,64 @@ def test_get_comskip_override_for_recording_defaults_for_manual_recording(tmp_db
 
 def test_get_comskip_override_for_recording_defaults_for_unknown_id(tmp_db):
     assert db.get_comskip_override_for_recording("does_not_exist") == "default"
+
+
+def _create_completed_recording(tmp_path, recording_id: str, *, comskip_status: str, comskip_attempts: int) -> None:
+    file_path = tmp_path / f"{recording_id}.ts"
+    file_path.write_bytes(b"")
+    db.create_recording(
+        {
+            "id": recording_id,
+            "scheduled_recording_id": None,
+            "title": "Test Recording",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 0.0,
+            "file_path": str(file_path),
+            "status": "completed",
+            "comskip_status": comskip_status,
+            "comskip_attempts": comskip_attempts,
+        }
+    )
+
+
+async def test_run_comskip_sweep_retries_failed_recording_under_attempt_cap(tmp_db, tmp_path, monkeypatch):
+    _create_completed_recording(
+        tmp_path, "rec_retry", comskip_status="failed", comskip_attempts=comskip.MAX_COMSKIP_ATTEMPTS - 1
+    )
+
+    calls = []
+
+    async def fake_run_comskip(path):
+        calls.append(path)
+        return True
+
+    monkeypatch.setattr(comskip, "run_comskip", fake_run_comskip)
+
+    await comskip.run_comskip_sweep()
+
+    assert len(calls) == 1
+    recording = db.get_recording("rec_retry")
+    assert recording["comskip_status"] == "done"
+    assert recording["comskip_attempts"] == comskip.MAX_COMSKIP_ATTEMPTS
+
+
+async def test_run_comskip_sweep_skips_failed_recording_at_attempt_cap(tmp_db, tmp_path, monkeypatch):
+    _create_completed_recording(
+        tmp_path, "rec_exhausted", comskip_status="failed", comskip_attempts=comskip.MAX_COMSKIP_ATTEMPTS
+    )
+
+    calls = []
+
+    async def fake_run_comskip(path):
+        calls.append(path)
+        return True
+
+    monkeypatch.setattr(comskip, "run_comskip", fake_run_comskip)
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == []
+    recording = db.get_recording("rec_exhausted")
+    assert recording["comskip_status"] == "failed"
+    assert recording["comskip_attempts"] == comskip.MAX_COMSKIP_ATTEMPTS

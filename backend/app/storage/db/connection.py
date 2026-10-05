@@ -441,6 +441,14 @@ def _migration_10(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE recordings ADD COLUMN comskip_status TEXT")
 
 
+def _migration_11(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recordings" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "comskip_attempts" not in cols:
+            conn.execute("ALTER TABLE recordings ADD COLUMN comskip_attempts INTEGER NOT NULL DEFAULT 0")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -452,6 +460,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _migration_8,
     _migration_9,
     _migration_10,
+    _migration_11,
 )
 
 

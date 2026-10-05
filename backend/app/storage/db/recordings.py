@@ -38,6 +38,7 @@ _RECORDING_UPDATABLE_COLUMNS = frozenset(
         "is_temporary",
         "last_heartbeat_at",
         "comskip_status",
+        "comskip_attempts",
     }
 )
 
