@@ -85,7 +85,7 @@ final class iOSScrubBarViewTests: XCTestCase {
             isSeekable: true,
             commercialSegments: [
                 HDHomeRunCommercialSegment(startSeconds: 20, endSeconds: 40),
-                HDHomeRunCommercialSegment(startSeconds: 60, endSeconds: 70),
+                HDHomeRunCommercialSegment(startSeconds: 60, endSeconds: 70)
             ],
             onSeek: { _ in }
         )

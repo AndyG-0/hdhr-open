@@ -78,10 +78,10 @@ public final class PlayerViewModel: ObservableObject {
 
     @Published public private(set) var autoSkipPulse: Date?
 
-    // Guards auto-skip to at most once per segment. Compared against the
-    // active segment's startSeconds rather than reset on a timer, so it
-    // survives seekRecordingViaServer()'s reload and is only cleared by
-    // closePlayer() when a genuinely new recording/channel loads.
+    /// Guards auto-skip to at most once per segment. Compared against the
+    /// active segment's startSeconds rather than reset on a timer, so it
+    /// survives seekRecordingViaServer()'s reload and is only cleared by
+    /// closePlayer() when a genuinely new recording/channel loads.
     private var lastAutoSkippedSegmentStart: Double?
 
     private let apiClient: APIClient
@@ -157,15 +157,15 @@ public final class PlayerViewModel: ObservableObject {
                 guard let self else { return }
                 guard let segment = segments.first(where: { time >= $0.startSeconds && time < $0.endSeconds }) else { return }
                 guard self.playbackPreferences.autoSkipCommercialsEnabled,
-                      self.lastAutoSkippedSegmentStart != segment.startSeconds
+                      lastAutoSkippedSegmentStart != segment.startSeconds
                 else { return }
-                self.lastAutoSkippedSegmentStart = segment.startSeconds
+                lastAutoSkippedSegmentStart = segment.startSeconds
                 // Not skipActiveCommercial(): that re-reads playerEngine.currentTime,
                 // but @Published fires in willSet, before the backing storage is
                 // actually updated - at this point it's still the pre-seek value, so
                 // activeCommercialSegment would see a stale currentTime and no-op.
-                self.seek(to: segment.endSeconds)
-                self.autoSkipPulse = Date()
+                seek(to: segment.endSeconds)
+                autoSkipPulse = Date()
             }
             .store(in: &cancellables)
 

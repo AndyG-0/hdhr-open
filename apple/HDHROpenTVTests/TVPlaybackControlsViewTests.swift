@@ -85,7 +85,7 @@ final class TVPlaybackControlsViewTests: XCTestCase {
         let fakeURL = try XCTUnwrap(URL(string: "http://localhost:8000/stream.m3u8"))
         playerViewModel.playerEngine.loadMedia(url: fakeURL, isSeekable: true, initialDuration: 3600.0)
         playerViewModel.playerEngine.setCommercialSegments([
-            HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160),
+            HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160)
         ])
         playerViewModel.playerEngine.seek(to: 120)
 
@@ -94,18 +94,18 @@ final class TVPlaybackControlsViewTests: XCTestCase {
         XCTAssertNoThrow(try view.inspect().find(text: "Skip Commercial"))
     }
 
-    // showAutoSkipPill defaults to false and only flips via `.onChange(of:
-    // playerViewModel.autoSkipPulse)`, which (per this codebase's established
-    // convention - see TVPlayerViewTests) isn't exercised without
-    // `ViewHosting`. What's independently verifiable in a static tree is that
-    // enabling the preference suppresses the manual button even with an
-    // active segment, since the pill itself stays hidden until a pulse fires.
+    /// showAutoSkipPill defaults to false and only flips via `.onChange(of:
+    /// playerViewModel.autoSkipPulse)`, which (per this codebase's established
+    /// convention - see TVPlayerViewTests) isn't exercised without
+    /// `ViewHosting`. What's independently verifiable in a static tree is that
+    /// enabling the preference suppresses the manual button even with an
+    /// active segment, since the pill itself stays hidden until a pulse fires.
     func testHidesManualSkipCommercialButtonWhenAutoSkipPreferenceEnabledEvenWithActiveSegment() throws {
         let (playerViewModel, guideViewModel) = makeViewModels()
         let fakeURL = try XCTUnwrap(URL(string: "http://localhost:8000/stream.m3u8"))
         playerViewModel.playerEngine.loadMedia(url: fakeURL, isSeekable: true, initialDuration: 3600.0)
         playerViewModel.playerEngine.setCommercialSegments([
-            HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160),
+            HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160)
         ])
         playerViewModel.playerEngine.seek(to: 120)
         let preferences = PlaybackPreferences()

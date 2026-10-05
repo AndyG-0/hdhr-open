@@ -137,7 +137,7 @@ final class PlayerViewModelAutoSkipCommercialTests: XCTestCase {
         // A genuinely new recording, loaded fresh, with a commercial segment
         // starting at the exact same offset as before.
         vm.activeRecording = recording()
-        vm.playerEngine.loadMedia(url: URL(string: "http://localhost:8000/fake2.m3u8")!, isSeekable: true)
+        try vm.playerEngine.loadMedia(url: XCTUnwrap(URL(string: "http://localhost:8000/fake2.m3u8")), isSeekable: true)
         vm.playerEngine.setCommercialSegments([HDHomeRunCommercialSegment(startSeconds: 10, endSeconds: 40)])
         MockURLProtocol.enqueueResponse(hlsSessionResponse(sessionId: "hls-2"), status: 200, for: "/api/dvr/recording-stream-hls")
 

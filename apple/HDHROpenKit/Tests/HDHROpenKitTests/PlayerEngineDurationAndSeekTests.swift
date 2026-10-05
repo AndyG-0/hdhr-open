@@ -88,7 +88,7 @@ final class PlayerEngineDurationAndSeekTests: XCTestCase {
         engine.loadMedia(url: fakeURL, isSeekable: true, initialDuration: 3600.0)
         engine.setCommercialSegments([
             HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160),
-            HDHomeRunCommercialSegment(startSeconds: 900, endSeconds: 960),
+            HDHomeRunCommercialSegment(startSeconds: 900, endSeconds: 960)
         ])
 
         engine.seek(to: 120)
