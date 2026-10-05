@@ -6,6 +6,7 @@ public struct TVSettingsView: View {
     @EnvironmentObject private var serverDiscovery: ServerDiscovery
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var themeManager: ThemeManager
+    @EnvironmentObject private var playbackPreferences: PlaybackPreferences
 
     @FocusState private var focusedPresetId: String?
     @FocusState private var focusedThemeMode: ThemeMode?
@@ -61,6 +62,19 @@ public struct TVSettingsView: View {
                             .padding(24)
                             .background(Theme.appSurface)
                             .cornerRadius(16)
+                        }
+                        .focusSection()
+
+                        // Playback Section
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Playback")
+                                .font(.title3.bold())
+                                .foregroundColor(.secondary)
+
+                            Toggle("Auto-skip commercials", isOn: $playbackPreferences.autoSkipCommercialsEnabled)
+                                .padding(24)
+                                .background(Theme.appSurface)
+                                .cornerRadius(16)
                         }
                         .focusSection()
 

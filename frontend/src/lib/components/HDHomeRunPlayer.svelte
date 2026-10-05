@@ -21,6 +21,7 @@
 	import { createAirPlayController } from '$lib/airplay-controller';
 	import { createRecordingActionsController } from '$lib/recording-actions';
 	import { getQualityPreference, setQualityPreference, type QualityPreference } from '$lib/quality-preference';
+	import { autoSkipCommercials } from '$lib/stores/playback';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import PlayerFooter from './player/PlayerFooter.svelte';
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
@@ -189,6 +190,10 @@
 	let thumbnailCues = $state<ThumbnailCue[]>([]);
 	let thumbSpriteUrl = $state('');
 	let commercialSegments = $state<CommercialSegment[]>([]);
+	// Tracks the start_seconds of the last segment auto-skipped, so the
+	// auto-skip effect fires at most once per segment instead of re-seeking
+	// on every reactive tick while still inside it.
+	let lastAutoSkippedSegmentStart = $state<number | null>(null);
 
 	let captionCues = $state<CaptionCue[]>([]);
 	let transcodeInfo = $state<HDHomeRunTranscodeInfo | null>(null);
@@ -219,6 +224,11 @@
 	// Non-blocking "Reduced quality..." style notices (auto-downgrade, etc).
 	let playbackNotice = $state<string | null>(null);
 	let playbackNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+	// Brief "Commercial skipped" pill shown in the manual button's slot when
+	// a segment is auto-skipped.
+	let showAutoSkipPill = $state(false);
+	let autoSkipPillTimer: ReturnType<typeof setTimeout> | undefined;
 
 	let internalRecordingLoading = $state(false);
 	let isVideoLoading = $state(true);
@@ -307,6 +317,19 @@
 			}
 		}
 		return null;
+	});
+
+	$effect(() => {
+		if (!$autoSkipCommercials) return;
+		const segment = activeCommercialSegment;
+		if (!segment || lastAutoSkippedSegmentStart === segment.start_seconds) return;
+		lastAutoSkippedSegmentStart = segment.start_seconds;
+		skipCommercial();
+		showAutoSkipPill = true;
+		if (autoSkipPillTimer) clearTimeout(autoSkipPillTimer);
+		autoSkipPillTimer = setTimeout(() => {
+			showAutoSkipPill = false;
+		}, 1500);
 	});
 
 	const captionsUrl = $derived(
@@ -407,6 +430,12 @@
 			hasCaptions = detail.has_captions;
 			secondaryCaptions = detail.secondary_captions;
 			transcodeInfo = detail.transcode;
+			// Not reset here: loadDetail() also runs on every periodic poll of
+			// the SAME recording (see startPolling()), and resetting on each
+			// poll would let a refined/updated segment list re-trigger a skip
+			// already performed for this segment. switchMedia() (genuinely new
+			// recording/channel) and the initial `$state(null)` default are
+			// the only points that should clear it.
 			commercialSegments = detail.commercial_segments ?? [];
 		} catch {
 			// Detail is an enhancement
@@ -1208,6 +1237,7 @@
 				if (centerFlashTimer) clearTimeout(centerFlashTimer);
 				if (startOverTimer) clearTimeout(startOverTimer);
 				if (playbackNoticeTimer) clearTimeout(playbackNoticeTimer);
+				if (autoSkipPillTimer) clearTimeout(autoSkipPillTimer);
 				mpegtsPlayer.teardownPlayer();
 				airplayController.destroy();
 				videoElement = null;
@@ -1281,6 +1311,7 @@
 		thumbSpriteUrl = '';
 		transcodeInfo = null;
 		commercialSegments = [];
+		lastAutoSkippedSegmentStart = null;
 		captionCues = [];
 		videoCurrentTime = 0;
 		baseOffsetSeconds = 0;
@@ -1494,7 +1525,13 @@
 			{/if}
 
 			<!-- Skip Commercial Prompt -->
-			{#if activeCommercialSegment}
+			{#if $autoSkipCommercials}
+				{#if showAutoSkipPill}
+					<div class="skip-commercial-overlay auto-skip-pill" class:with-footer={showControls} aria-live="polite">
+						{$_('player.commercial_skipped', { default: 'Commercial skipped' })}
+					</div>
+				{/if}
+			{:else if activeCommercialSegment}
 				<div class="skip-commercial-overlay" class:with-footer={showControls}>
 					<button
 						type="button"
@@ -1985,6 +2022,18 @@
 	.skip-commercial-btn:hover {
 		background: rgba(56, 189, 248, 0.25);
 		border-color: #38bdf8;
+	}
+
+	.skip-commercial-overlay.auto-skip-pill {
+		background: rgba(22, 22, 26, 0.96);
+		backdrop-filter: blur(16px);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 0.4rem;
+		color: #ffffff;
+		font-size: 0.9rem;
+		font-weight: 600;
+		padding: 0.55rem 1rem;
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
 	}
 
 	.start-over-overlay {

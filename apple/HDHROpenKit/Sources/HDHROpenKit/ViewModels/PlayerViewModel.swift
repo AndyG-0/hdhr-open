@@ -74,6 +74,15 @@ public final class PlayerViewModel: ObservableObject {
 
     public let syncPlayClient: SyncPlayClient
     public let sharePlayCoordinator: SharePlayCoordinator
+    public let playbackPreferences: PlaybackPreferences
+
+    @Published public private(set) var autoSkipPulse: Date?
+
+    // Guards auto-skip to at most once per segment. Compared against the
+    // active segment's startSeconds rather than reset on a timer, so it
+    // survives seekRecordingViaServer()'s reload and is only cleared by
+    // closePlayer() when a genuinely new recording/channel loads.
+    private var lastAutoSkippedSegmentStart: Double?
 
     private let apiClient: APIClient
     private var cancellables = Set<AnyCancellable>()
@@ -95,9 +104,10 @@ public final class PlayerViewModel: ObservableObject {
     var nextStretchSlotAbsolute = 0.0
     private var captionPollTask: Task<Void, Never>?
 
-    public init(apiClient: APIClient, watchSessionManager: WatchSessionManager) {
+    public init(apiClient: APIClient, watchSessionManager: WatchSessionManager, playbackPreferences: PlaybackPreferences? = nil) {
         self.apiClient = apiClient
         self.watchSessionManager = watchSessionManager
+        self.playbackPreferences = playbackPreferences ?? PlaybackPreferences()
         playerEngine = PlayerEngine()
         captionController = CaptionController()
         syncPlayClient = SyncPlayClient()
@@ -135,6 +145,27 @@ public final class PlayerViewModel: ObservableObject {
         playerEngine.$currentTime
             .sink { [weak self] time in
                 self?.captionController.updatePlaybackTime(time)
+            }
+            .store(in: &cancellables)
+
+        // Auto-skip commercials, when enabled, firing at most once per
+        // segment via lastAutoSkippedSegmentStart. activeCommercialSegment
+        // is a computed property on playerEngine with no publisher of its
+        // own, so it's re-derived here from its two inputs.
+        Publishers.CombineLatest(playerEngine.$currentTime, playerEngine.$commercialSegments)
+            .sink { [weak self] time, segments in
+                guard let self else { return }
+                guard let segment = segments.first(where: { time >= $0.startSeconds && time < $0.endSeconds }) else { return }
+                guard self.playbackPreferences.autoSkipCommercialsEnabled,
+                      self.lastAutoSkippedSegmentStart != segment.startSeconds
+                else { return }
+                self.lastAutoSkippedSegmentStart = segment.startSeconds
+                // Not skipActiveCommercial(): that re-reads playerEngine.currentTime,
+                // but @Published fires in willSet, before the backing storage is
+                // actually updated - at this point it's still the pre-seek value, so
+                // activeCommercialSegment would see a stale currentTime and no-op.
+                self.seek(to: segment.endSeconds)
+                self.autoSkipPulse = Date()
             }
             .store(in: &cancellables)
 
@@ -539,6 +570,7 @@ public final class PlayerViewModel: ObservableObject {
         let previousTrack = playerEngine.currentAudioTrack
         let previousVideoSpecs = playerEngine.videoSpecs
         let previousTranscodeInfo = playerEngine.transcodeInfo
+        let previousCommercialSegments = playerEngine.commercialSegments
         let totalDuration = playerEngine.duration > 0 ? playerEngine.duration : (recording.durationSeconds ?? 0)
         let isLive = recording.isInProgress
         let isSeekable = playerEngine.isSeekable
@@ -579,6 +611,7 @@ public final class PlayerViewModel: ObservableObject {
                 playerEngine.setAudioTracks(previousAudioTracks, selectedTrack: previousTrack)
                 playerEngine.setVideoSpecs(previousVideoSpecs)
                 playerEngine.setTranscodeInfo(previousTranscodeInfo)
+                playerEngine.setCommercialSegments(previousCommercialSegments)
 
                 if let previousSessionId {
                     let apiClient = apiClient
@@ -710,6 +743,7 @@ public final class PlayerViewModel: ObservableObject {
         activeChannel = nil
         activeAiring = nil
         isPromoted = false
+        lastAutoSkippedSegmentStart = nil
     }
 
     private func handleRemoteContentChange(_ content: SyncPlayContent) {

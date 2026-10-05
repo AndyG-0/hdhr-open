@@ -4,6 +4,7 @@ import SwiftUI
 public struct TVPlaybackControlsView: View {
     @ObservedObject var playerViewModel: PlayerViewModel
     @EnvironmentObject private var guideViewModel: GuideViewModel
+    @EnvironmentObject private var playbackPreferences: PlaybackPreferences
 
     let onTogglePlayPause: () -> Void
     let onSkipBackward: () -> Void
@@ -12,6 +13,7 @@ public struct TVPlaybackControlsView: View {
     let onAddToMultiView: (() -> Void)?
 
     @FocusState private var focusedControl: ControlFocus?
+    @State private var showAutoSkipPill = false
 
     private enum ControlFocus {
         case skipBack, playPause, skipForward, skipCommercial, record, syncplay, shareplay, multiview, audio, captions, close
@@ -69,7 +71,20 @@ public struct TVPlaybackControlsView: View {
             }
 
             // Skip Commercial
-            if let segment = playerViewModel.playerEngine.activeCommercialSegment {
+            if playbackPreferences.autoSkipCommercialsEnabled {
+                if showAutoSkipPill {
+                    HStack(spacing: 8) {
+                        Image(systemName: "forward.fill")
+                        Text("Commercial skipped")
+                            .font(.callout.bold())
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(Color.orange)
+                    .foregroundColor(.black)
+                    .cornerRadius(12)
+                }
+            } else if let segment = playerViewModel.playerEngine.activeCommercialSegment {
                 Button(action: { playerViewModel.skipActiveCommercial() }) {
                     HStack(spacing: 8) {
                         Image(systemName: "forward.fill")
@@ -217,6 +232,13 @@ public struct TVPlaybackControlsView: View {
         }
         .onChange(of: focusedControl) { _, newValue in
             Log.player.debug("focusedControl changed -> \(String(describing: newValue), privacy: .public)")
+        }
+        .onChange(of: playerViewModel.autoSkipPulse) { _, newValue in
+            guard newValue != nil else { return }
+            showAutoSkipPill = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                showAutoSkipPill = false
+            }
         }
     }
 }

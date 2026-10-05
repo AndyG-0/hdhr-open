@@ -116,6 +116,18 @@ class PlayerViewModel(
     private val _activeCommercialSegment = MutableStateFlow<CommercialSegment?>(null)
     val activeCommercialSegment: StateFlow<CommercialSegment?> = _activeCommercialSegment.asStateFlow()
 
+    // Guards auto-skip to at most once per segment. Compared against the
+    // active segment's startSeconds rather than reset on a timer, so it
+    // survives seekRecordingViaServer()'s segment-list restore (which must
+    // not re-trigger a skip already performed) and is only cleared by
+    // closePlayer() when a genuinely new recording/channel loads.
+    private var lastAutoSkippedSegmentStart: Double? = null
+
+    private val _autoSkipCommercialPulse = MutableStateFlow(0L)
+    val autoSkipCommercialPulse: StateFlow<Long> = _autoSkipCommercialPulse.asStateFlow()
+
+    val autoSkipCommercialsEnabled: StateFlow<Boolean> = playbackPreferences.autoSkipCommercialsEnabled
+
     fun clearFallbackNotice() {
         _fallbackNotice.value = null
     }
@@ -155,6 +167,21 @@ class PlayerViewModel(
                 segments.firstOrNull { time >= it.startSeconds && time < it.endSeconds }
             }.collect { segment ->
                 _activeCommercialSegment.value = segment
+            }
+        }
+
+        // Auto-skip commercials, when enabled, firing at most once per
+        // segment via lastAutoSkippedSegmentStart.
+        viewModelScope.launch {
+            _activeCommercialSegment.collect { segment ->
+                if (segment != null &&
+                    playbackPreferences.autoSkipCommercialsEnabled.value &&
+                    lastAutoSkippedSegmentStart != segment.startSeconds
+                ) {
+                    lastAutoSkippedSegmentStart = segment.startSeconds
+                    skipActiveCommercial()
+                    _autoSkipCommercialPulse.value = System.currentTimeMillis()
+                }
             }
         }
 
@@ -865,5 +892,6 @@ class PlayerViewModel(
         _thumbnailSpriteURL.value = null
         _fallbackNotice.value = null
         _transientError.value = null
+        lastAutoSkippedSegmentStart = null
     }
 }

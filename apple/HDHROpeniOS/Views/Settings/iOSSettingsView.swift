@@ -6,6 +6,7 @@ public struct iOSSettingsView: View {
     @EnvironmentObject private var serverDiscovery: ServerDiscovery
     @EnvironmentObject private var authManager: AuthManager
     @EnvironmentObject private var themeManager: ThemeManager
+    @EnvironmentObject private var playbackPreferences: PlaybackPreferences
 
     public init() {}
 
@@ -19,6 +20,11 @@ public struct iOSSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+            }
+
+            // Playback Section
+            Section(header: Text("Playback")) {
+                Toggle("Auto-skip commercials", isOn: $playbackPreferences.autoSkipCommercialsEnabled)
             }
 
             // Profile Section

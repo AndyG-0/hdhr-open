@@ -6,6 +6,7 @@ public struct iOSPlayerView: View {
     @EnvironmentObject private var guideViewModel: GuideViewModel
     @EnvironmentObject private var recordingsViewModel: RecordingsViewModel
     @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
+    @EnvironmentObject private var playbackPreferences: PlaybackPreferences
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dismiss) private var dismiss
 
@@ -24,6 +25,7 @@ public struct iOSPlayerView: View {
     @State private var showPlaybackInfo = false
     @State private var showRecordingOptionsSheet = false
     @State private var loadingQuip: String = LoadingQuips.random()
+    @State private var showAutoSkipPill = false
 
     public init(isRegularSizeClassOverride: Bool? = nil) {
         self.isRegularSizeClassOverride = isRegularSizeClassOverride
@@ -287,7 +289,17 @@ public struct iOSPlayerView: View {
 
                     // Bottom Timeline & Actions
                     VStack(spacing: 12) {
-                        if let segment = playerViewModel.playerEngine.activeCommercialSegment {
+                        if playbackPreferences.autoSkipCommercialsEnabled {
+                            if showAutoSkipPill {
+                                Label("Commercial skipped", systemImage: "forward.fill")
+                                    .font(.caption.bold())
+                                    .foregroundColor(.black)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.orange)
+                                    .cornerRadius(8)
+                            }
+                        } else if let segment = playerViewModel.playerEngine.activeCommercialSegment {
                             Button(action: { playerViewModel.skipActiveCommercial() }) {
                                 Label("Skip Commercial", systemImage: "forward.fill")
                                     .font(.caption.bold())
@@ -524,6 +536,13 @@ public struct iOSPlayerView: View {
                 if showControls {
                     resetTimer()
                 }
+            }
+        }
+        .onChange(of: playerViewModel.autoSkipPulse) { _, newValue in
+            guard newValue != nil else { return }
+            showAutoSkipPill = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                showAutoSkipPill = false
             }
         }
         .alert("Error", isPresented: Binding(

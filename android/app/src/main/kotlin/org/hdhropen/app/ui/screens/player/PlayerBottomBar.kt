@@ -27,12 +27,15 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -67,6 +70,8 @@ fun PlayerBottomBar(
     isSwitchingAudioTrack: Boolean,
     commercialSegments: List<CommercialSegment>,
     activeCommercialSegment: CommercialSegment?,
+    autoSkipCommercialsEnabled: Boolean,
+    autoSkipCommercialPulse: Long,
     onSeek: (Double) -> Unit,
     onScrubbingStateChange: (Boolean) -> Unit,
     onPromoteToRecording: () -> Unit,
@@ -80,6 +85,15 @@ fun PlayerBottomBar(
 ) {
     var showRecordMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
+    var showAutoSkipPill by remember { mutableStateOf(false) }
+
+    LaunchedEffect(autoSkipCommercialPulse) {
+        if (autoSkipCommercialPulse != 0L) {
+            showAutoSkipPill = true
+            delay(1500)
+            showAutoSkipPill = false
+        }
+    }
 
     Column(
         modifier = modifier
@@ -87,27 +101,52 @@ fun PlayerBottomBar(
             .padding(horizontal = 20.dp, vertical = 20.dp)
     ) {
         AnimatedVisibility(
-            visible = activeCommercialSegment != null,
+            visible = if (autoSkipCommercialsEnabled) showAutoSkipPill else activeCommercialSegment != null,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
-            Button(
-                onClick = onSkipCommercial,
-                colors = ButtonDefaults.buttonColors(containerColor = OrangeCommercial),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.padding(bottom = 12.dp)
-            ) {
-                Icon(
-                    Icons.Default.FastForward,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Skip Commercial",
-                    style = MaterialTheme.typography.labelMedium.copy(color = Color.Black, fontWeight = FontWeight.Bold)
-                )
+            if (autoSkipCommercialsEnabled) {
+                Surface(
+                    color = OrangeCommercial,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.FastForward,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Commercial skipped",
+                            style = MaterialTheme.typography.labelMedium.copy(color = Color.Black, fontWeight = FontWeight.Bold)
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onSkipCommercial,
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangeCommercial),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    Icon(
+                        Icons.Default.FastForward,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Skip Commercial",
+                        style = MaterialTheme.typography.labelMedium.copy(color = Color.Black, fontWeight = FontWeight.Bold)
+                    )
+                }
             }
         }
 

@@ -62,6 +62,7 @@ private struct ThemedRootView: View {
             .environmentObject(environment.authManager)
             .environmentObject(environment.serverDiscovery)
             .environmentObject(themeManager)
+            .environmentObject(environment.playbackPreferences)
             .preferredColorScheme(themeManager.colorScheme)
             .task {
                 environment.serverDiscovery.startDiscovery()

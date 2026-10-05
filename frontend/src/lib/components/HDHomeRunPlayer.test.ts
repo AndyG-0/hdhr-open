@@ -112,6 +112,7 @@ let fakeTextTrack = makeFakeTextTrack();
 
 import HDHomeRunPlayer from './HDHomeRunPlayer.svelte';
 import { setActiveCastSessionId } from '$lib/cast/cast-loader';
+import { setAutoSkipCommercials } from '$lib/stores/playback';
 
 const props = { src: 'https://example.com/stream/4.1', title: '4.1 KDFW', onClose: () => {} };
 
@@ -138,6 +139,7 @@ describe('HDHomeRunPlayer', () => {
 		listeners.clear();
 		vi.unstubAllGlobals();
 		setActiveCastSessionId(null);
+		setAutoSkipCommercials(false);
 		fakeTextTrack = makeFakeTextTrack();
 	});
 
@@ -2563,6 +2565,206 @@ describe('HDHomeRunPlayer', () => {
 
 			await vi.waitFor(() => expect(hdhomerunRecordingDetail).toHaveBeenCalled());
 			expect(screen.queryByRole('button', { name: 'Skip Commercial' })).not.toBeInTheDocument();
+		});
+	});
+
+	describe('Auto-skip Commercials', () => {
+		it('leaves the manual Skip Commercial button behavior unaffected when the preference is off', async () => {
+			setAutoSkipCommercials(false);
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				commercial_segments: [{ start_seconds: 0, end_seconds: 30 }],
+			});
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+
+			expect(await screen.findByRole('button', { name: 'Skip Commercial' })).toBeInTheDocument();
+			expect(screen.queryByText('Commercial skipped')).not.toBeInTheDocument();
+			expect(hdhomerunRecordingStreamUrl).not.toHaveBeenCalledWith('/recorded/rec1', {
+				start: 30,
+				audioIndex: undefined,
+				recordingId: 'rec1',
+			});
+		});
+
+		it('auto-seeks past the active segment without a click and shows a self-dismissing pill', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			setAutoSkipCommercials(true);
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				// Doesn't bracket the mount-time position (0) - entering it only
+				// once position moves, below, so the component's own initial
+				// createPlayerAt() and this test's auto-skip-triggered one never
+				// race each other's dynamic import('mpegts.js').
+				commercial_segments: [{ start_seconds: 10, end_seconds: 30 }],
+			});
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec1', {
+					start: 0,
+					audioIndex: undefined,
+					recordingId: 'rec1',
+				}),
+			);
+
+			const video = document.querySelector('video')!;
+			Object.defineProperty(video, 'currentTime', { value: 15, configurable: true, writable: true });
+			await fireEvent(video, new Event('timeupdate'));
+
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec1', {
+					start: 30,
+					audioIndex: undefined,
+					recordingId: 'rec1',
+				}),
+			);
+			expect(screen.queryByRole('button', { name: 'Skip Commercial' })).not.toBeInTheDocument();
+			expect(await screen.findByText('Commercial skipped')).toBeInTheDocument();
+
+			await vi.advanceTimersByTimeAsync(1_500);
+			expect(screen.queryByText('Commercial skipped')).not.toBeInTheDocument();
+
+			vi.useRealTimers();
+		});
+
+		it('does not auto-seek a second time while still inside the same (even if re-fetched) segment', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			setAutoSkipCommercials(true);
+			hdhomerunRecordingDetail
+				.mockResolvedValueOnce({
+					is_in_progress: true,
+					duration_seconds: 100,
+					video: null,
+					audio: [],
+					has_captions: false,
+					transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+					// Doesn't bracket the mount-time (live-edge) position of 100 -
+					// avoids racing the mount's own createPlayerAt() dynamic import,
+					// same as above.
+					commercial_segments: [{ start_seconds: 102, end_seconds: 120 }],
+				})
+				.mockResolvedValue({
+					is_in_progress: true,
+					duration_seconds: 100,
+					video: null,
+					audio: [],
+					has_captions: false,
+					transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+					// Re-detection widens the same segment's end on the next poll -
+					// the guard (keyed on the segment's start_seconds) must still
+					// suppress a re-fire even though the segment object changed.
+					commercial_segments: [{ start_seconds: 102, end_seconds: 140 }],
+				});
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() => expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledTimes(1));
+
+			const video = document.querySelector('video')!;
+			Object.defineProperty(video, 'currentTime', { value: 5, configurable: true, writable: true });
+			await fireEvent(video, new Event('timeupdate'));
+
+			// Live-edge position (100) + the 5s bump above lands at 105, inside
+			// [102, 120) - triggers the first (and only expected) auto-skip. Its
+			// seekTo(120) clamps back to duration (100), since it can't seek
+			// past the end.
+			await vi.waitFor(() => expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledTimes(2));
+			expect(await screen.findByText('Commercial skipped')).toBeInTheDocument();
+
+			// Advance past the 5s detail-poll interval so loadDetail() re-fetches
+			// the widened segment list for the same, still-in-progress recording.
+			await vi.advanceTimersByTimeAsync(5_000);
+			await vi.waitFor(() => expect(hdhomerunRecordingDetail).toHaveBeenCalledTimes(2));
+
+			expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledTimes(2);
+
+			vi.useRealTimers();
+		});
+
+		it('resets the guard and auto-skips again once a genuinely new recording loads', async () => {
+			setAutoSkipCommercials(true);
+			hdhomerunRecordingDetail.mockResolvedValueOnce({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				// Doesn't bracket the mount-time position (0) - see the race-avoidance
+				// note on the earlier auto-skip tests above.
+				commercial_segments: [{ start_seconds: 10, end_seconds: 30 }],
+			});
+
+			const { rerender } = render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec1', {
+					start: 0,
+					audioIndex: undefined,
+					recordingId: 'rec1',
+				}),
+			);
+
+			let video = document.querySelector('video')!;
+			Object.defineProperty(video, 'currentTime', { value: 15, configurable: true, writable: true });
+			await fireEvent(video, new Event('timeupdate'));
+
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec1', {
+					start: 30,
+					audioIndex: undefined,
+					recordingId: 'rec1',
+				}),
+			);
+
+			hdhomerunRecordingDetail.mockResolvedValueOnce({
+				is_in_progress: false,
+				duration_seconds: 100,
+				video: null,
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: false, preset: '', preset_label: '', hardware: false },
+				commercial_segments: [{ start_seconds: 10, end_seconds: 20 }],
+			});
+
+			await rerender({
+				...seekableProps,
+				playUrl: '/recorded/rec2',
+				recordingId: 'rec2',
+				title: 'Another Finished Show',
+			});
+
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec2', {
+					start: 0,
+					audioIndex: undefined,
+					recordingId: 'rec2',
+				}),
+			);
+
+			// The remount resets videoCurrentTime/baseOffsetSeconds to 0, so the
+			// new recording's segment (which also doesn't bracket 0) needs its
+			// own timeupdate nudge before the just-reset guard can be exercised.
+			video = document.querySelector('video')!;
+			Object.defineProperty(video, 'currentTime', { value: 15, configurable: true, writable: true });
+			await fireEvent(video, new Event('timeupdate'));
+
+			await vi.waitFor(() =>
+				expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec2', {
+					start: 20,
+					audioIndex: undefined,
+					recordingId: 'rec2',
+				}),
+			);
 		});
 	});
 });
