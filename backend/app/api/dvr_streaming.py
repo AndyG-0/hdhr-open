@@ -105,19 +105,46 @@ def invalidate_recording_cache(recording_id: str) -> None:
     _edl_cache.pop(recording_id, None)
 
 
-def _load_commercial_segments(recording_id: str, target_url: str) -> list[dict[str, float]]:
-    """Load comskip/EDL commercial segments for a finished recording.
-
-    The .edl sidecar lives alongside the recording's media file on disk (the
-    third-party comskip tooling convention), so this only applies when
-    target_url resolved to a local file path - remote (official HDHomeRun
-    DVR) recordings have no sidecar we can read.
+def _resolve_local_media_path_for_edl(
+    settings: dict[str, Any], target_url: str, recording_id: str, provider: str | None
+) -> Path | None:
+    """The local file comskip would have written `<file>.edl` next to, if
+    any - `target_url` itself is only ever that file for a builtin
+    recording (an official HDHomeRun DVR recording's `target_url` is
+    always the remote HTTP URL it's streamed from). For a HDHomeRun
+    recording, resolve it instead via the filename comskip's own sweep
+    (`app.dvr.builtin.comskip`) tracked for this recording_id, joined onto
+    the admin-configured local mount of that engine's storage.
     """
-    p = Path(target_url)
-    if not p.is_file():
+    if provider != "hdhomerun":
+        p = Path(target_url)
+        return p if p.is_file() else None
+
+    recordings_path = settings.get("dvr_recordings_path")
+    if not recordings_path:
+        return None
+    tracked = db.get_hdhomerun_comskip_status(recording_id)
+    if not tracked:
+        return None
+
+    from app.dvr.builtin.comskip import resolve_hdhomerun_local_path
+
+    path = resolve_hdhomerun_local_path(recordings_path, tracked["filename"])
+    return path if path is not None and path.is_file() else None
+
+
+def _load_commercial_segments(recording_id: str, local_path: Path | None) -> list[dict[str, float]]:
+    """Load comskip/EDL commercial segments for a finished recording from
+    its `.edl` sidecar (the third-party comskip tooling convention: it
+    writes `<file>.edl` alongside the source file it scanned) - `local_path`
+    is `None` when no such local file is known for this recording (e.g. an
+    official HDHomeRun DVR recording with no `dvr_recordings_path`
+    configured), in which case there's nothing to read.
+    """
+    if local_path is None:
         return []
 
-    edl_path = p.with_suffix(".edl")
+    edl_path = local_path.with_suffix(".edl")
     try:
         mtime = edl_path.stat().st_mtime
     except OSError:
@@ -716,7 +743,10 @@ async def recording_detail(
     # Known v1 limitation: opening a just-finished recording before comskip
     # completes yields [] for that whole playback session, since finished
     # recordings aren't polled - re-opening later picks up the markers.
-    commercial_segments = _load_commercial_segments(recording_id, target_url)
+    local_path = await asyncio.to_thread(
+        _resolve_local_media_path_for_edl, settings, target_url, recording_id, provider
+    )
+    commercial_segments = _load_commercial_segments(recording_id, local_path)
 
     return {
         "is_in_progress": False,

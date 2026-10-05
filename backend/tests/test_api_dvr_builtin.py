@@ -1104,6 +1104,95 @@ def test_recording_detail_commercial_segments_invalidate_on_edl_mtime_change(cli
     ]
 
 
+def test_recording_detail_surfaces_commercial_segments_for_hdhomerun_recording_with_local_mount(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """Once the comskip sweep (app.dvr.builtin.comskip) has tracked a
+    HDHomeRun-DVR recording's local-mount filename and written its `.edl`
+    sidecar, recording-detail must resolve and read it back - closing the
+    loop described in the plan's step 5 (generating markers nobody can see
+    isn't a complete fix)."""
+    from app import media_probe as media_probe_module
+
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+    monkeypatch.setattr(media_probe_module, "probe", AsyncMock(return_value=None))
+
+    video_file = tmp_path / "Show" / "Episode.mpg"
+    video_file.parent.mkdir(parents=True)
+    video_file.write_bytes(b"MPEG data")
+    video_file.with_suffix(".edl").write_text("10 20 0\n")
+
+    db.upsert_hdhomerun_comskip_status("hdhr_rec_1", "Show/Episode.mpg", "done", 1)
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": "/recorded/hdhr_rec_1",
+            "recording_id": "hdhr_rec_1",
+            "start": 1000.0,
+            "record_end": 2000.0,
+            "provider": "hdhomerun",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == [{"start_seconds": 10.0, "end_seconds": 20.0}]
+
+
+def test_recording_detail_commercial_segments_empty_for_hdhomerun_without_recordings_path(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """No `dvr_recordings_path` configured -> today's unchanged behavior:
+    nothing to read, regardless of whether comskip ever ran."""
+    from app import media_probe as media_probe_module
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local"})
+    monkeypatch.setattr(media_probe_module, "probe", AsyncMock(return_value=None))
+
+    db.upsert_hdhomerun_comskip_status("hdhr_rec_2", "Show/Episode.mpg", "done", 1)
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": "/recorded/hdhr_rec_2",
+            "recording_id": "hdhr_rec_2",
+            "start": 1000.0,
+            "record_end": 2000.0,
+            "provider": "hdhomerun",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == []
+
+
+def test_recording_detail_commercial_segments_empty_for_hdhomerun_before_comskip_has_run(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """`dvr_recordings_path` is configured, but the comskip sweep hasn't
+    processed this recording yet (no tracked status row) -> no sidecar to
+    read yet, same as the builtin "no .edl sidecar" case."""
+    from app import media_probe as media_probe_module
+
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+    monkeypatch.setattr(media_probe_module, "probe", AsyncMock(return_value=None))
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": "/recorded/hdhr_rec_3",
+            "recording_id": "hdhr_rec_3",
+            "start": 1000.0,
+            "record_end": 2000.0,
+            "provider": "hdhomerun",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == []
+
+
 def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tmp_db, tmp_path, monkeypatch):
     from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
     from app.dvr.media import captions_live

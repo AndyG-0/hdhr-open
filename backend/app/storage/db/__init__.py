@@ -65,6 +65,7 @@ from .recordings import (
     delete_recording_rule,
     delete_scheduled_recordings_for_rule,
     get_comskip_override_for_recording,
+    get_hdhomerun_comskip_status,
     get_recording,
     get_recording_rule,
     list_completed_recordings,
@@ -77,6 +78,7 @@ from .recordings import (
     update_recording,
     update_recording_rule,
     update_scheduled_recording_status,
+    upsert_hdhomerun_comskip_status,
     upsert_scheduled_recording,
 )
 from .settings import (
@@ -190,6 +192,8 @@ __all__ = [
     "list_completed_recordings_by_title",
     "get_recording",
     "get_comskip_override_for_recording",
+    "get_hdhomerun_comskip_status",
+    "upsert_hdhomerun_comskip_status",
     "delete_recording",
     "create_job_run",
     "finish_job_run",

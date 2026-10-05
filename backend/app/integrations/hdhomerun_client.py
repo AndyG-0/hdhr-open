@@ -761,6 +761,11 @@ def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:
         # still-recording (record_end in the future) entry.
         "duration_seconds": (record_end - start) if (start is not None and record_end is not None) else None,
         "play_url": play_url,
+        # The HDHomeRun DVR engine's own filename, relative to its storage
+        # root - lets a locally-mounted copy of that storage (see
+        # `dvr_recordings_path`) resolve this recording to a real file on
+        # disk for comskip, since `play_url` above is always a remote URL.
+        "filename": entry.get("Filename"),
         "image_url": entry.get("ImageURL"),
         "category": entry.get("Category"),
         "category_type": _classify_hdhomerun_category(entry),

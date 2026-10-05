@@ -35,6 +35,7 @@ KNOWN_INTEGRATION_TYPES: dict[str, dict[str, Any]] = {
             "tuner_port": 80,
             "dvr_host": "",
             "dvr_port": 50000,
+            "dvr_recordings_path": "",
             "dvr_ssh_enabled": False,
             "dvr_ssh_host": "",
             "dvr_ssh_port": 22,

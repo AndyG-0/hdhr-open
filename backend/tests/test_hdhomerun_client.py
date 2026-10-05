@@ -273,13 +273,16 @@ async def test_fetch_dvr_recordings_maps_fields():
         )
     )
     respx.get("http://dvr.local:50000/recorded_files.json").mock(
-        return_value=httpx.Response(200, json=[{"Title": "Local News", "ChannelAffiliate": "NBC"}])
+        return_value=httpx.Response(
+            200, json=[{"Title": "Local News", "ChannelAffiliate": "NBC", "Filename": "News/Local_News.mpg"}]
+        )
     )
 
     recordings = await hdhomerun_client.fetch_dvr_recordings(DVR_SETTINGS)
 
     assert recordings[0]["title"] == "Local News"
     assert recordings[0]["channel_name"] == "NBC"
+    assert recordings[0]["filename"] == "News/Local_News.mpg"
 
 
 @respx.mock

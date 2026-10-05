@@ -1,12 +1,19 @@
-"""Daily (or on-demand) commercial-detection sweep over completed builtin-DVR
-recordings, via the third-party `comskip` CLI tool.
+"""Daily (or on-demand) commercial-detection sweep over completed
+recordings - from both the builtin DVR and, when configured, the official
+HDHomeRun DVR - via the third-party `comskip` CLI tool.
 
 v1 scope: detection only - comskip writes a `<recording>.edl` cutlist sidecar
 next to the recording's video file (comskip's own naming convention, which
 matches `p.with_suffix(".edl")` already read by
 `app.api.dvr_streaming._load_commercial_segments`). Nothing is cut or
-re-encoded, and this never runs against a still-recording file - only
-`db.list_completed_recordings()` rows are considered.
+re-encoded, and this never runs against a still-recording file.
+
+Builtin-DVR recordings are considered via `db.list_completed_recordings()`.
+HDHomeRun-DVR recordings have no row there (that table is scoped to
+builtin-produced files only) - they're fetched live from the HDHomeRun
+engine's own API and only processed when the admin has pointed
+`dvr_recordings_path` at a local mount of that engine's storage; their
+status/attempts are tracked separately, in `hdhomerun_comskip_status`.
 """
 
 from __future__ import annotations
@@ -14,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -93,6 +101,69 @@ async def run_comskip(file_path: Path) -> bool:
     return True
 
 
+def resolve_hdhomerun_local_path(recordings_path: str, filename: str) -> Path | None:
+    """Joins `filename` (the HDHomeRun DVR engine's own relative filename for
+    a recording) onto the admin-configured local mount of that engine's
+    storage, `recordings_path`. Returns `None` if the result would escape
+    `recordings_path` - `filename` comes from the HDHomeRun box's own API,
+    a trusted LAN device, but there's no reason to skip the same "don't
+    trust a joined path blindly" containment check `dvr_streaming.py` uses
+    for client-supplied paths.
+    """
+    root = Path(recordings_path).resolve()
+    candidate = (root / filename).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate
+
+
+async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
+    from app.api._dvr_shared import _get_hdhomerun_settings_safe
+    from app.integrations import hdhomerun_client
+
+    hdhomerun_settings = await _get_hdhomerun_settings_safe()
+    recordings_path = hdhomerun_settings.get("dvr_recordings_path")
+    if not recordings_path or not hdhomerun_client.is_dvr_configured(hdhomerun_settings):
+        return
+
+    now = time.time()
+    for entry in await hdhomerun_client.fetch_dvr_recordings(hdhomerun_settings):
+        filename = entry.get("filename")
+        recording_id = entry.get("recording_id")
+        record_end = entry.get("record_end")
+        if not filename or not recording_id or record_end is None or record_end > now:
+            continue  # no file reference, or still recording
+
+        tracked = await asyncio.to_thread(db.get_hdhomerun_comskip_status, recording_id)
+        status = tracked.get("status") if tracked else None
+        attempts = tracked.get("attempts", 0) if tracked else 0
+        if status is not None and not (status == "failed" and attempts < MAX_COMSKIP_ATTEMPTS):
+            continue
+
+        # No per-rule comskip_override here: HDHomeRun recording rules live
+        # on the HDHomeRun engine's own native rule system, not in this
+        # app's `recording_rules` table, so only the global mode applies.
+        if not resolve_comskip_enabled(global_mode, "default"):
+            await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "skipped", attempts)
+            continue
+
+        path = resolve_hdhomerun_local_path(recordings_path, filename)
+        if path is None or not path.exists():
+            continue
+
+        await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "running", attempts)
+        ok = await run_comskip(path)
+        await asyncio.to_thread(
+            db.upsert_hdhomerun_comskip_status,
+            recording_id,
+            filename,
+            "done" if ok else "failed",
+            attempts + 1,
+        )
+
+
 async def run_comskip_sweep() -> None:
     """Run comskip against every completed recording that hasn't been
     evaluated yet, honoring the global `comskip_mode` setting and each
@@ -125,6 +196,8 @@ async def run_comskip_sweep() -> None:
             comskip_status="done" if ok else "failed",
             comskip_attempts=attempts + 1,
         )
+
+    await _run_hdhomerun_comskip_sweep(global_mode)
 
 
 def register(scheduler: AsyncIOScheduler) -> None:

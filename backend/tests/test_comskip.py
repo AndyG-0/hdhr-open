@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import time
 
 import pytest
 
@@ -210,3 +211,141 @@ async def test_run_comskip_sweep_skips_failed_recording_at_attempt_cap(tmp_db, t
     recording = db.get_recording("rec_exhausted")
     assert recording["comskip_status"] == "failed"
     assert recording["comskip_attempts"] == comskip.MAX_COMSKIP_ATTEMPTS
+
+
+def test_resolve_hdhomerun_local_path_joins_onto_recordings_root(tmp_path):
+    path = comskip.resolve_hdhomerun_local_path(str(tmp_path), "Shows/Episode.mpg")
+
+    assert path == (tmp_path / "Shows/Episode.mpg").resolve()
+
+
+def test_resolve_hdhomerun_local_path_rejects_traversal_outside_root(tmp_path):
+    path = comskip.resolve_hdhomerun_local_path(str(tmp_path), "../../etc/passwd")
+
+    assert path is None
+
+
+def _hdhomerun_entry(*, recording_id="hdhr_rec_1", filename="Show/Episode.mpg", record_end=1.0):
+    return {
+        "recording_id": recording_id,
+        "filename": filename,
+        "record_end": record_end,
+    }
+
+
+async def test_hdhomerun_comskip_sweep_is_a_no_op_when_recordings_path_unset(tmp_db, monkeypatch):
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local"})
+
+    async def fake_fetch_dvr_recordings(settings):
+        raise AssertionError("fetch_dvr_recordings should not be called when dvr_recordings_path is unset")
+
+    monkeypatch.setattr(
+        "app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings
+    )
+
+    calls = []
+    monkeypatch.setattr(comskip, "run_comskip", lambda path: calls.append(path))
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == []
+
+
+async def test_hdhomerun_comskip_sweep_runs_comskip_and_tracks_status(tmp_db, tmp_path, monkeypatch):
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+
+    video_path = tmp_path / "Show" / "Episode.mpg"
+    video_path.parent.mkdir(parents=True)
+    video_path.write_bytes(b"")
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry()]
+
+    monkeypatch.setattr(
+        "app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings
+    )
+
+    calls = []
+
+    async def fake_run_comskip(path):
+        calls.append(path)
+        return True
+
+    monkeypatch.setattr(comskip, "run_comskip", fake_run_comskip)
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == [video_path.resolve()]
+    status = db.get_hdhomerun_comskip_status("hdhr_rec_1")
+    assert status["status"] == "done"
+    assert status["attempts"] == 1
+    assert status["filename"] == "Show/Episode.mpg"
+
+
+async def test_hdhomerun_comskip_sweep_skips_recording_still_in_progress(tmp_db, tmp_path, monkeypatch):
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+
+    future_end = time.time() + 3600
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry(record_end=future_end)]
+
+    monkeypatch.setattr(
+        "app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings
+    )
+
+    calls = []
+    monkeypatch.setattr(comskip, "run_comskip", lambda path: calls.append(path))
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == []
+    assert db.get_hdhomerun_comskip_status("hdhr_rec_1") is None
+
+
+async def test_hdhomerun_comskip_sweep_marks_skipped_when_global_mode_none(tmp_db, tmp_path, monkeypatch):
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+    db.save_app_settings({"comskip_mode": "none"})
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry()]
+
+    monkeypatch.setattr(
+        "app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings
+    )
+
+    calls = []
+    monkeypatch.setattr(comskip, "run_comskip", lambda path: calls.append(path))
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == []
+    status = db.get_hdhomerun_comskip_status("hdhr_rec_1")
+    assert status["status"] == "skipped"
+
+
+async def test_hdhomerun_comskip_sweep_skips_file_not_present_on_local_mount(tmp_db, tmp_path, monkeypatch):
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry(filename="Missing/Episode.mpg")]
+
+    monkeypatch.setattr(
+        "app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings
+    )
+
+    calls = []
+    monkeypatch.setattr(comskip, "run_comskip", lambda path: calls.append(path))
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == []
+    assert db.get_hdhomerun_comskip_status("hdhr_rec_1") is None

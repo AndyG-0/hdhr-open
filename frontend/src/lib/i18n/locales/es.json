@@ -100,6 +100,8 @@
 			"recording_in_progress": "Grabando…",
 			"optional": "(opcional)",
 			"dvr_settings_heading": "Motor de grabación DVR",
+			"recordings_path_label": "Ruta de grabaciones (montaje local)",
+			"recordings_path_hint": "Ruta del sistema de archivos local donde está montado el almacenamiento de grabaciones del motor DVR de HDHomeRun (montaje bind/NFS/SMB en una instalación física, o un volumen de contenedor). Solo es necesario para que la detección de comerciales (comskip) pueda ejecutarse sobre las grabaciones del DVR de HDHomeRun — déjelo en blanco para omitirlas.",
 			"ssh_heading": "Monitoreo de clientes (SSH)",
 			"ssh_enabled_label": "Identificar los clientes que transmiten a través del motor de grabación DVR mediante SSH",
 			"ssh_username_label": "Nombre de usuario",

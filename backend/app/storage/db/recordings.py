@@ -220,3 +220,32 @@ def get_comskip_override_for_recording(recording_id: str) -> str:
 def delete_recording(recording_id: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
+
+
+def get_hdhomerun_comskip_status(recording_id: str) -> dict[str, Any] | None:
+    """Comskip status/attempts tracked for a HDHomeRun-DVR recording - these
+    have no row in `recordings` (see `hdhomerun_comskip_status`'s own
+    comment in the schema), so they're tracked in this separate table
+    instead, keyed by the HDHomeRun engine's own recording ID.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM hdhomerun_comskip_status WHERE recording_id = ?", (recording_id,)
+        ).fetchone()
+    return None if row is None else dict(row)
+
+
+def upsert_hdhomerun_comskip_status(recording_id: str, filename: str, status: str, attempts: int) -> None:
+    with _connect() as conn:
+        _upsert(
+            conn,
+            "hdhomerun_comskip_status",
+            {
+                "recording_id": recording_id,
+                "filename": filename,
+                "status": status,
+                "attempts": attempts,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+            key_columns=("recording_id",),
+        )

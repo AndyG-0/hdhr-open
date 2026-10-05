@@ -29,8 +29,9 @@
 <section>
 	<h3>Commercial detection</h3>
 	<p class="hint">
-		Runs comskip against completed Built-in DVR recordings to mark commercial breaks for
-		skip-ahead during playback. This only applies to recordings made on the Built-in DVR.
+		Runs comskip against completed recordings to mark commercial breaks for skip-ahead during
+		playback. Applies to Built-in DVR recordings, and to HDHomeRun DVR recordings once a local
+		recordings path is configured under HDHomeRun network settings.
 	</p>
 	<label class="radio-row">
 		<input type="radio" name="comskip-mode" value="all" bind:group={mode} />
