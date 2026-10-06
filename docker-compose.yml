@@ -67,6 +67,11 @@ services:
       # groups, so any host directory used here must be writable by uid 1000.
       - ${CONFIG_PATH:-backend-storage}:/app/data
       - ${RECORDINGS_PATH:-recordings-storage}:/app/data/recordings
+      # Read-only view of the HDHomeRun DVR engine's storage, so comskip can
+      # find those recordings. Set HDHOMERUN_RECORDINGS_PATH to the host mount
+      # of that storage, then enter /app/hdhomerun-recordings as the "Recordings
+      # path (local mount)" setting. Same uid 1000 readability requirement as above.
+      - ${HDHOMERUN_RECORDINGS_PATH:-hdhomerun-recordings-storage}:/app/hdhomerun-recordings:ro
     # Uncomment to enable the "qsv"/"vaapi" hwaccel presets
     # (app/transcoding.py) — the image bundles the VA-API/QSV driver
     # packages (see backend/Dockerfile), but a container has no access to
@@ -173,3 +178,4 @@ services:
 volumes:
   backend-storage:
   recordings-storage:
+  hdhomerun-recordings-storage:

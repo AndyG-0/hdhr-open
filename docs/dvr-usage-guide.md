@@ -85,3 +85,49 @@ When a program cannot be matched to a SiliconDust Series ID (for example, airing
   - Clicking **"Cancel Recording"** (from the Recording Options dialog, the guide grid context menu, or the scheduled recordings list) opens a confirmation modal:
     > *"Cancel Recording Rule? Are you sure you want to cancel the recording rule for '[Program Title]'? Upcoming airings will not be recorded."*
   - You can safely choose **[Keep Recording]** to dismiss or **[Cancel Recording]** to confirm deletion.
+
+---
+
+## Recording File Names (Built-in DVR)
+
+Built-in recordings are written to `RECORDINGS_DIR` (the recordings volume in Docker) as:
+
+```
+{Title}_{Teams or episode title}_{YYYY-MM-DD}_{recording id}.ts
+```
+
+- **Title** is the program title, capped at 50 characters.
+- **Teams or episode title**: for matchups such as `Michigan at Ohio State` or `Lakers vs. Warriors`, both team names are used (`Michigan_Ohio_State`). Other episode titles are used as-is. Capped at 60 characters. Omitted when the guide has no episode title.
+- **Date** is the air date in the server's configured `TIMEZONE`.
+- **Recording id** is the first 8 characters of the internal id, which keeps names unique.
+
+Example: `College_Football_Michigan_Ohio_State_2026-10-04_ab12cd34.ts`
+
+Characters other than letters, digits, and underscores are replaced with `_`. Recordings made before this format keep their original names.
+
+A live-watch capture that is later promoted to a scheduled recording keeps the name it was started with.
+
+---
+
+## Commercial Detection
+
+HDHR Open runs [comskip](https://github.com/erikkaashoek/Comskip) against completed recordings to find commercial breaks. Playback then offers skip-ahead over those breaks. The comskip build is included in the Docker image.
+
+- **Global default** (Settings → Commercial detection):
+  - *Always detect commercials*
+  - *Never detect commercials*
+  - *Let each recording decide*
+- **Per recording** (HDHomeRun recording options → Commercial Detection): *Use global default*, *Always detect commercials*, or *Never detect commercials*. The per-recording choice applies when the global default is *Let each recording decide*.
+- **Auto-skip** is an opt-in player setting, stored per browser. When it is on, the player jumps past each detected break and shows a short notice.
+- Detection runs after a recording finishes. A failed run is retried a limited number of times.
+- Built-in recordings are processed directly. HDHomeRun DVR recordings need a local mount, described below.
+
+### Local Access to HDHomeRun DVR Recordings
+
+The HDHomeRun DVR engine stores its recordings on its own storage. HDHR Open can only run comskip on them if that storage is also mounted on the HDHR Open host.
+
+1. Mount the HDHomeRun storage on the host (NFS or SMB for a NAS, or a bind mount on bare metal).
+2. **Docker:** set `HDHOMERUN_RECORDINGS_PATH` in `.env` to the host mount, then restart the stack. The mount appears in the container at `/app/hdhomerun-recordings` and is read-only.
+3. In Settings → HDHomeRun network settings, set **Recordings path (local mount)** to the path HDHR Open sees: `/app/hdhomerun-recordings` in Docker, or the host path on bare metal.
+
+Leave the field blank to skip commercial detection for HDHomeRun DVR recordings.

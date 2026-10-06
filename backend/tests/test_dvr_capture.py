@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -16,6 +18,42 @@ def test_sanitize_filename():
     assert sanitize_filename("Show / with / slashes") == "Show_with_slashes"
     assert sanitize_filename("...odd...name...") == "odd_name"
     assert sanitize_filename("") == "recording"
+
+
+def test_generate_file_path_includes_matchup_teams_and_local_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_module, "RECORDINGS_DIR", tmp_path)
+    ny = ZoneInfo("America/New_York")
+    # 2026-10-05 00:00 UTC is 2026-10-04 evening in New York
+    start_ts = datetime(2026, 10, 5, 0, 0, tzinfo=UTC).timestamp()
+
+    path = CapturePipeline().generate_file_path(
+        "College Football", "Michigan at Ohio State", start_ts, "ab12cd34ef", ny
+    )
+
+    assert path == tmp_path / "College_Football_Michigan_Ohio_State_2026-10-04_ab12cd34.ts"
+
+
+def test_generate_file_path_plain_episode_title_and_no_episode(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_module, "RECORDINGS_DIR", tmp_path)
+    utc = ZoneInfo("UTC")
+    start_ts = datetime(2026, 10, 5, 12, 0, tzinfo=UTC).timestamp()
+
+    with_episode = CapturePipeline().generate_file_path("The Office", "Dwight's Speech", start_ts, "11112222", utc)
+    without_episode = CapturePipeline().generate_file_path("The Office", None, start_ts, "11112222", utc)
+
+    assert with_episode.name == "The_Office_Dwight_s_Speech_2026-10-05_11112222.ts"
+    assert without_episode.name == "The_Office_2026-10-05_11112222.ts"
+
+
+def test_generate_file_path_caps_each_segment(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_module, "RECORDINGS_DIR", tmp_path)
+    start_ts = datetime(2026, 10, 5, 12, 0, tzinfo=UTC).timestamp()
+
+    path = CapturePipeline().generate_file_path("T" * 80, "E" * 80, start_ts, "33334444", ZoneInfo("UTC"))
+
+    title_part, episode_part = path.name.split("_" + "2026-10-05")[0].split("_", 1)
+    assert len(title_part) == 50
+    assert len(episode_part) == 60
 
 
 @pytest.mark.asyncio
@@ -155,7 +193,7 @@ async def test_start_and_stop_capture_lifecycle(tmp_db, tmp_path, monkeypatch):
     assert capture is not None
     assert capture.recording_id == "rec123"
     assert capture.title == "The Evening News"
-    assert capture.file_path.name.startswith("The_Evening_News_1000_rec123")
+    assert capture.file_path.name.startswith("The_Evening_News_Headlines_1970-01-01_rec123")
 
     # Verify DB recorded as 'recording' with metadata
     rec_db = db.get_recording("rec123")
