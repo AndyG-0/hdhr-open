@@ -343,6 +343,7 @@ describe('home +page.svelte (guide)', () => {
 			recent_only: false,
 			max_episodes_to_keep: 2,
 			server: undefined,
+			comskip_override: 'default',
 		});
 		vi.useRealTimers();
 	});

@@ -105,19 +105,46 @@ def invalidate_recording_cache(recording_id: str) -> None:
     _edl_cache.pop(recording_id, None)
 
 
-def _load_commercial_segments(recording_id: str, target_url: str) -> list[dict[str, float]]:
-    """Load comskip/EDL commercial segments for a finished recording.
-
-    The .edl sidecar lives alongside the recording's media file on disk (the
-    third-party comskip tooling convention), so this only applies when
-    target_url resolved to a local file path - remote (official HDHomeRun
-    DVR) recordings have no sidecar we can read.
+def _resolve_local_media_path_for_edl(
+    settings: dict[str, Any], target_url: str, recording_id: str, provider: str | None
+) -> Path | None:
+    """The local file comskip would have written `<file>.edl` next to, if
+    any - `target_url` itself is only ever that file for a builtin
+    recording (an official HDHomeRun DVR recording's `target_url` is
+    always the remote HTTP URL it's streamed from). For a HDHomeRun
+    recording, resolve it instead via the filename comskip's own sweep
+    (`app.dvr.builtin.comskip`) tracked for this recording_id, joined onto
+    the admin-configured local mount of that engine's storage.
     """
-    p = Path(target_url)
-    if not p.is_file():
+    if provider != "hdhomerun":
+        p = Path(target_url)
+        return p if p.is_file() else None
+
+    recordings_path = settings.get("dvr_recordings_path")
+    if not recordings_path:
+        return None
+    tracked = db.get_hdhomerun_comskip_status(recording_id)
+    if not tracked:
+        return None
+
+    from app.dvr.builtin.comskip import resolve_hdhomerun_local_path
+
+    path = resolve_hdhomerun_local_path(recordings_path, tracked["filename"])
+    return path if path is not None and path.is_file() else None
+
+
+def _load_commercial_segments(recording_id: str, local_path: Path | None) -> list[dict[str, float]]:
+    """Load comskip/EDL commercial segments for a finished recording from
+    its `.edl` sidecar (the third-party comskip tooling convention: it
+    writes `<file>.edl` alongside the source file it scanned) - `local_path`
+    is `None` when no such local file is known for this recording (e.g. an
+    official HDHomeRun DVR recording with no `dvr_recordings_path`
+    configured), in which case there's nothing to read.
+    """
+    if local_path is None:
         return []
 
-    edl_path = p.with_suffix(".edl")
+    edl_path = local_path.with_suffix(".edl")
     try:
         mtime = edl_path.stat().st_mtime
     except OSError:
@@ -298,6 +325,7 @@ async def stream_recording(
     audio_index: int | None = None,
     recording_id: str | None = None,
     provider: str | None = None,
+    quality: str | None = None,
 ):
     cache_key = str(request.url)
     cached_failure = get_recent_stream_failure(cache_key)
@@ -339,9 +367,25 @@ async def stream_recording(
         # instead handled by starting the tail-follow pump at an estimated
         # byte offset (below).
         seek_seconds = None if active_capture is not None else start
+        # A capture sourced from the tuner's own hardware transcoder (see
+        # ActiveCapture.capture_quality) is already at its final
+        # resolution/bitrate - remux it as-is instead of re-encoding it
+        # again through this request's own ffmpeg. audio_index is
+        # meaningless against it too: that source was already normalized to
+        # one AAC stereo track at capture time (see capture.py's
+        # start_capture), not the multi-track raw tuner feed audio_index
+        # would otherwise pick a specific SAP/alternate track out of.
+        remux = bool(active_capture is not None and active_capture.capture_quality)
+        if remux:
+            audio_index = None
         try:
             ffmpeg_args = transcoding.build_ffmpeg_args(
-                settings, input_url, seek_seconds=seek_seconds, audio_index=audio_index
+                settings,
+                input_url,
+                seek_seconds=seek_seconds,
+                audio_index=audio_index,
+                quality=quality,
+                remux=remux,
             )
         except transcoding.InvalidCustomFfmpegArgsError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -474,6 +518,7 @@ class RecordingStreamHLSRequest(BaseModel):
     audio_index: int | None = None
     provider: str | None = None
     for_cast: bool = False
+    quality: str | None = None
 
 
 @router.post("/recording-stream-hls")
@@ -521,6 +566,12 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request
     # instead handled by starting the tail-follow pump at an estimated byte
     # offset (below) - same split as /recording-stream.
     seek_seconds = None if active_capture is not None else body.start
+    # See the matching comment in /recording-stream above: a tuner-hardware-
+    # transcoded capture is already at its final resolution/bitrate and down
+    # to one normalized AAC stereo track, so remux it as-is and ignore the
+    # request's own quality/audio_index.
+    remux = bool(active_capture is not None and active_capture.capture_quality)
+    audio_index = None if remux else body.audio_index
 
     session_id, tmp_dir = hls_streaming.allocate_session_dir()
     cast_token = hls_streaming.new_cast_token() if body.for_cast else None
@@ -529,7 +580,9 @@ async def stream_recording_hls(body: RecordingStreamHLSRequest, request: Request
             settings,
             input_url,
             seek_seconds=seek_seconds,
-            audio_index=body.audio_index,
+            audio_index=audio_index,
+            quality=body.quality,
+            remux=remux,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
@@ -690,7 +743,10 @@ async def recording_detail(
     # Known v1 limitation: opening a just-finished recording before comskip
     # completes yields [] for that whole playback session, since finished
     # recordings aren't polled - re-opening later picks up the markers.
-    commercial_segments = _load_commercial_segments(recording_id, target_url)
+    local_path = await asyncio.to_thread(
+        _resolve_local_media_path_for_edl, settings, target_url, recording_id, provider
+    )
+    commercial_segments = _load_commercial_segments(recording_id, local_path)
 
     return {
         "is_in_progress": False,

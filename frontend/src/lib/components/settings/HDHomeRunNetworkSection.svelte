@@ -15,6 +15,7 @@
 	let hdhomerunTunerPortInput = $state(80);
 	let hdhomerunDvrHostInput = $state('');
 	let hdhomerunDvrPortInput = $state(50000);
+	let hdhomerunRecordingsPathInput = $state('');
 	let hdhomerunSshEnabledInput = $state(false);
 	let hdhomerunSshHostInput = $state('');
 	let hdhomerunSshPortInput = $state(22);
@@ -38,6 +39,7 @@
 			hdhomerunTunerPortInput = (initialSettings!.tuner_port as number) ?? 80;
 			hdhomerunDvrHostInput = (initialSettings!.dvr_host as string) ?? '';
 			hdhomerunDvrPortInput = (initialSettings!.dvr_port as number) ?? 50000;
+			hdhomerunRecordingsPathInput = (initialSettings!.dvr_recordings_path as string) ?? '';
 			hdhomerunSshEnabledInput = (initialSettings!.dvr_ssh_enabled as boolean) ?? false;
 			hdhomerunSshHostInput = (initialSettings!.dvr_ssh_host as string) ?? '';
 			hdhomerunSshPortInput = (initialSettings!.dvr_ssh_port as number) ?? 22;
@@ -53,6 +55,7 @@
 			tuner_port: hdhomerunTunerPortInput,
 			dvr_host: hdhomerunDvrHostInput,
 			dvr_port: hdhomerunDvrPortInput,
+			dvr_recordings_path: hdhomerunRecordingsPathInput,
 			dvr_ssh_enabled: hdhomerunSshEnabledInput,
 			dvr_ssh_host: hdhomerunSshHostInput,
 			dvr_ssh_port: hdhomerunSshPortInput,
@@ -155,6 +158,15 @@
 		{$_('hdhomerun.detail.port_label')}
 		<input type="number" min="1" max="65535" bind:value={hdhomerunDvrPortInput} />
 	</label>
+	<label>
+		{$_('hdhomerun.detail.recordings_path_label')}
+		<input
+			type="text"
+			bind:value={hdhomerunRecordingsPathInput}
+			placeholder="/mnt/hdhomerun-recordings"
+		/>
+	</label>
+	<p class="hint">{$_('hdhomerun.detail.recordings_path_hint')}</p>
 	<div class="test-row">
 		<button class="test" disabled={hdhomerunTestingDvr} onclick={testHdhomerunDvr}>
 			{hdhomerunTestingDvr ? $_('common.testing') : $_('common.test_connection')}

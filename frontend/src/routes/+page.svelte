@@ -3,6 +3,7 @@
 		api,
 		type HDHomeRunChannel,
 		type HDHomeRunFullGuideChannel,
+		type HDHomeRunRecording,
 		type HDHomeRunRecordingRule,
 		type RecordingRuleOptions,
 	} from '$lib/api';
@@ -142,12 +143,31 @@
 		}
 	}
 
+	// A recording in progress isn't always backed by a rule (e.g. promoting a
+	// live-watch session straight to a standalone recording), so the guide
+	// grid needs this independently of recordingRules to flag those as
+	// recording too. Polled since a new one can start at any time while this
+	// page is open.
+	let activeRecordings = $state<HDHomeRunRecording[]>([]);
+
+	async function loadActiveRecordings() {
+		try {
+			const recordings = await api.listRecordings();
+			activeRecordings = recordings.filter((r) => r.status === 'recording');
+		} catch {
+			// Non-critical — the grid simply won't show the extra badge this cycle.
+		}
+	}
+
 	onMount(() => {
 		loadChannels();
 		loadGuide();
 		loadFavorites();
 		loadRecordingRules();
 		loadDvrInfo();
+		loadActiveRecordings();
+		const activeRecordingsInterval = setInterval(loadActiveRecordings, 30_000);
+		return () => clearInterval(activeRecordingsInterval);
 	});
 
 	function buildPlaybackContext() {
@@ -382,6 +402,7 @@
 			{channels}
 			{fullGuide}
 			recordingRules={displayedRecordingRules}
+			{activeRecordings}
 			{pendingRuleIds}
 			{favoriteChannels}
 			{savingFavorite}

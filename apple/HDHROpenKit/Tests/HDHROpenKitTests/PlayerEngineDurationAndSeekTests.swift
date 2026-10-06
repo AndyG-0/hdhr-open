@@ -81,4 +81,34 @@ final class PlayerEngineDurationAndSeekTests: XCTestCase {
         // Seeking to 300s when session starts at 600s is before the session start
         XCTAssertFalse(engine.isPositionInSeekableRange(300.0))
     }
+
+    func testActiveCommercialSegmentReturnsSegmentContainingCurrentTime() throws {
+        let engine = PlayerEngine()
+        let fakeURL = try XCTUnwrap(URL(string: "http://localhost:8000/stream.m3u8"))
+        engine.loadMedia(url: fakeURL, isSeekable: true, initialDuration: 3600.0)
+        engine.setCommercialSegments([
+            HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160),
+            HDHomeRunCommercialSegment(startSeconds: 900, endSeconds: 960)
+        ])
+
+        engine.seek(to: 120)
+        XCTAssertEqual(engine.activeCommercialSegment?.startSeconds, 100)
+
+        engine.seek(to: 500)
+        XCTAssertNil(engine.activeCommercialSegment)
+
+        engine.seek(to: 959)
+        XCTAssertEqual(engine.activeCommercialSegment?.startSeconds, 900)
+    }
+
+    func testResetClearsCommercialSegments() throws {
+        let engine = PlayerEngine()
+        let fakeURL = try XCTUnwrap(URL(string: "http://localhost:8000/stream.m3u8"))
+        engine.loadMedia(url: fakeURL, isSeekable: true, initialDuration: 3600.0)
+        engine.setCommercialSegments([HDHomeRunCommercialSegment(startSeconds: 100, endSeconds: 160)])
+
+        engine.reset()
+
+        XCTAssertTrue(engine.commercialSegments.isEmpty)
+    }
 }

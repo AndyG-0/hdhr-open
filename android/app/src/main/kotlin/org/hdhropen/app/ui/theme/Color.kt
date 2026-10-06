@@ -7,6 +7,7 @@ val BlueDark = Color(0xFF1976D2)
 val YellowAccent = Color(0xFFFFD54F)
 val RedLive = Color(0xFFE53935)
 val GreenActive = Color(0xFF4CAF50)
+val OrangeCommercial = Color(0xFFFF9800)
 
 val DarkBackground = Color(0xFF0F0F12)
 val DarkSurface = Color(0xFF18181D)

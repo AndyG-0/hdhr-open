@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from app.integrations import hdhomerun_client
+from app.storage import db
 from app.storage.cache import cache
 
 TUNER_SETTINGS = {"tuner_host": "hdhr.local", "tuner_port": 80, "dvr_host": "", "dvr_port": 50000}
@@ -272,13 +273,16 @@ async def test_fetch_dvr_recordings_maps_fields():
         )
     )
     respx.get("http://dvr.local:50000/recorded_files.json").mock(
-        return_value=httpx.Response(200, json=[{"Title": "Local News", "ChannelAffiliate": "NBC"}])
+        return_value=httpx.Response(
+            200, json=[{"Title": "Local News", "ChannelAffiliate": "NBC", "Filename": "News/Local_News.mpg"}]
+        )
     )
 
     recordings = await hdhomerun_client.fetch_dvr_recordings(DVR_SETTINGS)
 
     assert recordings[0]["title"] == "Local News"
     assert recordings[0]["channel_name"] == "NBC"
+    assert recordings[0]["filename"] == "News/Local_News.mpg"
 
 
 @respx.mock
@@ -626,6 +630,134 @@ async def test_add_recording_rule_requires_channel_for_datetime_only():
             TUNER_SETTINGS, {"series_id": "EP123", "date_time": 1725465600}
         )
     assert "requires a channel" in str(exc_info.value)
+
+
+def test_resolve_account_tier_unknown_with_no_cached_guide_data(tmp_db):
+    assert hdhomerun_client.resolve_account_tier() == "unknown"
+
+
+def test_resolve_account_tier_free_when_cloud_guide_window_is_narrow(tmp_db):
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_1",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP1",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 3600,
+                "end_ts": time.time() + 5400,
+            }
+        ]
+    )
+    assert hdhomerun_client.resolve_account_tier() == "free"
+
+
+def test_resolve_account_tier_paid_when_cloud_guide_window_is_wide(tmp_db):
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_1",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP1",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 10 * 86400,
+                "end_ts": time.time() + 10 * 86400 + 1800,
+            }
+        ]
+    )
+    assert hdhomerun_client.resolve_account_tier() == "paid"
+
+
+def test_resolve_account_tier_ignores_non_cloud_guide_data(tmp_db):
+    # A wide xmltv/Schedules Direct guide window says nothing about the
+    # HDHomeRun cloud account's own subscription tier.
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_1",
+                "channel_id": "ch_41",
+                "source_provider": "xmltv",
+                "external_program_id": "EP1",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 10 * 86400,
+                "end_ts": time.time() + 10 * 86400 + 1800,
+            }
+        ]
+    )
+    assert hdhomerun_client.resolve_account_tier() == "unknown"
+
+
+def test_tuner_transcode_url_appends_profile_query():
+    url = hdhomerun_client.tuner_transcode_url(TUNER_SETTINGS, "7.1", "mobile")
+
+    assert url == "http://hdhr.local:5004/auto/v7.1?transcode=mobile"
+    assert hdhomerun_client.raw_stream_url(TUNER_SETTINGS, "7.1") in url
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_true_for_extend_model_number():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDTC-2US"})
+    )
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_false_for_non_extend_model_number():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDFX-4K"})
+    )
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is False
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_false_when_discover_unreachable():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(return_value=httpx.Response(500))
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is False
+
+
+@respx.mock
+async def test_probe_tuner_transcode_support_caches_positive_result():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    route = respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDTC-2US"})
+    )
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+    # Second call must be served from cache, not a second discover.json fetch.
+    assert route.call_count == 1
+
+
+def test_record_tuner_transcode_failure_caches_negative_result():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    hdhomerun_client.record_tuner_transcode_failure(TUNER_SETTINGS)
+
+    assert cache.get("tuner_transcode_support:hdhr.local") is False
+
+
+@respx.mock
+async def test_record_tuner_transcode_failure_overrides_cached_probe():
+    cache.delete("tuner_transcode_support:hdhr.local")
+    respx.get("http://hdhr.local:80/discover.json").mock(
+        return_value=httpx.Response(200, json={**DISCOVER_RESPONSE, "ModelNumber": "HDTC-2US"})
+    )
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is True
+
+    hdhomerun_client.record_tuner_transcode_failure(TUNER_SETTINGS)
+
+    assert await hdhomerun_client.probe_tuner_transcode_support(TUNER_SETTINGS) is False
 
 
 

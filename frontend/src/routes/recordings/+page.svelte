@@ -629,10 +629,17 @@
 					<div class="rule-card">
 						<div class="rule-title">{rule.Title}</div>
 						<div class="rule-details">
-							<span class="rule-server-badge {((rule.provider ?? rule.Provider) ?? 'builtin')}">
+							<span
+								class="rule-server-badge {((rule.provider ?? rule.Provider) ?? 'builtin')}"
+								title={((rule.provider ?? rule.Provider) === 'hdhomerun_series_watch')
+									? $_('hdhomerun.detail.server_badge_series_watch_tooltip')
+									: undefined}
+							>
 								{((rule.provider ?? rule.Provider) === 'hdhomerun')
 									? $_('hdhomerun.detail.server_badge_hdhomerun')
-									: $_('hdhomerun.detail.server_badge_builtin')}
+									: ((rule.provider ?? rule.Provider) === 'hdhomerun_series_watch')
+										? $_('hdhomerun.detail.server_badge_series_watch')
+										: $_('hdhomerun.detail.server_badge_builtin')}
 							</span>
 							{#if rule.fallback_reason || rule.FallbackReason}
 								<span
@@ -1116,5 +1123,10 @@
 	.rule-server-badge.hdhomerun {
 		border-color: var(--color-accent);
 		color: var(--color-accent);
+	}
+
+	.rule-server-badge.hdhomerun_series_watch {
+		border-color: var(--color-warning, #d9a441);
+		color: var(--color-warning, #d9a441);
 	}
 </style>

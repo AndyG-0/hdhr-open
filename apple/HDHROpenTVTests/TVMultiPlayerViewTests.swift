@@ -103,6 +103,7 @@ final class TVMultiPlayerViewTests: XCTestCase {
             onAddToMultiView: {}
         )
         .environmentObject(guideViewModel)
+        .environmentObject(PlaybackPreferences())
 
         let inspection = try controls.inspect()
         XCTAssertNoThrow(try inspection.find(where: { view in

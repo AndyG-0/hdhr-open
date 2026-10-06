@@ -58,6 +58,7 @@ describe('PlaybackSection', () => {
 				hwaccel_device: '/dev/dri/renderD128',
 				ffmpeg_debug: false,
 				thumbnails_enabled: true,
+				max_bitrate_mbps: 5,
 			}),
 		);
 		expect(await screen.findByText('Saved.')).toBeInTheDocument();

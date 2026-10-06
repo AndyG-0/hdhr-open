@@ -11,6 +11,7 @@ export interface AppSettings {
 	dvr_server_priority: string;
 	sports_extension_enabled: string;
 	sports_extension_max_minutes: string;
+	comskip_mode: string;
 }
 
 // A Google Cast receiver device fetches this playlist directly over HTTP
@@ -98,8 +99,9 @@ export interface HDHomeRunRecordingRule {
 	MaxEpisodesToKeep?: number | null;
 	TitleMatchMode?: 'exact' | 'contains';
 	KeywordQuery?: string | null;
-	Provider?: 'builtin' | 'hdhomerun';
-	provider?: 'builtin' | 'hdhomerun';
+	ComskipOverride?: 'default' | 'always' | 'never';
+	Provider?: 'builtin' | 'hdhomerun' | 'hdhomerun_series_watch';
+	provider?: 'builtin' | 'hdhomerun' | 'hdhomerun_series_watch';
 	FallbackReason?: string | null;
 	fallback_reason?: string | null;
 }
@@ -114,6 +116,7 @@ export interface RecordingRuleOptions {
 	titleMatchMode?: 'exact' | 'contains';
 	keywordQuery?: string | null;
 	channel?: string | null;
+	comskipOverride?: 'default' | 'always' | 'never';
 }
 
 export interface HDHomeRunFullGuideChannel {
@@ -289,6 +292,7 @@ export interface HDHomeRunRecording {
 	category_type?: 'shows' | 'movies' | 'sports';
 	is_dvr_file?: boolean;
 	provider?: 'builtin' | 'hdhomerun';
+	status?: string;
 }
 
 export interface HDHomeRunRecordingVideoInfo {
@@ -571,7 +575,7 @@ async function getJSON<T>(path: string, options?: RequestOptions): Promise<T> {
 		logger.warn(`Request to ${path} failed: ${response.status}`);
 		throw new Error(message);
 	}
-	return response.json();
+	return _parseJsonBody<T>(response);
 }
 
 async function patchJSON<T>(path: string, body: Record<string, unknown>, options?: RequestOptions): Promise<T> {
@@ -588,7 +592,7 @@ async function patchJSON<T>(path: string, body: Record<string, unknown>, options
 		logger.warn(`Request to ${path} failed: ${response.status}`);
 		throw new Error(message);
 	}
-	return response.json();
+	return _parseJsonBody<T>(response);
 }
 
 async function putJSON<T>(path: string, body?: Record<string, unknown>, options?: RequestOptions): Promise<T> {
@@ -607,7 +611,22 @@ async function putJSON<T>(path: string, body?: Record<string, unknown>, options?
 		logger.warn(`Request to ${path} failed: ${response.status}`);
 		throw new Error(message);
 	}
-	return response.json();
+	return _parseJsonBody<T>(response);
+}
+
+// A 204 (or any other empty-bodied success response, e.g. heartbeat_watch's
+// 204 No Content) has nothing for response.json() to parse - calling it
+// anyway throws a SyntaxError ("Unexpected end of JSON input") as an
+// unhandled rejection at whatever interval the caller polls on. Treating
+// that specific failure as "nothing to parse" lets a `Promise<void>`-typed
+// call just resolve with undefined instead.
+async function _parseJsonBody<T>(response: Response): Promise<T> {
+	try {
+		return (await response.json()) as T;
+	} catch (err) {
+		if (err instanceof SyntaxError) return undefined as T;
+		throw err;
+	}
 }
 
 // Reads a failed response's `{detail: string}` body (FastAPI's HTTPException
@@ -643,7 +662,7 @@ async function postJSON<T>(path: string, body?: Record<string, unknown>, options
 		logger.warn(`Request to ${path} failed: ${response.status}`);
 		throw new Error(message);
 	}
-	return response.json();
+	return _parseJsonBody<T>(response);
 }
 
 async function deleteJSON<T>(path: string, options?: RequestOptions): Promise<T> {
@@ -658,7 +677,7 @@ async function deleteJSON<T>(path: string, options?: RequestOptions): Promise<T>
 		logger.warn(`Request to ${path} failed: ${response.status}`);
 		throw new Error(message);
 	}
-	return response.json();
+	return _parseJsonBody<T>(response);
 }
 
 // No EventSource here — it can't send POST bodies or credentials, and the
@@ -752,12 +771,13 @@ export const api = {
 	hdhomerunPlaybackUrl: (url: string) => (url.startsWith('/') ? `${env.PUBLIC_API_BASE_URL}${url}` : url),
 	hdhomerunRecordingStreamUrl: (
 		playUrl: string,
-		options?: { start?: number; audioIndex?: number; recordingId?: string | null },
+		options?: { start?: number; audioIndex?: number; recordingId?: string | null; quality?: string | null },
 	) => {
 		const params = new URLSearchParams({ url: playUrl });
 		if (options?.start !== undefined) params.set('start', String(options.start));
 		if (options?.audioIndex !== undefined) params.set('audio_index', String(options.audioIndex));
 		if (options?.recordingId) params.set('recording_id', options.recordingId);
+		if (options?.quality) params.set('quality', options.quality);
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-stream?${params.toString()}`;
 	},
 	hdhomerunRecordingDetail: (options: {
@@ -870,6 +890,7 @@ export const api = {
 		title?: string;
 		title_match_mode?: 'exact' | 'contains';
 		keyword_query?: string | null;
+		comskip_override?: 'default' | 'always' | 'never';
 	}) => postJSON<HDHomeRunRecordingRule[]>('/api/dvr/recording-rules', rule),
 	updateHDHomeRunRecordingRule: (
 		ruleId: string,
@@ -885,6 +906,7 @@ export const api = {
 			title?: string;
 			title_match_mode?: 'exact' | 'contains';
 			keyword_query?: string | null;
+			comskip_override?: 'default' | 'always' | 'never';
 		},
 	) => putJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`, rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>
@@ -1010,8 +1032,12 @@ export const api = {
 	// streaming. session_id identifies this viewer's own lifecycle for
 	// heartbeat/stop/promote, distinct from the shared recording_id. See
 	// backend/app/api/watch.py.
-	startWatch: (channelNumber: string) =>
-		postJSON<HDHomeRunRecording | { recording_id: null; session_id: null }>(`/api/watch/${channelNumber}/start`),
+	startWatch: (channelNumber: string, quality?: string | null) => {
+		const params = quality ? `?${new URLSearchParams({ quality }).toString()}` : '';
+		return postJSON<HDHomeRunRecording | { recording_id: null; session_id: null }>(
+			`/api/watch/${channelNumber}/start${params}`,
+		);
+	},
 	heartbeatWatch: (sessionId: string) => postJSON<void>(`/api/watch/${sessionId}/heartbeat`),
 	promoteWatch: (
 		sessionId: string,

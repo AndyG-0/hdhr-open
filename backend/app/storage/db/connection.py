@@ -427,6 +427,44 @@ def _migration_9(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE recording_rules ADD COLUMN fallback_reason TEXT")
 
 
+def _migration_10(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recording_rules" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recording_rules)").fetchall()}
+        if "comskip_override" not in cols:
+            conn.execute(
+                "ALTER TABLE recording_rules ADD COLUMN comskip_override TEXT NOT NULL DEFAULT 'default'"
+            )
+    if "recordings" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "comskip_status" not in cols:
+            conn.execute("ALTER TABLE recordings ADD COLUMN comskip_status TEXT")
+
+
+def _migration_11(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recordings" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "comskip_attempts" not in cols:
+            conn.execute("ALTER TABLE recordings ADD COLUMN comskip_attempts INTEGER NOT NULL DEFAULT 0")
+
+
+# Comskip status/attempt tracking for HDHomeRun-DVR recordings, which have
+# no row of their own in `recordings` (that table is scoped to builtin-DVR
+# files only - see its own comment). Keyed by the HDHomeRun engine's
+# recording ID rather than embedded in `recordings`, since these recordings
+# are never persisted there at all.
+_MIGRATION_12 = """
+CREATE TABLE IF NOT EXISTS hdhomerun_comskip_status (
+    recording_id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    status TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT
+);
+"""
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -437,6 +475,9 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _migration_7,
     _migration_8,
     _migration_9,
+    _migration_10,
+    _migration_11,
+    _MIGRATION_12,
 )
 
 

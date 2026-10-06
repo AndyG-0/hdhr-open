@@ -46,6 +46,7 @@ fun SettingsScreen(
     val transcodePresets by settingsViewModel.transcodePresets.collectAsState()
     val hwAccelDiagnostics by settingsViewModel.hwAccelDiagnostics.collectAsState()
     val directPlayEnabled by playbackPreferences.directPlayEnabled.collectAsState()
+    val autoSkipCommercialsEnabled by playbackPreferences.autoSkipCommercialsEnabled.collectAsState()
     val themeMode by themePreferences.themeMode.collectAsState()
 
     var showServerSetupDialog by remember { mutableStateOf(false) }
@@ -229,6 +230,29 @@ fun SettingsScreen(
                         Switch(
                             checked = directPlayEnabled,
                             onCheckedChange = { playbackPreferences.setDirectPlayEnabled(it) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-skip Commercials",
+                                style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Automatically skip past detected commercial breaks during playback, without needing to tap Skip Commercial.",
+                                style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                        }
+                        Switch(
+                            checked = autoSkipCommercialsEnabled,
+                            onCheckedChange = { playbackPreferences.setAutoSkipCommercialsEnabled(it) }
                         )
                     }
                 }

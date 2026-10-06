@@ -4,6 +4,7 @@
 		HDHomeRunChannel,
 		HDHomeRunFullGuideChannel,
 		HDHomeRunGuideEntry,
+		HDHomeRunRecording,
 		HDHomeRunRecordingRule,
 		RecordingRuleOptions,
 	} from '$lib/api';
@@ -18,6 +19,7 @@
 		channels: HDHomeRunChannel[];
 		fullGuide: HDHomeRunFullGuideChannel[] | null;
 		recordingRules: HDHomeRunRecordingRule[];
+		activeRecordings?: HDHomeRunRecording[];
 		pendingRuleIds: Set<string>;
 		favoriteChannels: Set<string>;
 		savingFavorite: boolean;
@@ -42,6 +44,7 @@
 		channels,
 		fullGuide,
 		recordingRules,
+		activeRecordings = [],
 		pendingRuleIds,
 		favoriteChannels,
 		savingFavorite,
@@ -407,6 +410,38 @@
 		return findMatchingRecordingRuleIndexed(ruleIndex, channel.channel_number, airing);
 	}
 
+	// A capture in progress isn't necessarily tied to a recording rule — a
+	// user can promote a live-watch session straight to a standalone
+	// recording without ever creating one. Index actively-recording captures
+	// by channel so the grid can still flag those as recording even though
+	// findExistingRule (rule-title/time matching only) has nothing to match.
+	//
+	// Indexed by the capture's *start* timestamp only, not its full
+	// [start, record_end) range: a live sports capture's record_end gets
+	// pushed forward well past the original airing by the backend's
+	// sports-overrun extension (to avoid cutting off a close/overtime game),
+	// which can reach into the guide's next several slots on that channel.
+	// Matching the full range would then wrongly flag those later, unrelated
+	// airings as "recording" too — matching only where the capture began
+	// pins the badge to the one airing actually being captured.
+	const activeRecordingsByChannel = $derived.by(() => {
+		const map = new Map<string, number[]>();
+		for (const rec of activeRecordings) {
+			if (rec.status !== 'recording' || !rec.channel_number || rec.start == null) continue;
+			const starts = map.get(rec.channel_number) ?? [];
+			starts.push(rec.start);
+			map.set(rec.channel_number, starts);
+		}
+		return map;
+	});
+
+	function hasActiveRecording(airing: HDHomeRunGuideEntry, channel: HDHomeRunChannel): boolean {
+		if (airing.start == null || airing.end == null) return false;
+		const starts = activeRecordingsByChannel.get(channel.channel_number);
+		if (!starts) return false;
+		return starts.some((s) => s >= airing.start! && s < airing.end!);
+	}
+
 	function isLoadingFor(
 		airing: HDHomeRunGuideEntry,
 		channel: HDHomeRunChannel,
@@ -472,7 +507,7 @@
 					channel,
 					airing,
 					isLive: isLive(airing),
-					isRecording: rule !== null,
+					isRecording: rule !== null || hasActiveRecording(airing, channel),
 					isPending: rule !== null && pendingRuleIds.has(rule.RecordingRuleID),
 				});
 			}
@@ -883,6 +918,18 @@
 							{#if existingRule && pendingRuleIds.has(existingRule.RecordingRuleID)}
 								<span class="cell-live-badge cell-pending-badge">{$_('hdhomerun.detail.pending_recording_badge')}</span>
 							{:else if existingRule}
+								<span class="cell-live-badge">{$_('hdhomerun.tile.recording_badge')}</span>
+								{#if existingRule.fallback_reason || existingRule.FallbackReason}
+									<span
+										class="cell-live-badge cell-fallback-badge"
+										title={existingRule.fallback_reason ||
+											existingRule.FallbackReason ||
+											$_('hdhomerun.detail.fallback_tooltip')}
+									>
+										{$_('hdhomerun.detail.fallback_badge')}
+									</span>
+								{/if}
+							{:else if hasActiveRecording(cell.airing, channel)}
 								<span class="cell-live-badge">{$_('hdhomerun.tile.recording_badge')}</span>
 							{/if}
 						</div>
@@ -1595,5 +1642,11 @@
 
 	.cell-pending-badge {
 		color: var(--color-warning, #d9a441);
+	}
+
+	.cell-fallback-badge {
+		margin-left: 0.25rem;
+		color: var(--color-warning, #d9a441);
+		border-bottom: 1px dotted var(--color-warning, #d9a441);
 	}
 </style>

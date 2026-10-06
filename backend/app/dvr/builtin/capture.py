@@ -94,6 +94,7 @@ class ActiveCapture:
     category: str | None = None
     drain_task: asyncio.Task[None] | None = None
     is_temporary: bool = False
+    capture_quality: str | None = None
     viewer_session_ids: set[str] = field(default_factory=set)
     stderr_tail: bytearray = field(default_factory=bytearray)
     stderr_drain_done: asyncio.Event = field(default_factory=asyncio.Event)
@@ -149,15 +150,36 @@ class CapturePipeline:
         category: str | None = None,
         image_url: str | None = None,
         is_temporary: bool = False,
+        quality: str | None = None,
     ) -> ActiveCapture | None:
-        """Launch an FFmpeg stream-copy process writing to RECORDINGS_DIR."""
+        """Launch an FFmpeg stream-copy process writing to RECORDINGS_DIR.
+
+        `quality`, when it names a tier in transcoding.TUNER_TRANSCODE_PROFILES
+        and the tuner reports EXTEND-class hardware (see
+        hdhomerun_client.probe_tuner_transcode_support), sources this capture
+        from the tuner's own hardware-transcoded output instead of its raw
+        stream - the capture ffmpeg still only stream-copies (the video is
+        already encoded on the tuner's side), but re-encodes audio to AAC
+        stereo since the tuner's own `?transcode=` audio handling is
+        undocumented and this app already depends on that normalization for
+        browser playback. Callers are responsible for falling back to a plain
+        call (quality=None) if the resulting capture never produces data.
+        """
         if not hdhomerun_client.is_tuner_configured(settings):
             logger.error("Cannot start capture: tuner is not configured")
             return None
 
-        raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
+        profile = transcoding.TUNER_TRANSCODE_PROFILES.get(quality or "")
+        using_tuner_transcode = profile is not None and await hdhomerun_client.probe_tuner_transcode_support(
+            settings
+        )
+        if using_tuner_transcode:
+            raw_url = hdhomerun_client.tuner_transcode_url(settings, channel_number, profile)
+        else:
+            raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
         file_path = self.generate_file_path(title, start_ts, recording_id)
 
+        codec_args = ["-c:v", "copy", "-c:a", "aac", "-ac", "2"] if using_tuner_transcode else ["-c", "copy"]
         argv = [
             "ffmpeg",
             "-hide_banner",
@@ -173,8 +195,7 @@ class CapturePipeline:
             "5",
             "-i",
             raw_url,
-            "-c",
-            "copy",
+            *codec_args,
             "-map",
             "0",
             "-flush_packets",
@@ -235,6 +256,7 @@ class CapturePipeline:
             process=process,
             drain_task=drain_task,
             is_temporary=is_temporary,
+            capture_quality=quality if using_tuner_transcode else None,
             stderr_tail=stderr_tail,
             stderr_drain_done=stderr_drain_done,
         )
@@ -284,6 +306,112 @@ class CapturePipeline:
         )
 
         return capture
+
+    async def retune_to_raw(self, recording_id: str, settings: dict[str, Any]) -> bool:
+        """Swap a running capture's writer from a tuner-hardware-transcoded
+        source back to the tuner's raw stream, in place: same recording_id,
+        same growing file (appended to, not truncated) - so callers
+        (watch.promote_watch) don't need to change anything the player/DB
+        already knows this capture by. No-op (returns False, capture left
+        exactly as it was) if there's no active capture for recording_id or
+        it isn't currently on a tuner-transcode profile.
+
+        The old writer is fully terminated before the new one is spawned
+        (rather than overlapping them) so the two processes never race to
+        write the same file region - at the cost of a brief gap with no
+        new data captured, which is an acceptable one-time cost for a
+        user-initiated promote action.
+
+        Returns False if the new writer couldn't be started - in that case
+        the old one is already gone, so the capture's writer is gone too;
+        callers should treat this capture as broken rather than promotable.
+        """
+        async with self._lock:
+            capture = self._active_captures.get(recording_id)
+        if capture is None or not capture.capture_quality:
+            return False
+
+        old_process = capture.process
+        old_drain_task = capture.drain_task
+        await terminate_process(old_process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS)
+        if old_drain_task is not None and not old_drain_task.done():
+            old_drain_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await old_drain_task
+
+        raw_url = hdhomerun_client.raw_stream_url(settings, capture.channel_number)
+        argv = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            transcoding.resolve_loglevel(settings),
+            "-reconnect",
+            "1",
+            "-reconnect_at_eof",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "5",
+            "-i",
+            raw_url,
+            "-c",
+            "copy",
+            "-map",
+            "0",
+            "-flush_packets",
+            "1",
+            "-f",
+            "mpegts",
+            "pipe:1",
+        ]
+
+        logger.info(
+            "Retuning capture [%s] from tuner-transcode profile '%s' back to raw: %s -> %s",
+            recording_id,
+            capture.capture_quality,
+            raw_url,
+            capture.file_path,
+        )
+
+        try:
+            dest = await asyncio.to_thread(open, capture.file_path, "ab")
+        except OSError as exc:
+            logger.error("Cannot retune capture [%s] to raw: could not open %s for append: %s",
+                         recording_id, capture.file_path, exc)
+            return False
+        try:
+            new_process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=dest,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except (FileNotFoundError, OSError) as exc:
+            logger.error("Failed to launch raw-retune ffmpeg for capture %s: %s", recording_id, exc)
+            return False
+        finally:
+            dest.close()
+
+        new_stderr_tail = bytearray()
+        new_stderr_drain_done = asyncio.Event()
+        new_drain_task = None
+        if new_process.stderr is not None:
+            new_drain_task = asyncio.create_task(
+                drain_stderr_tail(
+                    new_process.stderr, new_stderr_tail, new_stderr_drain_done, tail_bytes=STDERR_TAIL_BYTES
+                )
+            )
+        else:
+            new_stderr_drain_done.set()
+
+        async with self._lock:
+            capture.process = new_process
+            capture.drain_task = new_drain_task
+            capture.stderr_tail = new_stderr_tail
+            capture.stderr_drain_done = new_stderr_drain_done
+            capture.capture_quality = None
+        return True
 
     async def stop_capture(self, recording_id: str) -> dict[str, Any] | None:
         """Gracefully terminate FFmpeg capture, finalize database record and return stats."""
@@ -437,6 +565,34 @@ class CapturePipeline:
         capture's writer still running? (A dict lookup is atomic under the
         GIL, so no lock is needed for a single membership check.)"""
         return recording_id in self._active_captures
+
+    async def wait_for_data(
+        self,
+        recording_id: str,
+        min_bytes: int,
+        timeout_seconds: float,
+        poll_seconds: float = 0.2,
+    ) -> bool:
+        """Block until recording_id's capture has written at least min_bytes,
+        or return False if it disappears, its writer process exits, or
+        timeout_seconds elapses first. Used to confirm a capture actually
+        works right after starting it - e.g. watch.py falling back to a raw
+        capture when a tuner-hardware-transcode attempt never produces data."""
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            capture = self._active_captures.get(recording_id)
+            if capture is None:
+                return False
+            try:
+                if capture.file_path.stat().st_size >= min_bytes:
+                    return True
+            except OSError:
+                pass
+            if capture.process is not None and capture.process.returncode is not None:
+                return False
+            if time.monotonic() >= deadline:
+                return False
+            await asyncio.sleep(poll_seconds)
 
     async def add_viewer(self, recording_id: str, session_id: str) -> bool:
         """Register a live viewer against an active capture. Returns False if

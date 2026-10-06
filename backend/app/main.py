@@ -26,6 +26,7 @@ from app.api import tuner as tuner_api
 from app.api import users as users_api
 from app.api import watch as watch_api
 from app.config import DB_PATH, SECRET_KEY_PATH, settings
+from app.dvr.builtin import comskip as comskip_sweep
 from app.dvr.builtin import engine as dvr_engine
 from app.dvr.builtin import sports_extension
 from app.dvr.builtin.capture import CAPTION_EXTRACTION_JOB_ID
@@ -33,6 +34,7 @@ from app.guide import cleanup as guide_cleanup
 from app.guide import schedules_direct as schedules_direct_guide
 from app.guide import service as hdhomerun_guide
 from app.guide import xmltv as xmltv_guide
+from app.integrations import hdhomerun_series_watch
 from app.logging_config import configure_logging, request_id_ctx
 from app.scheduler import scheduler
 from app.storage.db import init_db
@@ -73,6 +75,8 @@ async def lifespan(app: FastAPI):
     guide_cleanup.register(scheduler)
     dvr_engine.register(scheduler)
     sports_extension.register(scheduler)
+    hdhomerun_series_watch.register(scheduler)
+    comskip_sweep.register(scheduler)
     await hls_streaming.sweep_session_dir_on_startup()
     hls_streaming.register(scheduler)
     scheduler.start()

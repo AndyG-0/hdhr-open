@@ -92,6 +92,13 @@ class Settings(BaseSettings):
     sports_extension_enabled: str = "false"
     sports_extension_max_minutes: str = "240"
 
+    # Global policy for the comskip sweep (see app.dvr.builtin.comskip):
+    # "all" (detect commercials on every completed recording), "none" (never
+    # run comskip), or "per_rule" (let each recording rule's own override
+    # decide). A rule's own override always takes precedence over this value
+    # when it is "always"/"never" — see resolve_comskip_mode's callers.
+    comskip_mode: str = "all"
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origin.split(",") if origin.strip()]
@@ -107,6 +114,7 @@ APP_SETTINGS_KEYS = (
     "dvr_server_priority",
     "sports_extension_enabled",
     "sports_extension_max_minutes",
+    "comskip_mode",
 )
 
 # The subset of APP_SETTINGS_KEYS that hold credentials/tokens rather than
@@ -170,3 +178,10 @@ def resolve_sports_extension_max_minutes(raw_value: str | None = None) -> int:
         return max(0, int(str(raw_value).strip()))
     except ValueError:
         return 240
+
+
+def resolve_comskip_mode(raw_value: str | None = None) -> str:
+    if raw_value is None:
+        raw_value = effective_settings().get("comskip_mode", "all")
+    value = str(raw_value).strip().lower()
+    return value if value in ("all", "none", "per_rule") else "all"

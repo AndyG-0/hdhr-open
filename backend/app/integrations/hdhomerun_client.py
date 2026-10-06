@@ -58,6 +58,20 @@ _FULL_GUIDE_PAGE_HOURS = 24
 _FULL_GUIDE_MAX_DAYS = 14
 _FULL_GUIDE_MAX_REQUESTS = 20
 
+# Per SiliconDust's own docs (info.hdhomerun.com/info/app:recording), a free
+# account can schedule single/one-time recordings but not auto-record (series)
+# rules — those require a full guide/DVR subscription. A free-tier series
+# rule is accepted by the recording_rules API (200 OK, appears in the rules
+# list) and then silently never executes upstream, with no error anywhere
+# this client can see. There is likewise no API field that reports account
+# tier directly. The cloud guide window is the one observable side effect of
+# tier (free accounts' guide.php stops returning new data ~3 days out; DVR
+# subscribers get the full 14 — see _FULL_GUIDE_MAX_DAYS above), so
+# resolve_account_tier uses it as a proxy. The threshold sits well above the
+# free ceiling and well below the paid one so ordinary day-boundary jitter on
+# either side doesn't misclassify.
+_FREE_TIER_GUIDE_WINDOW_THRESHOLD_DAYS = 7
+
 
 class HDHomeRunError(Exception):
     """Raised when an HDHomeRun device can't be reached or rejects a request."""
@@ -103,6 +117,71 @@ def raw_stream_url(settings: dict[str, Any], channel_number: str) -> str:
     port configured via `tuner_port`)."""
     host = _normalize_host(settings["tuner_host"])
     return f"http://{host}:5004/auto/v{channel_number}"
+
+
+def tuner_transcode_url(settings: dict[str, Any], channel_number: str, profile: str) -> str:
+    """The tuner's *hardware-transcoded* stream URL for a channel — same
+    endpoint as `raw_stream_url`, with HDHomeRun's own `?transcode=<profile>`
+    appended (https://info.hdhomerun.com/info/http_api#transcode_profiles).
+
+    Only EXTEND-model tuners have the transcoder chip behind this; see
+    `probe_tuner_transcode_support`. `profile` is one of HDHomeRun's own
+    profile names (`heavy`, `mobile`, `internet540`, `internet480`,
+    `internet360`, `internet240`), not validated here — an unsupported
+    profile string just fails the same way an unsupported device does (the
+    caller's real capture attempt fails to produce data).
+    """
+    return f"{raw_stream_url(settings, channel_number)}?transcode={profile}"
+
+
+# discover.json has no documented "can this unit hardware-transcode" flag -
+# only a `ModelNumber` string. EXTEND units are the HDTC-* family ("TC" for
+# TransCode), which is enough to skip the real probe below on hardware
+# that's obviously not EXTEND (Connect/Flex/Flex 4K) without ever touching
+# the tuner. It's a heuristic, not a documented guarantee — a genuinely
+# unsupported unit that happens to pass this prefilter still gets caught by
+# the real-attempt failure path in app/dvr/builtin/capture.py, which is what
+# actually proves support one way or the other.
+_EXTEND_MODEL_PREFIX = "HDTC"
+_TUNER_TRANSCODE_CACHE_PREFIX = "tuner_transcode_support:"
+# How long a prefilter result (from discover.json alone) is trusted before
+# re-checking - cheap to redo, but no reason to hit discover.json on every
+# single watch-session start.
+_TUNER_TRANSCODE_CACHE_TTL_SECONDS = 3600
+# A *real* failed transcode attempt (the unit claimed EXTEND-like naming but
+# the actual `?transcode=` request never produced data) is trusted for
+# longer before retrying - avoids repeatedly wasting a tuning attempt on
+# hardware that's already proven not to support this.
+_TUNER_TRANSCODE_NEGATIVE_TTL_SECONDS = 6 * 3600
+
+
+async def probe_tuner_transcode_support(settings: dict[str, Any]) -> bool:
+    """Best-effort "can this tuner hardware-transcode" check, cached per
+    tuner host. Never raises - any failure to even reach discover.json is
+    treated as "no", consistent with every other HDHomeRun capability check
+    in this module degrading to unavailable rather than surfacing an error
+    for what's always an optional code path."""
+    host = _normalize_host(settings.get("tuner_host", ""))
+    cache_key = f"{_TUNER_TRANSCODE_CACHE_PREFIX}{host}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return bool(cached)
+    try:
+        discover = await fetch_discover(settings)
+    except HDHomeRunError:
+        return False
+    model = str(discover.get("ModelNumber") or "")
+    supported = model.upper().startswith(_EXTEND_MODEL_PREFIX)
+    cache.set(cache_key, supported, _TUNER_TRANSCODE_CACHE_TTL_SECONDS)
+    return supported
+
+
+def record_tuner_transcode_failure(settings: dict[str, Any]) -> None:
+    """A real `?transcode=` capture attempt failed to produce data - cache a
+    longer-lived negative result so the next watch-session start doesn't
+    immediately retry the same losing attempt against this tuner host."""
+    host = _normalize_host(settings.get("tuner_host", ""))
+    cache.set(f"{_TUNER_TRANSCODE_CACHE_PREFIX}{host}", False, _TUNER_TRANSCODE_NEGATIVE_TTL_SECONDS)
 
 
 def _dvr_base_url(settings: dict[str, Any]) -> str:
@@ -411,6 +490,23 @@ def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[s
     }
 
 
+def resolve_account_tier() -> str:
+    """Best-effort "free" | "paid" | "unknown" classification of the
+    configured HDHomeRun account's DVR subscription tier — see
+    _FREE_TIER_GUIDE_WINDOW_THRESHOLD_DAYS above for why/how. "unknown" means
+    no hdhomerun_cloud guide data is cached yet (e.g. right after setup,
+    before the first guide refresh has run); callers should treat that the
+    same as "paid" (don't block anything) rather than guess from no data.
+    """
+    from app.storage import db
+
+    max_start_ts = db.get_max_guide_start_ts("hdhomerun_cloud")
+    if max_start_ts is None:
+        return "unknown"
+    days_out = (max_start_ts - time.time()) / 86400
+    return "free" if days_out < _FREE_TIER_GUIDE_WINDOW_THRESHOLD_DAYS else "paid"
+
+
 async def fetch_full_guide(settings: dict[str, Any], widget_id: str) -> list[dict[str, Any]] | None:
     guide_cache_key = f"hdhomerun_full_guide:{widget_id}"
     cached = cache.get(guide_cache_key)
@@ -665,6 +761,11 @@ def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:
         # still-recording (record_end in the future) entry.
         "duration_seconds": (record_end - start) if (start is not None and record_end is not None) else None,
         "play_url": play_url,
+        # The HDHomeRun DVR engine's own filename, relative to its storage
+        # root - lets a locally-mounted copy of that storage (see
+        # `dvr_recordings_path`) resolve this recording to a real file on
+        # disk for comskip, since `play_url` above is always a remote URL.
+        "filename": entry.get("Filename"),
         "image_url": entry.get("ImageURL"),
         "category": entry.get("Category"),
         "category_type": _classify_hdhomerun_category(entry),

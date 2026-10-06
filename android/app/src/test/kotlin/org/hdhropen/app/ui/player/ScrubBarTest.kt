@@ -3,8 +3,10 @@ package org.hdhropen.app.ui.player
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import org.hdhropen.app.ui.screens.player.CommercialSegmentCountKey
 import org.hdhropen.app.ui.screens.player.ScrubBar
 import org.hdhropen.app.ui.theme.HDHROpenTheme
+import org.hdhropen.kit.models.CommercialSegment
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -156,5 +158,47 @@ class ScrubBarTest {
         }
 
         assertNull(seekTarget)
+    }
+
+    @Test
+    fun testScrubBarRendersOneCommercialBandPerSegmentWhenDurationKnown() {
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                ScrubBar(
+                    currentTime = 0.0,
+                    duration = 3600.0,
+                    isLive = false,
+                    isSeekable = true,
+                    thumbnailCues = emptyList(),
+                    onSeek = {},
+                    commercialSegments = listOf(
+                        CommercialSegment(startSeconds = 100.0, endSeconds = 160.0),
+                        CommercialSegment(startSeconds = 500.0, endSeconds = 560.0)
+                    )
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("ScrubBarTrack")
+            .assert(SemanticsMatcher.expectValue(CommercialSegmentCountKey, 2))
+    }
+
+    @Test
+    fun testScrubBarOmitsCommercialBandsWhenNoSegments() {
+        composeTestRule.setContent {
+            HDHROpenTheme {
+                ScrubBar(
+                    currentTime = 0.0,
+                    duration = 3600.0,
+                    isLive = false,
+                    isSeekable = true,
+                    thumbnailCues = emptyList(),
+                    onSeek = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithTag("ScrubBarTrack")
+            .assert(SemanticsMatcher.expectValue(CommercialSegmentCountKey, 0))
     }
 }

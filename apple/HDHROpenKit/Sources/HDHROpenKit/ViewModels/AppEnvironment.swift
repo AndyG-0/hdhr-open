@@ -16,6 +16,7 @@ public final class AppEnvironment: ObservableObject {
     public let playerViewModel: PlayerViewModel
     public let multiPlayerViewModel: MultiPlayerViewModel
     public let themeManager: ThemeManager
+    public let playbackPreferences: PlaybackPreferences
 
     public init(defaultURLString: String = "http://127.0.0.1:8000") {
         let discovery = ServerDiscovery(defaultURL: defaultURLString)
@@ -34,7 +35,9 @@ public final class AppEnvironment: ObservableObject {
         tunerViewModel = TunerViewModel(apiClient: client)
         settingsViewModel = SettingsViewModel(apiClient: client, serverDiscovery: discovery)
         authViewModel = AuthViewModel(authManager: auth)
-        playerViewModel = PlayerViewModel(apiClient: client, watchSessionManager: watch)
+        let prefs = PlaybackPreferences()
+        playbackPreferences = prefs
+        playerViewModel = PlayerViewModel(apiClient: client, watchSessionManager: watch, playbackPreferences: prefs)
         multiPlayerViewModel = MultiPlayerViewModel(apiClient: client, watchSessionManager: watch)
         themeManager = ThemeManager()
     }

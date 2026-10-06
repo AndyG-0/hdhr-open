@@ -260,3 +260,79 @@ async def test_reap_stale_watches_via_engine_tick(tmp_db, tmp_path, monkeypatch)
     assert db.get_recording(recording_id) is None
     assert session_id not in tuner_allocator.active_recording_ids()
     assert session_id not in watch._sessions
+
+
+def test_start_watch_engages_tuner_transcode_for_sole_viewer(client, watch_env, monkeypatch):
+    monkeypatch.setattr(hdhomerun_client, "probe_tuner_transcode_support", AsyncMock(return_value=True))
+    monkeypatch.setattr(capture_pipeline, "wait_for_data", AsyncMock(return_value=True))
+
+    body = client.post("/api/watch/4.1/start", params={"quality": "medium"}).json()
+
+    capture = capture_pipeline._active_captures[body["recording_id"]]
+    assert capture.capture_quality == "medium"
+
+
+def test_start_watch_second_viewer_quality_ignored_once_capture_exists(client, watch_env, monkeypatch):
+    """The tuner's hardware transcoder serves one profile per tuning session,
+    so a second viewer's own quality tier can't change an already-running
+    capture - they just attach to whatever is already there, exactly like
+    before this feature existed."""
+    monkeypatch.setattr(hdhomerun_client, "probe_tuner_transcode_support", AsyncMock(return_value=True))
+    monkeypatch.setattr(capture_pipeline, "wait_for_data", AsyncMock(return_value=True))
+
+    first = client.post("/api/watch/4.1/start").json()
+    second = client.post("/api/watch/4.1/start", params={"quality": "medium"}).json()
+
+    assert first["recording_id"] == second["recording_id"]
+    capture = capture_pipeline._active_captures[first["recording_id"]]
+    assert capture.capture_quality is None
+
+
+def test_start_watch_falls_back_to_raw_when_tuner_transcode_produces_no_data(client, watch_env, monkeypatch):
+    monkeypatch.setattr(hdhomerun_client, "probe_tuner_transcode_support", AsyncMock(return_value=True))
+    monkeypatch.setattr(capture_pipeline, "wait_for_data", AsyncMock(return_value=False))
+    failure_mock = MagicMock()
+    monkeypatch.setattr(hdhomerun_client, "record_tuner_transcode_failure", failure_mock)
+
+    body = client.post("/api/watch/4.1/start", params={"quality": "medium"}).json()
+
+    capture = capture_pipeline._active_captures[body["recording_id"]]
+    assert capture.capture_quality is None
+    failure_mock.assert_called_once()
+
+
+def test_promote_watch_retunes_tuner_transcode_capture_to_raw(client, watch_env, monkeypatch):
+    monkeypatch.setattr(hdhomerun_client, "probe_tuner_transcode_support", AsyncMock(return_value=True))
+    monkeypatch.setattr(capture_pipeline, "wait_for_data", AsyncMock(return_value=True))
+
+    body = client.post("/api/watch/4.1/start", params={"quality": "medium"}).json()
+    session_id = body["session_id"]
+    recording_id = body["recording_id"]
+    capture = capture_pipeline._active_captures[recording_id]
+    assert capture.capture_quality == "medium"
+
+    response = client.post(f"/api/watch/{session_id}/promote", json={"title": "Kept Show"})
+    assert response.status_code == 200
+
+    # Promoting forces the capture back to raw quality, same recording_id.
+    assert capture.capture_quality is None
+    assert capture_pipeline._active_captures[recording_id] is capture
+
+
+def test_promote_watch_fails_when_retune_to_raw_fails(client, watch_env, monkeypatch):
+    monkeypatch.setattr(hdhomerun_client, "probe_tuner_transcode_support", AsyncMock(return_value=True))
+    monkeypatch.setattr(capture_pipeline, "wait_for_data", AsyncMock(return_value=True))
+
+    body = client.post("/api/watch/4.1/start", params={"quality": "medium"}).json()
+    session_id = body["session_id"]
+    recording_id = body["recording_id"]
+
+    monkeypatch.setattr(capture_pipeline, "retune_to_raw", AsyncMock(return_value=False))
+
+    response = client.post(f"/api/watch/{session_id}/promote", json={"title": "Kept Show"})
+    assert response.status_code == 404
+
+    # Never promoted: the capture's writer is gone once retune fails, so
+    # there's nothing left worth keeping as a real recording.
+    row = db.get_recording(recording_id)
+    assert row["is_temporary"] == 1

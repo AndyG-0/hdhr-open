@@ -8,6 +8,7 @@ interface MatchableAiring {
 	episode_title?: string | null;
 	synopsis?: string | null;
 	category?: string | null;
+	is_new?: boolean | null;
 }
 
 function normalize(s: string): string {
@@ -42,12 +43,37 @@ function isKeywordRule(r: HDHomeRunRecordingRule): boolean {
 	return r.TitleMatchMode === 'contains' || !!r.KeywordQuery;
 }
 
+/**
+ * A "series watch" row only tracks a *standing intent* for a free HDHomeRun
+ * account (see app.integrations.hdhomerun_series_watch on the backend) - it
+ * is not itself a guarantee any given future airing will record. Only the
+ * single-occurrence official DateTimeOnly rule it periodically creates (a
+ * separate array entry, Provider "hdhomerun") is. Matching this row's bare
+ * SeriesID here would wrongly badge *every* future airing of the series as
+ * "recording" when in reality only the next one has actually been scheduled.
+ */
+function isSeriesWatchRule(r: HDHomeRunRecordingRule): boolean {
+	return (r.Provider ?? r.provider) === 'hdhomerun_series_watch';
+}
+
+/**
+ * A "new episodes only" rule won't actually capture a rerun airing — the guide
+ * can list the same new episode twice in one night around a local news break,
+ * and only the `is_new` one is the real recording. `is_new` is only known
+ * when a guide source reports it, so an airing with no freshness data (null/
+ * undefined) is never treated as a known rerun here.
+ */
+function passesRecentOnlyFilter(r: HDHomeRunRecordingRule, airing: MatchableAiring): boolean {
+	return !r.RecentOnly || airing.is_new !== false;
+}
+
 function keywordRuleMatchesAiring(r: HDHomeRunRecordingRule, channelNumber: string | undefined, airing: MatchableAiring | null | undefined): boolean {
 	const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
 	if (!channelMatches || !airing) return false;
 	const seriesMatches = !!(r.SeriesID && airing.series_id && r.SeriesID === airing.series_id);
 	const titleMatchesAiring = titleMatches(r.Title, airing.title, r.TitleMatchMode);
 	if (!seriesMatches && !titleMatchesAiring) return false;
+	if (!passesRecentOnlyFilter(r, airing)) return false;
 	return keywordMatches(r.KeywordQuery, airing);
 }
 
@@ -67,11 +93,13 @@ export function findMatchingRecordingRule(
 	if (!rules || rules.length === 0 || !airing) return null;
 	return (
 		rules.find((r) => {
+			if (isSeriesWatchRule(r)) return false;
 			const channelMatches = !r.ChannelOnly || (channelNumber && r.ChannelOnly.split('|').includes(channelNumber));
 			if (!channelMatches) return false;
 			if (isKeywordRule(r)) {
 				return keywordRuleMatchesAiring(r, channelNumber, airing);
 			}
+			if (!passesRecentOnlyFilter(r, airing)) return false;
 			if (r.DateTimeOnly != null) {
 				return airing.start != null && Math.abs(r.DateTimeOnly - airing.start) < 60;
 			}
@@ -118,6 +146,8 @@ export function buildRecordingRuleIndex(rules: HDHomeRunRecordingRule[] | undefi
 
 	rules.forEach((rule, i) => {
 		index.order.set(rule.RecordingRuleID, i);
+
+		if (isSeriesWatchRule(rule)) return;
 
 		if (isKeywordRule(rule)) {
 			index.keywordRules.push(rule);
@@ -178,7 +208,7 @@ export function findMatchingRecordingRuleIndexed(
 	// (e.g. a DateTimeOnly rule and a SeriesID rule); track original array
 	// order so the earliest-in-array candidate wins, same as Array.find.
 	function consider(candidate: HDHomeRunRecordingRule | undefined) {
-		if (!candidate) return;
+		if (!candidate || !airing || !passesRecentOnlyFilter(candidate, airing)) return;
 		const order = index.order.get(candidate.RecordingRuleID) ?? Infinity;
 		if (order < bestOrder) {
 			best = candidate;

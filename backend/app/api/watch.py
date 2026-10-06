@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/watch", tags=["watch"], dependencies=[Depends(ge
 async def start_watch(
     channel_number: str,
     request: Request,
+    quality: str | None = None,
     user: dict[str, Any] = Depends(get_current_user),
 ):
     settings = await get_hdhomerun_settings()
@@ -45,6 +46,7 @@ async def start_watch(
         user_id=user_id,
         user_name=user_name,
         client_ip=client_ip,
+        quality=quality,
     )
     if result is None:
         # No free tuner - caller falls back to plain live streaming.

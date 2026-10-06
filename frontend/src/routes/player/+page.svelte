@@ -13,6 +13,7 @@
 	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
 	import MultiViewPlayer from '$lib/components/player/multiview/MultiViewPlayer.svelte';
 	import { multiview, addFeed, closeAll } from '$lib/stores/multiview';
+	import { getQualityPreference } from '$lib/quality-preference';
 
 	const WATCH_HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -222,7 +223,19 @@
 		} | null = null;
 
 		try {
-			watchRecording = await api.startWatch(channel.channel_number);
+			// A manually-saved low-bandwidth preference is known synchronously,
+			// before the player even mounts - passing it along lets the backend
+			// source this channel straight from the tuner's own hardware
+			// transcoder when it's EXTEND-capable (see app.dvr.builtin.watch),
+			// instead of always starting a full-res raw capture only to
+			// immediately re-encode it down for this one viewer. Auto mode
+			// always starts at 'high' here - its downgrades only react to a
+			// stall after playback has already begun, by which point the
+			// capture already exists and is shared, so there's nothing to
+			// preemptively offload.
+			const preference = getQualityPreference();
+			const quality = preference === 'auto' || preference === 'high' ? null : preference;
+			watchRecording = await api.startWatch(channel.channel_number, quality);
 		} catch {
 			// Fall back to plain live stream
 		}
@@ -330,6 +343,7 @@
 			title: options?.title,
 			start_padding: options?.startPadding,
 			end_padding: options?.endPadding,
+			comskip_override: options?.comskipOverride,
 		});
 		recordingRules = await api.listRecordingRules();
 	}
@@ -346,6 +360,7 @@
 			recent_only: options?.recentOnly,
 			start_padding: options?.startPadding,
 			end_padding: options?.endPadding,
+			comskip_override: options?.comskipOverride,
 		});
 		recordingRules = await api.listRecordingRules();
 	}
@@ -362,6 +377,7 @@
 			end_padding: options.endPadding,
 			recent_only: options.recentOnly,
 			server: options.server,
+			comskip_override: options.comskipOverride,
 		});
 		recordingRules = await api.listRecordingRules();
 	}

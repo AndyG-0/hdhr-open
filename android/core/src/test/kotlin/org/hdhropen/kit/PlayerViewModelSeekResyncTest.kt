@@ -5,6 +5,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -14,6 +15,7 @@ import org.hdhropen.kit.networking.HLSSessionResponse
 import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.CaptionController
 import org.hdhropen.kit.playback.CaptionCue
+import org.hdhropen.kit.playback.PlaybackPreferences
 import org.hdhropen.kit.playback.PlayerEngine
 import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.junit.After
@@ -42,12 +44,12 @@ class PlayerViewModelSeekResyncTest {
         Dispatchers.resetMain()
     }
 
-    private fun newViewModel(): PlayerViewModel {
+    private fun newViewModel(playbackPreferences: PlaybackPreferences = PlaybackPreferences()): PlayerViewModel {
         val client = mockk<APIClient>(relaxed = true)
         val watchSessionManager = WatchSessionManager(client)
         val playerEngine = PlayerEngine()
         val captionController = CaptionController()
-        val vm = PlayerViewModel(client, watchSessionManager, playerEngine, captionController)
+        val vm = PlayerViewModel(client, watchSessionManager, playerEngine, captionController, playbackPreferences = playbackPreferences)
         activeVm = vm
         return vm
     }
@@ -228,6 +230,41 @@ class PlayerViewModelSeekResyncTest {
     }
 
     @Test
+    fun `skipActiveCommercial seeks to segment end and resyncs captions`() = runTest {
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/live.m3u8", isLive = true, isSeekable = true)
+
+        val recording = inProgressRecording(startedSecondsAgo = 100.0)
+        setActiveRecording(vm, recording)
+        setLastRawCues(vm, listOf(CaptionCue(start = 95.0, end = 98.0, text = "Hello")))
+
+        vm.playerEngine.setCommercialSegments(
+            listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 40.0))
+        )
+        vm.seek(20.0)
+        advanceUntilIdle()
+        assertEquals(20.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 40.0)), vm.playerEngine.commercialSegments.value)
+        assertEquals(CommercialSegment(startSeconds = 10.0, endSeconds = 40.0), vm.activeCommercialSegment.value)
+
+        vm.skipActiveCommercial()
+
+        assertEquals(40.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(1, vm.captionController.cues.value.size)
+    }
+
+    @Test
+    fun `skipActiveCommercial is a no-op when no segment is active`() {
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/vod.m3u8", isLive = false, isSeekable = true)
+        vm.seek(5.0)
+
+        vm.skipActiveCommercial()
+
+        assertEquals(5.0, vm.playerEngine.currentTime.value, 0.001)
+    }
+
+    @Test
     fun `seek on recording outside seekable range prepares server seek and creates HLS session`() = runTest {
         val client = mockk<APIClient>(relaxed = true)
         val hlsSessionResponse = HLSSessionResponse(sessionId = "new-hls-sess", playlistUrl = "/api/hls/new-hls-sess/playlist.m3u8")
@@ -297,5 +334,119 @@ class PlayerViewModelSeekResyncTest {
         assertEquals(60.0, vm.playerEngine.duration.value, 0.001)
 
         coVerify(exactly = 0) { client.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `auto-skip seeks past the active commercial segment when the preference is enabled`() {
+        val prefs = PlaybackPreferences().apply { setAutoSkipCommercialsEnabled(true) }
+        val vm = newViewModel(prefs)
+        vm.playerEngine.loadMedia(url = "http://example.com/vod.m3u8", isLive = false, isSeekable = true, initialDuration = 200.0)
+        vm.playerEngine.setCommercialSegments(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 50.0)))
+
+        // Simulates ordinary playback reaching the commercial, not a user seek.
+        vm.playerEngine.seek(15.0)
+
+        assertEquals(50.0, vm.playerEngine.currentTime.value, 0.001)
+    }
+
+    @Test
+    fun `no auto-skip occurs when the preference is disabled`() {
+        val vm = newViewModel()
+        vm.playerEngine.loadMedia(url = "http://example.com/vod.m3u8", isLive = false, isSeekable = true, initialDuration = 200.0)
+        vm.playerEngine.setCommercialSegments(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 50.0)))
+
+        vm.playerEngine.seek(15.0)
+
+        assertEquals(15.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(CommercialSegment(10.0, 50.0), vm.activeCommercialSegment.value)
+    }
+
+    @Test
+    fun `auto-skip fires at most once per segment even if playback re-enters it`() {
+        val prefs = PlaybackPreferences().apply { setAutoSkipCommercialsEnabled(true) }
+        val vm = newViewModel(prefs)
+        vm.playerEngine.loadMedia(url = "http://example.com/vod.m3u8", isLive = false, isSeekable = true, initialDuration = 200.0)
+        vm.playerEngine.setCommercialSegments(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 50.0)))
+
+        vm.playerEngine.seek(15.0)
+        assertEquals(50.0, vm.playerEngine.currentTime.value, 0.001)
+
+        // Rewinding back into the same, already-skipped segment must not
+        // trigger a second auto-skip.
+        vm.playerEngine.seek(20.0)
+        assertEquals(20.0, vm.playerEngine.currentTime.value, 0.001)
+        assertEquals(CommercialSegment(10.0, 50.0), vm.activeCommercialSegment.value)
+    }
+
+    @Test
+    fun `auto-skip guard survives seekRecordingViaServer's segment-list restore without double-skipping`() = runTest {
+        val client = mockk<APIClient>(relaxed = true)
+        val hlsSessionResponse = HLSSessionResponse(sessionId = "resync-sess", playlistUrl = "/api/hls/resync-sess/playlist.m3u8")
+        coEvery {
+            client.createRecordingHLSSession(
+                url = any(),
+                recordingId = any(),
+                start = any(),
+                audioIndex = any(),
+                provider = any(),
+                forCast = any()
+            )
+        } returns hlsSessionResponse
+
+        val prefs = PlaybackPreferences().apply { setAutoSkipCommercialsEnabled(true) }
+        val watchSessionManager = WatchSessionManager(client)
+        val playerEngine = PlayerEngine()
+        val captionController = CaptionController()
+        val vm = PlayerViewModel(client, watchSessionManager, playerEngine, captionController, playbackPreferences = prefs)
+        activeVm = vm
+
+        val recording = HDHomeRunRecording(
+            recordingId = "rec-vod",
+            title = "Movie",
+            playUrl = "http://example.com/recording.ts",
+            durationSeconds = 200.0
+        )
+        setActiveRecording(vm, recording)
+        playerEngine.loadMedia(url = "http://example.com/stream.m3u8", isSeekable = true, initialDuration = 200.0)
+        playerEngine.setCommercialSegments(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 50.0)))
+
+        // Playback naturally reaches the commercial. No real activePlayer
+        // backs isPositionInSeekableRange() in this unit-test environment, so
+        // the resulting auto-skip seek routes through the server-reload path
+        // (seekRecordingViaServer), which restores the same segment list.
+        playerEngine.seek(15.0)
+        assertEquals(50.0, vm.playerEngine.currentTime.value, 0.001)
+        coVerify(exactly = 1) { client.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) }
+
+        // The viewer rewinds back into the same already-skipped segment - a
+        // second, unrelated server-driven reload that restores the identical
+        // segment list again. The guard (keyed on the segment's startSeconds,
+        // never reset by seekRecordingViaServer) must prevent a second
+        // auto-skip.
+        vm.seek(20.0)
+        assertEquals(20.0, vm.playerEngine.currentTime.value, 0.001)
+        coVerify(exactly = 2) { client.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `auto-skip guard resets on closePlayer so a genuinely new recording can auto-skip at the same segment start`() {
+        val prefs = PlaybackPreferences().apply { setAutoSkipCommercialsEnabled(true) }
+        val vm = newViewModel(prefs)
+
+        vm.playerEngine.loadMedia(url = "http://example.com/vod1.m3u8", isLive = false, isSeekable = true, initialDuration = 200.0)
+        vm.playerEngine.setCommercialSegments(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 50.0)))
+        vm.playerEngine.seek(15.0)
+        assertEquals(50.0, vm.playerEngine.currentTime.value, 0.001)
+
+        // playRecording()/playChannel() both call closePlayer() first for any
+        // genuinely new recording/channel - it must clear the guard so the
+        // next recording's segment at the same startSeconds can auto-skip too.
+        vm.closePlayer()
+
+        vm.playerEngine.loadMedia(url = "http://example.com/vod2.m3u8", isLive = false, isSeekable = true, initialDuration = 200.0)
+        vm.playerEngine.setCommercialSegments(listOf(CommercialSegment(startSeconds = 10.0, endSeconds = 50.0)))
+        vm.playerEngine.seek(15.0)
+
+        assertEquals(50.0, vm.playerEngine.currentTime.value, 0.001)
     }
 }

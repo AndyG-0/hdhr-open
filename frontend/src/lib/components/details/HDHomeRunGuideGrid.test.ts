@@ -266,4 +266,133 @@ describe('HDHomeRunGuideGrid.svelte', () => {
 
 		expect(onCancelRule).toHaveBeenCalledWith('rule_1');
 	});
+
+	it('shows a fallback badge on a cell whose rule fell back from the official DVR to builtin', () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [
+					{
+						RecordingRuleID: 'rule_1',
+						Title: 'Daytime Talk',
+						ChannelOnly: '4.1',
+						provider: 'builtin',
+						fallback_reason: 'guide_series_id_missing',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.getByText('Built-in (Fallback)')).toBeInTheDocument();
+	});
+
+	it('does not show a fallback badge for a rule with no fallback_reason', () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [
+					{
+						RecordingRuleID: 'rule_1',
+						Title: 'Daytime Talk',
+						ChannelOnly: '4.1',
+						provider: 'hdhomerun',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.queryByText('Built-in (Fallback)')).not.toBeInTheDocument();
+	});
+
+	it('shows a recording badge for an active capture with no backing rule', () => {
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [],
+				activeRecordings: [
+					{
+						title: 'Morning News',
+						channel_number: '4.1',
+						channel_name: 'KDFW',
+						start: mockChannel.now!.start,
+						record_end: mockChannel.now!.end,
+						status: 'recording',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.getByText('● Recording')).toBeInTheDocument();
+	});
+
+	it('flags only the airing the capture started during, even when record_end is padded into the next slot', () => {
+		// A live sports capture's record_end gets pushed forward by the
+		// backend's overrun-extension logic (to avoid cutting off a close
+		// game), well past the airing's own guide end time. The badge should
+		// still only land on "Morning News" (where the capture began), not
+		// bleed into "Daytime Talk" just because the padded record_end now
+		// reaches into its guide slot too.
+		render(HDHomeRunGuideGrid, {
+			props: {
+				channels: [mockChannel],
+				fullGuide: mockFullGuide,
+				recordingRules: [],
+				activeRecordings: [
+					{
+						title: 'Morning News',
+						channel_number: '4.1',
+						channel_name: 'KDFW',
+						start: mockChannel.now!.start,
+						record_end: Math.floor(Date.now() / 1000) + 3300,
+						status: 'recording',
+					} as never,
+				],
+				pendingRuleIds: new Set<string>(),
+				favoriteChannels: new Set<string>(),
+				savingFavorite: false,
+				recordingLoading: null,
+				officialDvrActive: false,
+				onWatch: vi.fn(),
+				onRecordEpisode: vi.fn(),
+				onRecordSeries: vi.fn(),
+				onCancelRule: vi.fn(),
+				onToggleFavorite: vi.fn(),
+			},
+		});
+
+		expect(screen.getAllByText('● Recording')).toHaveLength(1);
+	});
 });

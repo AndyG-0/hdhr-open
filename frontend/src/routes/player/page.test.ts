@@ -145,7 +145,7 @@ describe('/player route', () => {
 
 			const { unmount } = render(PopoutPlayerPage);
 
-			await waitFor(() => expect(startWatch).toHaveBeenCalledWith('5.1'));
+			await waitFor(() => expect(startWatch).toHaveBeenCalledWith('5.1', null));
 			expect(await screen.findByRole('dialog', { name: /5.1 NBC/i })).toBeInTheDocument();
 
 			// Fast-forward 20s: should trigger heartbeat
@@ -170,7 +170,7 @@ describe('/player route', () => {
 		});
 
 		render(PopoutPlayerPage);
-		await waitFor(() => expect(startWatch).toHaveBeenCalledWith('5.1'));
+		await waitFor(() => expect(startWatch).toHaveBeenCalledWith('5.1', null));
 
 		window.dispatchEvent(new Event('pagehide'));
 		expect(stopWatch).toHaveBeenCalledWith('sess-watch-456');

@@ -18,6 +18,7 @@
 	let hwaccelDeviceInput = $state('/dev/dri/renderD128');
 	let ffmpegDebugInput = $state(false);
 	let thumbnailsEnabledInput = $state(true);
+	let maxBitrateMbpsInput = $state('5');
 	const playbackState = new SaveState();
 
 	loadOnceWhen(
@@ -29,6 +30,8 @@
 			hwaccelDeviceInput = (initialSettings!.hwaccel_device as string) ?? '/dev/dri/renderD128';
 			ffmpegDebugInput = (initialSettings!.ffmpeg_debug as boolean) ?? false;
 			thumbnailsEnabledInput = (initialSettings!.thumbnails_enabled as boolean) ?? true;
+			const savedBitrate = initialSettings!.max_bitrate_mbps;
+			maxBitrateMbpsInput = savedBitrate === undefined || savedBitrate === null ? '5' : String(savedBitrate);
 		},
 	);
 
@@ -75,11 +78,22 @@
 	const livePreviewCommand = $derived.by(() => {
 		if (!selectedPreset) return '';
 		let outputArgs = selectedPreset.output_args;
+		// A blank custom_ffmpeg_args falls back to the software preset's own
+		// args on the backend (transcoding._output_args) - including the
+		// bitrate ceiling below. Only genuinely populated custom args are the
+		// "leave it alone, this is the user's own escape hatch" case.
+		const isRawCustomArgs = hwaccelInput === 'custom' && customFfmpegArgsInput.trim() !== '';
 		if (hwaccelInput === 'custom') {
 			const trimmed = customFfmpegArgsInput.trim();
 			outputArgs = trimmed
 				? shlexSplit(trimmed)
 				: (transcodePresets.find((p) => p.id === 'software')?.output_args ?? []);
+		}
+		if (!isRawCustomArgs) {
+			const parsed = parseFloat(maxBitrateMbpsInput);
+			const mbps = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+			const bitrate = `${mbps}M`;
+			outputArgs = [...outputArgs, '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', `${mbps * 2}M`];
 		}
 		const device = hwaccelDeviceInput.trim() || '/dev/dri/renderD128';
 		const substitute = (args: string[]) => args.map((arg) => arg.replaceAll('{device}', device));
@@ -117,6 +131,7 @@
 	}
 
 	function playbackFormSettings(): Record<string, unknown> {
+		const parsedBitrate = parseFloat(maxBitrateMbpsInput);
 		return {
 			playback_mode: playbackModeInput,
 			hwaccel: hwaccelInput,
@@ -124,6 +139,7 @@
 			hwaccel_device: hwaccelDeviceInput.trim(),
 			ffmpeg_debug: ffmpegDebugInput,
 			thumbnails_enabled: thumbnailsEnabledInput,
+			max_bitrate_mbps: Number.isFinite(parsedBitrate) && parsedBitrate > 0 ? parsedBitrate : 5,
 		};
 	}
 
@@ -180,6 +196,12 @@
 			<input bind:value={hwaccelDeviceInput} placeholder="/dev/dri/renderD128" />
 		</label>
 		<p class="hint">{$_('hdhomerun.detail.hwaccel_device_hint')}</p>
+
+		<label>
+			{$_('hdhomerun.detail.max_bitrate_label')}
+			<input type="number" min="0.5" step="0.5" bind:value={maxBitrateMbpsInput} placeholder="5" />
+		</label>
+		<p class="hint">{$_('hdhomerun.detail.max_bitrate_hint')}</p>
 
 		<label class="checkbox">
 			<input type="checkbox" bind:checked={ffmpegDebugInput} />

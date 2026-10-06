@@ -2,7 +2,12 @@
 	import { _ } from 'svelte-i18n';
 	import type { HDHomeRunRecordingAudioInfo } from '$lib/api';
 	import PlayerIcon from './icons/PlayerIcon.svelte';
-	import { keepPlayingOnNavigate, setKeepPlayingOnNavigate } from '$lib/stores/playback';
+	import {
+		keepPlayingOnNavigate,
+		setKeepPlayingOnNavigate,
+		autoSkipCommercials,
+		setAutoSkipCommercials,
+	} from '$lib/stores/playback';
 
 	interface Props {
 		showMenu: boolean;
@@ -15,12 +20,14 @@
 		currentCaptionTrack?: 1 | 2;
 		secondaryCaptions?: 'unknown' | 'available' | 'unavailable' | null;
 		captionsEnabled?: boolean;
+		quality?: 'auto' | 'high' | 'medium' | 'low';
 		onPlaybackRateChange: (rate: number) => void;
 		onAspectRatioChange: (ratio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3') => void;
 		onSelectAudioTrack: (index: number) => void;
 		onSelectCaptionTrack: (track: 1 | 2) => void;
 		onToggleCaptions: () => void;
 		onTogglePlaybackInfo: () => void;
+		onQualityChange?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
 		onClose: () => void;
 	}
 
@@ -35,16 +42,18 @@
 		currentCaptionTrack = 1,
 		secondaryCaptions = null,
 		captionsEnabled = false,
+		quality = 'auto',
 		onPlaybackRateChange,
 		onAspectRatioChange,
 		onSelectAudioTrack,
 		onSelectCaptionTrack,
 		onToggleCaptions,
 		onTogglePlaybackInfo,
+		onQualityChange,
 		onClose,
 	}: Props = $props();
 
-	type SubmenuType = 'main' | 'speed' | 'aspect' | 'audio' | 'captions';
+	type SubmenuType = 'main' | 'speed' | 'aspect' | 'audio' | 'captions' | 'quality';
 	let currentSubmenu = $state<SubmenuType>('main');
 
 	const speedOptions = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
@@ -55,6 +64,12 @@
 		{ label: '16:9', value: '16:9' },
 		{ label: '4:3', value: '4:3' },
 	];
+	const qualityOptions: { label: string; value: 'auto' | 'high' | 'medium' | 'low' }[] = [
+		{ label: 'Auto', value: 'auto' },
+		{ label: 'High', value: 'high' },
+		{ label: 'Medium', value: 'medium' },
+		{ label: 'Low', value: 'low' },
+	];
 
 	function handleSpeedSelect(speed: number) {
 		onPlaybackRateChange(speed);
@@ -63,6 +78,11 @@
 
 	function handleAspectSelect(ratio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3') {
 		onAspectRatioChange(ratio);
+		currentSubmenu = 'main';
+	}
+
+	function handleQualitySelect(value: 'auto' | 'high' | 'medium' | 'low') {
+		onQualityChange?.(value);
 		currentSubmenu = 'main';
 	}
 </script>
@@ -86,6 +106,8 @@
 					{$_('player.audio_tracks', { default: 'Audio Tracks' })}
 				{:else if currentSubmenu === 'captions'}
 					{$_('player.caption_tracks', { default: 'Closed Captions' })}
+				{:else if currentSubmenu === 'quality'}
+					{$_('player.quality', { default: 'Quality' })}
 				{/if}
 			</span>
 			<button type="button" class="close-btn" onclick={onClose}>✕</button>
@@ -104,6 +126,15 @@
 					<span>{$_('player.aspect_ratio', { default: 'Aspect Ratio' })}</span>
 					<span class="item-value uppercase">{aspectRatio} ›</span>
 				</button>
+
+				{#if seekable && onQualityChange}
+					<button type="button" class="menu-item nav" onclick={() => (currentSubmenu = 'quality')}>
+						<span>{$_('player.quality', { default: 'Quality' })}</span>
+						<span class="item-value uppercase">
+							{qualityOptions.find((o) => o.value === quality)?.label ?? quality} ›
+						</span>
+					</button>
+				{/if}
 
 				{#if audioTracks.length > 1}
 					<button type="button" class="menu-item nav" onclick={() => (currentSubmenu = 'audio')}>
@@ -148,6 +179,16 @@
 					<span>{$_('player.keep_playing_label', { default: 'Keep playing when I navigate away' })}</span>
 					{#if $keepPlayingOnNavigate}<span>✓</span>{/if}
 				</button>
+
+				<button
+					type="button"
+					class="menu-item"
+					class:selected={$autoSkipCommercials}
+					onclick={() => setAutoSkipCommercials(!$autoSkipCommercials)}
+				>
+					<span>{$_('player.auto_skip_commercials_label', { default: 'Auto-skip commercials' })}</span>
+					{#if $autoSkipCommercials}<span>✓</span>{/if}
+				</button>
 			{:else if currentSubmenu === 'speed'}
 				{#each speedOptions as speed (speed)}
 					<button
@@ -170,6 +211,18 @@
 					>
 						<span>{opt.label}</span>
 						{#if aspectRatio === opt.value}<span>✓</span>{/if}
+					</button>
+				{/each}
+			{:else if currentSubmenu === 'quality'}
+				{#each qualityOptions as opt (opt.value)}
+					<button
+						type="button"
+						class="menu-item"
+						class:selected={quality === opt.value}
+						onclick={() => handleQualitySelect(opt.value)}
+					>
+						<span>{opt.label}</span>
+						{#if quality === opt.value}<span>✓</span>{/if}
 					</button>
 				{/each}
 			{:else if currentSubmenu === 'audio'}

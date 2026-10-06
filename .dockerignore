@@ -1,6 +1,9 @@
 backend/.venv
 backend/.env
-backend/storage.db
+backend/*.db
+backend/recordings
+backend/logs
+backend/.mypy_cache
 backend/**/__pycache__
 backend/**/*.pyc
 backend/.pytest_cache

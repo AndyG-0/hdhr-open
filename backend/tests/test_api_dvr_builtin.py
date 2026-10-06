@@ -651,6 +651,120 @@ def test_create_recording_rule_hdhomerun_fallback_on_client_error(client, tmp_db
     assert "Airing not found" in rules[0]["fallback_reason"]
 
 
+@pytest.mark.asyncio
+async def test_reconcile_hdhomerun_fallback_rules_migrates_once_series_id_appears(client, tmp_db, monkeypatch):
+    from app.api import dvr_rules
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    # Series rule created when no cloud-guide SeriesID could be resolved yet -
+    # falls back to builtin, same as test_create_recording_rule_hdhomerun_fallback_when_series_id_missing.
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Jeopardy!"}
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.json()[0]["fallback_reason"] == "guide_series_id_missing"
+
+    # More cloud-guide data has since arrived, covering this show's SeriesID.
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_jeop",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP_JEOP_999",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 3600,
+                "end_ts": time.time() + 5400,
+            }
+        ]
+    )
+
+    mock_add = AsyncMock(
+        return_value=[{"RecordingRuleID": "rule_off_jeop", "SeriesID": "EP_JEOP_999", "Provider": "hdhomerun"}]
+    )
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+    # This test is about a paid account's migration path specifically; the
+    # free-tier redirect to hdhomerun_series_watch is covered separately below.
+    monkeypatch.setattr(hdhomerun_client, "resolve_account_tier", lambda: "paid")
+
+    await dvr_rules.reconcile_hdhomerun_fallback_rules()
+
+    assert mock_add.called
+    passed_rule_data = mock_add.call_args[0][1]
+    assert passed_rule_data["series_id"] == "EP_JEOP_999"
+
+    rules = db.list_recording_rules(provider="builtin")
+    assert rules == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hdhomerun_fallback_rules_redirects_to_series_watch_on_free_account(
+    client, tmp_db, monkeypatch
+):
+    from app.api import dvr_rules
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Jeopardy!"}
+    response = client.post("/api/dvr/recording-rules", json=payload)
+    assert response.json()[0]["fallback_reason"] == "guide_series_id_missing"
+
+    db.upsert_channel("ch_41", "4.1", "KTVK", True)
+    db.upsert_guide_programs(
+        [
+            {
+                "id": "prog_jeop",
+                "channel_id": "ch_41",
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "EP_JEOP_999",
+                "title": "Jeopardy!",
+                "start_ts": time.time() + 3600,
+                "end_ts": time.time() + 5400,
+            }
+        ]
+    )
+
+    mock_add = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+    monkeypatch.setattr(hdhomerun_client, "resolve_account_tier", lambda: "free")
+
+    await dvr_rules.reconcile_hdhomerun_fallback_rules()
+
+    # A free account's auto-record API would silently accept-but-never-execute
+    # this, so reconciliation must not call it directly - it should instead
+    # hand off to a local hdhomerun_series_watch row.
+    assert not mock_add.called
+
+    assert db.list_recording_rules(provider="builtin") == []
+    watch_rules = db.list_recording_rules(provider="hdhomerun_series_watch")
+    assert len(watch_rules) == 1
+    assert watch_rules[0]["series_match_key"] == "EP_JEOP_999"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hdhomerun_fallback_rules_leaves_rule_in_place_when_still_unresolved(
+    client, tmp_db, monkeypatch
+):
+    from app.api import dvr_rules
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+
+    payload = {"series_id": "auto", "channel": "4.1", "server": "hdhomerun", "title": "Jeopardy!"}
+    client.post("/api/dvr/recording-rules", json=payload)
+
+    mock_add = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client, "add_recording_rule", mock_add)
+
+    await dvr_rules.reconcile_hdhomerun_fallback_rules()
+
+    assert not mock_add.called
+    rules = db.list_recording_rules(provider="builtin")
+    assert len(rules) == 1
+    assert rules[0]["fallback_reason"] == "guide_series_id_missing"
+
 
 def test_create_keyword_recording_rule_with_no_series_id_or_date_time(client, tmp_db):
     payload = {
@@ -988,6 +1102,95 @@ def test_recording_detail_commercial_segments_invalidate_on_edl_mtime_change(cli
         {"start_seconds": 10.0, "end_seconds": 20.0},
         {"start_seconds": 30.0, "end_seconds": 45.0},
     ]
+
+
+def test_recording_detail_surfaces_commercial_segments_for_hdhomerun_recording_with_local_mount(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """Once the comskip sweep (app.dvr.builtin.comskip) has tracked a
+    HDHomeRun-DVR recording's local-mount filename and written its `.edl`
+    sidecar, recording-detail must resolve and read it back - closing the
+    loop described in the plan's step 5 (generating markers nobody can see
+    isn't a complete fix)."""
+    from app import media_probe as media_probe_module
+
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+    monkeypatch.setattr(media_probe_module, "probe", AsyncMock(return_value=None))
+
+    video_file = tmp_path / "Show" / "Episode.mpg"
+    video_file.parent.mkdir(parents=True)
+    video_file.write_bytes(b"MPEG data")
+    video_file.with_suffix(".edl").write_text("10 20 0\n")
+
+    db.upsert_hdhomerun_comskip_status("hdhr_rec_1", "Show/Episode.mpg", "done", 1)
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": "/recorded/hdhr_rec_1",
+            "recording_id": "hdhr_rec_1",
+            "start": 1000.0,
+            "record_end": 2000.0,
+            "provider": "hdhomerun",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == [{"start_seconds": 10.0, "end_seconds": 20.0}]
+
+
+def test_recording_detail_commercial_segments_empty_for_hdhomerun_without_recordings_path(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """No `dvr_recordings_path` configured -> today's unchanged behavior:
+    nothing to read, regardless of whether comskip ever ran."""
+    from app import media_probe as media_probe_module
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local"})
+    monkeypatch.setattr(media_probe_module, "probe", AsyncMock(return_value=None))
+
+    db.upsert_hdhomerun_comskip_status("hdhr_rec_2", "Show/Episode.mpg", "done", 1)
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": "/recorded/hdhr_rec_2",
+            "recording_id": "hdhr_rec_2",
+            "start": 1000.0,
+            "record_end": 2000.0,
+            "provider": "hdhomerun",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == []
+
+
+def test_recording_detail_commercial_segments_empty_for_hdhomerun_before_comskip_has_run(
+    client, tmp_db, tmp_path, monkeypatch
+):
+    """`dvr_recordings_path` is configured, but the comskip sweep hasn't
+    processed this recording yet (no tracked status row) -> no sidecar to
+    read yet, same as the builtin "no .edl sidecar" case."""
+    from app import media_probe as media_probe_module
+
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+    monkeypatch.setattr(media_probe_module, "probe", AsyncMock(return_value=None))
+
+    response = client.get(
+        "/api/dvr/recording-detail",
+        params={
+            "url": "/recorded/hdhr_rec_3",
+            "recording_id": "hdhr_rec_3",
+            "start": 1000.0,
+            "record_end": 2000.0,
+            "provider": "hdhomerun",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["commercial_segments"] == []
 
 
 def test_recording_captions_serves_live_vtt_for_in_progress_recording(client, tmp_db, tmp_path, monkeypatch):

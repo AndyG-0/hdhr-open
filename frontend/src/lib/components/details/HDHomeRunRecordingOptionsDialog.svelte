@@ -84,6 +84,12 @@
 	// svelte-ignore state_referenced_locally
 	let keywordQuery = $state(existingRule?.KeywordQuery ?? '');
 	// svelte-ignore state_referenced_locally
+	let comskipOverride = $state<'default' | 'always' | 'never'>(
+		existingRule?.ComskipOverride === 'always' || existingRule?.ComskipOverride === 'never'
+			? existingRule.ComskipOverride
+			: 'default',
+	);
+	// svelte-ignore state_referenced_locally
 	let channelMode = $state<'any' | 'current' | 'custom'>(
 		existingRule
 			? (!existingRule.ChannelOnly
@@ -146,6 +152,7 @@
 					? retentionCount
 					: null,
 			server: serverToUse,
+			comskipOverride,
 		};
 	}
 
@@ -352,6 +359,15 @@
 					{$_('hdhomerun.detail.fallback_notification', { values: { title: airing.title } })}
 				</p>
 			{/if}
+
+			<label>
+				{$_('hdhomerun.detail.comskip_override_label')}
+				<select bind:value={comskipOverride} aria-label={$_('hdhomerun.detail.comskip_override_label')}>
+					<option value="default">{$_('hdhomerun.detail.comskip_override_default')}</option>
+					<option value="always">{$_('hdhomerun.detail.comskip_override_always')}</option>
+					<option value="never">{$_('hdhomerun.detail.comskip_override_never')}</option>
+				</select>
+			</label>
 
 			<div class="match-mode-field">
 				<span class="match-mode-label">{$_('hdhomerun.detail.keyword_rule_match_mode_label')}</span>

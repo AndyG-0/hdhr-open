@@ -11,6 +11,10 @@ import {
 	isKeepPlayingOnNavigateEnabled,
 	setKeepPlayingOnNavigateEnabled,
 } from '$lib/keep-playing-preference';
+import {
+	isAutoSkipCommercialsEnabled,
+	setAutoSkipCommercialsEnabled,
+} from '$lib/auto-skip-commercials-preference';
 
 const WATCH_HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -68,6 +72,7 @@ interface PlaybackState {
 export const playback = writable<PlaybackState>({ media: null, originPath: null, context: null });
 
 export const keepPlayingOnNavigate = writable<boolean>(isKeepPlayingOnNavigateEnabled());
+export const autoSkipCommercials = writable<boolean>(isAutoSkipCommercialsEnabled());
 
 let heartbeatHandle: ReturnType<typeof setInterval> | undefined;
 
@@ -81,7 +86,7 @@ function stopHeartbeat() {
 function startHeartbeat(sessionId: string) {
 	stopHeartbeat();
 	heartbeatHandle = setInterval(() => {
-		api.heartbeatWatch(sessionId);
+		api.heartbeatWatch(sessionId).catch(() => {});
 	}, WATCH_HEARTBEAT_INTERVAL_MS);
 }
 
@@ -140,6 +145,11 @@ export function stopPlayback(): void {
 export function setKeepPlayingOnNavigate(enabled: boolean): void {
 	setKeepPlayingOnNavigateEnabled(enabled);
 	keepPlayingOnNavigate.set(enabled);
+}
+
+export function setAutoSkipCommercials(enabled: boolean): void {
+	setAutoSkipCommercialsEnabled(enabled);
+	autoSkipCommercials.set(enabled);
 }
 
 if (typeof window !== 'undefined') {

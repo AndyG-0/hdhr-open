@@ -148,3 +148,13 @@ async def refresh_hdhomerun_guide() -> None:
     await asyncio.to_thread(db.save_guide_provider_state, SOURCE_PROVIDER, datetime.now(UTC).isoformat())
     cache.delete_prefix("guide:")
     logger.info("Refreshed HDHomeRun cloud guide (%d channels)", len(full_guide))
+
+    # New guide data just landed - retry any builtin rules that fell back
+    # from the official DVR for lack of a resolvable SeriesID, in case this
+    # refresh's wider window now covers the airing they need.
+    from app.api.dvr_rules import reconcile_hdhomerun_fallback_rules
+
+    try:
+        await reconcile_hdhomerun_fallback_rules()
+    except Exception:
+        logger.warning("Fallback-rule reconciliation failed", exc_info=True)
