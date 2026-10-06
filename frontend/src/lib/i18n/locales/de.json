@@ -102,6 +102,7 @@
 			"dvr_settings_heading": "DVR-Aufnahme-Engine",
 			"recordings_path_label": "Aufnahmepfad (lokale Einbindung)",
 			"recordings_path_hint": "Lokaler Dateisystempfad, unter dem der Aufnahmespeicher der HDHomeRun-DVR-Engine eingebunden ist (Bind-Mount/NFS/SMB bei Bare-Metal-Installationen oder ein Container-Volume). Nur nötig, damit die Werbeerkennung (comskip) für HDHomeRun-DVR-Aufnahmen laufen kann — leer lassen, um sie zu überspringen. In Docker /app/hdhomerun-recordings eintragen (HDHOMERUN_RECORDINGS_PATH in .env auf den Host-Ordner setzen).",
+			"test_mount": "Aufnahmepfad testen",
 			"ssh_heading": "Client-Überwachung (SSH)",
 			"ssh_enabled_label": "Clients, die über die DVR-Aufnahme-Engine streamen, per SSH identifizieren",
 			"ssh_username_label": "Benutzername",

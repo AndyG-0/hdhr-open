@@ -5,11 +5,13 @@ const {
 	testHDHomeRunTunerConnection,
 	testHDHomeRunDvrConnection,
 	testHDHomeRunSshConnection,
+	testHDHomeRunRecordingsMount,
 	updateNetworkIntegration,
 } = vi.hoisted(() => ({
 	testHDHomeRunTunerConnection: vi.fn(),
 	testHDHomeRunDvrConnection: vi.fn(),
 	testHDHomeRunSshConnection: vi.fn(),
+	testHDHomeRunRecordingsMount: vi.fn(),
 	updateNetworkIntegration: vi.fn(),
 }));
 
@@ -18,6 +20,7 @@ vi.mock('$lib/api', () => ({
 		testHDHomeRunTunerConnection,
 		testHDHomeRunDvrConnection,
 		testHDHomeRunSshConnection,
+		testHDHomeRunRecordingsMount,
 		updateNetworkIntegration,
 	},
 }));
@@ -113,5 +116,34 @@ describe('HDHomeRunNetworkSection', () => {
 		await fireEvent.click(screen.getAllByRole('button', { name: 'Test connection' })[2]);
 
 		expect(await screen.findByText('✓ Connected to dvr.local via SSH')).toBeInTheDocument();
+	});
+
+	it('tests the recordings mount', async () => {
+		testHDHomeRunRecordingsMount.mockResolvedValue({
+			ok: true,
+			detail: 'Mounted and writable; 2 of 2 DVR recordings found.',
+			error: null,
+		});
+		render(HDHomeRunNetworkSection, { initialSettings: { dvr_recordings_path: '/mnt/hdhomerun-recordings' } });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Test recordings mount' }));
+
+		expect(await screen.findByText('✓ Mounted and writable; 2 of 2 DVR recordings found.')).toBeInTheDocument();
+		expect(testHDHomeRunRecordingsMount).toHaveBeenCalledWith(
+			expect.objectContaining({ dvr_recordings_path: '/mnt/hdhomerun-recordings' }),
+		);
+	});
+
+	it('shows the reason when the recordings mount check fails', async () => {
+		testHDHomeRunRecordingsMount.mockResolvedValue({
+			ok: false,
+			detail: null,
+			error: '/mnt/x is not writable by the backend process.',
+		});
+		render(HDHomeRunNetworkSection, { initialSettings: { dvr_recordings_path: '/mnt/x' } });
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Test recordings mount' }));
+
+		expect(await screen.findByText('✗ /mnt/x is not writable by the backend process.')).toBeInTheDocument();
 	});
 });

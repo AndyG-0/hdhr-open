@@ -154,6 +154,19 @@ async def test_hdhomerun_ssh_connection(payload: dict[str, Any], admin: dict[str
     return {"ok": True, "detail": name, "error": None}
 
 
+@router.post("/hdhomerun/test-recordings-mount")
+async def test_hdhomerun_recordings_mount(payload: dict[str, Any], admin: dict[str, Any] = Depends(get_current_admin)):
+    from app.dvr.builtin.comskip import check_hdhomerun_recordings_mount
+
+    existing = await asyncio.to_thread(get_network_integration, "hdhomerun")
+    candidate = {**(existing["settings"] if existing else {}), **payload}
+    try:
+        detail = await check_hdhomerun_recordings_mount(candidate)
+    except hdhomerun_client.HDHomeRunError as exc:
+        return {"ok": False, "detail": None, "error": exc.detail}
+    return {"ok": True, "detail": detail, "error": None}
+
+
 async def _get_schedules_direct_token(candidate_payload: dict[str, Any] | None = None) -> str:
     existing = await asyncio.to_thread(get_network_integration, "schedules_direct")
     settings = {**(existing["settings"] if existing else {}), **(candidate_payload or {})}
