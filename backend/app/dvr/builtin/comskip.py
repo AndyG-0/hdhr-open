@@ -106,22 +106,45 @@ async def run_comskip(file_path: Path) -> bool:
     return True
 
 
-def resolve_hdhomerun_local_path(recordings_path: str, filename: str) -> Path | None:
-    """Joins `filename` (the HDHomeRun DVR engine's own relative filename for
-    a recording) onto the admin-configured local mount of that engine's
-    storage, `recordings_path`. Returns `None` if the result would escape
-    `recordings_path` - `filename` comes from the HDHomeRun box's own API,
-    a trusted LAN device, but there's no reason to skip the same "don't
-    trust a joined path blindly" containment check `dvr_streaming.py` uses
-    for client-supplied paths.
+def index_hdhomerun_recordings(recordings_path: str) -> dict[str, list[Path]]:
+    """Maps each file's basename under `recordings_path` to its paths. The
+    HDHomeRun DVR reports recordings by bare basename, while the recording
+    server stores them in show/category subfolders beneath its storage root.
     """
     root = Path(recordings_path).resolve()
-    candidate = (root / filename).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError:
+    index: dict[str, list[Path]] = {}
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            path = Path(dirpath, name).resolve()
+            if path.is_relative_to(root):
+                index.setdefault(name, []).append(path)
+    return index
+
+
+def resolve_hdhomerun_local_path(
+    recordings_path: str, filename: str, index: dict[str, list[Path]] | None = None
+) -> Path | None:
+    """Locates the local file for `filename`, the HDHomeRun DVR engine's own
+    filename for a recording. Tries it as a path relative to
+    `recordings_path` first, then falls back to finding a file with the same
+    basename anywhere under it (the DVR reports basenames only). Returns
+    `None` if nothing matches, or if the basename is ambiguous. Every result
+    is inside `recordings_path`: `filename` comes from the HDHomeRun box's
+    own API, a trusted LAN device, but a joined path is still checked the
+    way `dvr_streaming.py` checks client-supplied paths.
+    """
+    root = Path(recordings_path).resolve()
+    direct = (root / filename).resolve()
+    if direct.is_file() and direct.is_relative_to(root):
+        return direct
+
+    if index is None:
+        index = index_hdhomerun_recordings(str(root))
+    matches = index.get(Path(filename).name, [])
+    if len(matches) > 1:
+        logger.warning("DVR filename %r matches %d files under %s; skipping", filename, len(matches), root)
         return None
-    return candidate
+    return matches[0] if matches else None
 
 
 async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
@@ -134,6 +157,7 @@ async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
         return
 
     now = time.time()
+    index = await asyncio.to_thread(index_hdhomerun_recordings, recordings_path)
     for entry in await hdhomerun_client.fetch_dvr_recordings(hdhomerun_settings):
         filename = entry.get("filename")
         recording_id = entry.get("recording_id")
@@ -154,14 +178,11 @@ async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
             await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "skipped", attempts)
             continue
 
-        path = resolve_hdhomerun_local_path(recordings_path, filename)
+        path = resolve_hdhomerun_local_path(recordings_path, filename, index)
         if path is None:
             logger.warning(
-                "HDHomeRun recording %s: DVR filename %r is outside the recordings path", recording_id, filename
+                "HDHomeRun recording %s: no file under %s for DVR filename %r", recording_id, recordings_path, filename
             )
-            continue
-        if not path.exists():
-            logger.warning("HDHomeRun recording %s: no file at %s (DVR filename %r)", recording_id, path, filename)
             await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "failed", attempts + 1)
             continue
 
@@ -210,11 +231,11 @@ async def check_hdhomerun_recordings_mount(settings: dict[str, Any]) -> str:
     if not sampled:
         return f"Mounted and writable; {file_count} files found. No DVR recordings to match against."
 
+    index = index_hdhomerun_recordings(recordings_path)
     resolved = 0
     misses: list[str] = []
     for entry in sampled:
-        path = resolve_hdhomerun_local_path(recordings_path, entry["filename"])
-        if path is not None and path.is_file():
+        if resolve_hdhomerun_local_path(recordings_path, entry["filename"], index) is not None:
             resolved += 1
         elif len(misses) < 3:
             misses.append(entry["filename"])
