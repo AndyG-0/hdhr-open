@@ -127,7 +127,7 @@ HDHR Open runs [comskip](https://github.com/erikkaashoek/Comskip) against comple
 The HDHomeRun DVR engine stores its recordings on its own storage. HDHR Open can only run comskip on them if that storage is also mounted on the HDHR Open host.
 
 1. Mount the HDHomeRun storage on the host (NFS or SMB for a NAS, or a bind mount on bare metal).
-2. **Docker:** set `HDHOMERUN_RECORDINGS_PATH` in `.env` to the host mount, then restart the stack. The mount appears in the container at `/app/hdhomerun-recordings` and is read-only.
-3. In Settings → HDHomeRun network settings, set **Recordings path (local mount)** to the path HDHR Open sees: `/app/hdhomerun-recordings` in Docker, or the host path on bare metal.
+2. **Docker:** set `HDHOMERUN_RECORDINGS_PATH` in `.env` to the host mount, then restart the stack. The mount appears in the container at `/app/hdhomerun-recordings` and must be read-write, since comskip writes each `.edl` next to its recording.
+3. In Settings → HDHomeRun network settings, set **Recordings path (local mount)** to the path HDHR Open sees: `/app/hdhomerun-recordings` in Docker, or the host path on bare metal. Then press **Test recordings mount**: it confirms the folder is readable and writable and that the DVR's recordings resolve to files under it.
 
 Leave the field blank to skip commercial detection for HDHomeRun DVR recordings.

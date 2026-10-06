@@ -85,9 +85,10 @@ building locally), see `docker-compose.prod.yml`.
 Recordings are stored in a Docker volume by default. To keep them on a NAS or
 large disk, set `RECORDINGS_PATH` to a host directory. To let commercial
 detection read recordings made by the HDHomeRun DVR engine, set
-`HDHOMERUN_RECORDINGS_PATH` to that engine's storage mount (read-only in the
-container), then enter `/app/hdhomerun-recordings` as the "Recordings path
-(local mount)" in HDHomeRun network settings. Host directories must be
+`HDHOMERUN_RECORDINGS_PATH` to that engine's storage mount (read-write in the
+container, since comskip writes each `.edl` next to its recording), then enter
+`/app/hdhomerun-recordings` as the "Recordings path (local mount)" in HDHomeRun
+network settings and press "Test recordings mount". Host directories must be
 readable by uid 1000, and writable for `RECORDINGS_PATH` (see the comments in
 `docker-compose.yml`).
 

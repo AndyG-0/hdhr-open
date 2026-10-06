@@ -348,4 +348,57 @@ async def test_hdhomerun_comskip_sweep_skips_file_not_present_on_local_mount(tmp
     await comskip.run_comskip_sweep()
 
     assert calls == []
-    assert db.get_hdhomerun_comskip_status("hdhr_rec_1") is None
+    status = db.get_hdhomerun_comskip_status("hdhr_rec_1")
+    assert status["status"] == "failed"
+    assert status["attempts"] == 1
+
+
+async def test_hdhomerun_recordings_mount_check_reports_resolved_recordings(tmp_path, monkeypatch):
+    (tmp_path / "Show").mkdir()
+    (tmp_path / "Show" / "Episode.mpg").write_bytes(b"")
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry(filename="Show/Episode.mpg"), _hdhomerun_entry(recording_id="x", filename="Gone.mpg")]
+
+    monkeypatch.setattr("app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings)
+
+    detail = await comskip.check_hdhomerun_recordings_mount({"dvr_recordings_path": str(tmp_path)})
+
+    assert "1 of 2 DVR recordings found" in detail
+    assert "'Gone.mpg'" in detail
+
+
+async def test_hdhomerun_recordings_mount_check_fails_when_no_recording_resolves(tmp_path, monkeypatch):
+    (tmp_path / "unrelated.txt").write_text("x")
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry(filename="Show/Episode.mpg")]
+
+    monkeypatch.setattr("app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings)
+
+    from app.integrations.hdhomerun_client import HDHomeRunError
+
+    with pytest.raises(HDHomeRunError, match="None of the 1 DVR recordings"):
+        await comskip.check_hdhomerun_recordings_mount({"dvr_recordings_path": str(tmp_path)})
+
+
+async def test_hdhomerun_recordings_mount_check_rejects_missing_directory(tmp_path):
+    from app.integrations.hdhomerun_client import HDHomeRunError
+
+    with pytest.raises(HDHomeRunError, match="is not a directory"):
+        await comskip.check_hdhomerun_recordings_mount({"dvr_recordings_path": str(tmp_path / "nope")})
+
+
+async def test_hdhomerun_recordings_mount_check_rejects_unwritable_directory(tmp_path, monkeypatch):
+    from app.integrations.hdhomerun_client import HDHomeRunError
+
+    (tmp_path / "Show").mkdir()
+    (tmp_path / "Show" / "Episode.mpg").write_bytes(b"")
+
+    def deny_write(*args, **kwargs):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(comskip.tempfile, "NamedTemporaryFile", deny_write)
+
+    with pytest.raises(HDHomeRunError, match="not writable"):
+        await comskip.check_hdhomerun_recordings_mount({"dvr_recordings_path": str(tmp_path)})

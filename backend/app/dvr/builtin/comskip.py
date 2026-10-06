@@ -20,9 +20,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
+import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -98,6 +101,8 @@ async def run_comskip(file_path: Path) -> bool:
             "comskip exited %s for %s: %s", process.returncode, file_path, stderr.decode(errors="replace")[-2000:]
         )
         return False
+    if not file_path.with_suffix(".edl").exists():
+        logger.warning("comskip finished for %s but wrote no .edl sidecar", file_path)
     return True
 
 
@@ -150,7 +155,14 @@ async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
             continue
 
         path = resolve_hdhomerun_local_path(recordings_path, filename)
-        if path is None or not path.exists():
+        if path is None:
+            logger.warning(
+                "HDHomeRun recording %s: DVR filename %r is outside the recordings path", recording_id, filename
+            )
+            continue
+        if not path.exists():
+            logger.warning("HDHomeRun recording %s: no file at %s (DVR filename %r)", recording_id, path, filename)
+            await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "failed", attempts + 1)
             continue
 
         await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "running", attempts)
@@ -162,6 +174,59 @@ async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
             "done" if ok else "failed",
             attempts + 1,
         )
+
+
+async def check_hdhomerun_recordings_mount(settings: dict[str, Any]) -> str:
+    """Validates `dvr_recordings_path` the way the sweep will use it: it must
+    be a readable, writable directory, and the DVR's own recording filenames
+    must resolve to real files under it. Returns a summary on success and
+    raises `HDHomeRunError` with the reason otherwise.
+    """
+    from app.integrations import hdhomerun_client
+
+    recordings_path = settings.get("dvr_recordings_path")
+    if not recordings_path:
+        raise hdhomerun_client.HDHomeRunError("No recordings path is set.")
+    root = Path(recordings_path)
+    if not root.is_dir():
+        raise hdhomerun_client.HDHomeRunError(f"{recordings_path} is not a directory inside the container.")
+    if not os.access(root, os.R_OK | os.X_OK):
+        raise hdhomerun_client.HDHomeRunError(f"{recordings_path} is not readable by the backend process.")
+    try:
+        with tempfile.NamedTemporaryFile(dir=root, prefix=".hdhr-open-mount-check-"):
+            pass
+    except OSError as exc:
+        raise hdhomerun_client.HDHomeRunError(
+            f"{recordings_path} is not writable by the backend process ({exc.strerror or exc}). "
+            "comskip writes its .edl next to each recording, so the mount needs write access."
+        ) from exc
+
+    file_count = sum(len(files) for _, _, files in os.walk(root))
+    if file_count == 0:
+        raise hdhomerun_client.HDHomeRunError(f"{recordings_path} is readable and writable but contains no files.")
+
+    recordings = await hdhomerun_client.fetch_dvr_recordings(settings)
+    sampled = [entry for entry in recordings if entry.get("filename")]
+    if not sampled:
+        return f"Mounted and writable; {file_count} files found. No DVR recordings to match against."
+
+    resolved = 0
+    misses: list[str] = []
+    for entry in sampled:
+        path = resolve_hdhomerun_local_path(recordings_path, entry["filename"])
+        if path is not None and path.is_file():
+            resolved += 1
+        elif len(misses) < 3:
+            misses.append(entry["filename"])
+    if resolved == 0:
+        raise hdhomerun_client.HDHomeRunError(
+            f"None of the {len(sampled)} DVR recordings were found under {recordings_path}. "
+            f"The DVR reports paths like {misses[0]!r}; check that the mount covers the DVR's storage root."
+        )
+    detail = f"Mounted and writable; {resolved} of {len(sampled)} DVR recordings found."
+    if misses:
+        detail += f" Not found, e.g. {', '.join(repr(m) for m in misses)}."
+    return detail
 
 
 async def run_comskip_sweep() -> None:

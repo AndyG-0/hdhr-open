@@ -941,6 +941,8 @@ export const api = {
 		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-tuner-connection', settings),
 	testHDHomeRunDvrConnection: (settings: Record<string, unknown>) =>
 		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-dvr-connection', settings),
+	testHDHomeRunRecordingsMount: (settings: Record<string, unknown>) =>
+		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-recordings-mount', settings),
 	testHDHomeRunSshConnection: (settings: Record<string, unknown>) =>
 		postJSON<NetworkTestConnectionResult>('/api/network-settings/hdhomerun/test-ssh-connection', settings),
 	testSchedulesDirectConnection: (settings: Record<string, unknown>) =>

@@ -29,6 +29,8 @@
 	let hdhomerunTunerTestResult = $state<NetworkTestConnectionResult | null>(null);
 	let hdhomerunTestingDvr = $state(false);
 	let hdhomerunDvrTestResult = $state<NetworkTestConnectionResult | null>(null);
+	let hdhomerunTestingMount = $state(false);
+	let hdhomerunMountTestResult = $state<NetworkTestConnectionResult | null>(null);
 	let hdhomerunTestingSsh = $state(false);
 	let hdhomerunSshTestResult = $state<NetworkTestConnectionResult | null>(null);
 
@@ -89,6 +91,18 @@
 			hdhomerunDvrTestResult = { ok: false, detail: null, error: get(_)('common.backend_unreachable') };
 		} finally {
 			hdhomerunTestingDvr = false;
+		}
+	}
+
+	async function testHdhomerunMount() {
+		hdhomerunTestingMount = true;
+		hdhomerunMountTestResult = null;
+		try {
+			hdhomerunMountTestResult = await api.testHDHomeRunRecordingsMount(hdhomerunFormSettings());
+		} catch {
+			hdhomerunMountTestResult = { ok: false, detail: null, error: get(_)('common.backend_unreachable') };
+		} finally {
+			hdhomerunTestingMount = false;
 		}
 	}
 
@@ -167,6 +181,22 @@
 		/>
 	</label>
 	<p class="hint">{$_('hdhomerun.detail.recordings_path_hint')}</p>
+	<div class="test-row">
+		<button class="test" disabled={hdhomerunTestingMount} onclick={testHdhomerunMount}>
+			{hdhomerunTestingMount ? $_('common.testing') : $_('hdhomerun.detail.test_mount')}
+		</button>
+		{#if hdhomerunMountTestResult}
+			{#if hdhomerunMountTestResult.ok}
+				<span class="test-result ok"
+					>{$_('network_settings.test_ok', { values: { detail: hdhomerunMountTestResult.detail } })}</span
+				>
+			{:else}
+				<span class="test-result fail"
+					>{$_('network_settings.test_fail', { values: { error: hdhomerunMountTestResult.error } })}</span
+				>
+			{/if}
+		{/if}
+	</div>
 	<div class="test-row">
 		<button class="test" disabled={hdhomerunTestingDvr} onclick={testHdhomerunDvr}>
 			{hdhomerunTestingDvr ? $_('common.testing') : $_('common.test_connection')}

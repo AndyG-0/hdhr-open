@@ -102,6 +102,7 @@
 			"dvr_settings_heading": "Moteur d'enregistrement DVR",
 			"recordings_path_label": "Chemin des enregistrements (montage local)",
 			"recordings_path_hint": "Chemin du système de fichiers local où le stockage des enregistrements du moteur DVR HDHomeRun est monté (montage bind/NFS/SMB pour une installation sur métal nu, ou un volume de conteneur). Nécessaire uniquement pour que la détection des publicités (comskip) puisse s'exécuter sur les enregistrements du DVR HDHomeRun — laissez vide pour les ignorer. Avec Docker, saisissez /app/hdhomerun-recordings (définissez HDHOMERUN_RECORDINGS_PATH dans .env avec le dossier de l'hôte).",
+			"test_mount": "Tester le chemin des enregistrements",
 			"ssh_heading": "Surveillance des clients (SSH)",
 			"ssh_enabled_label": "Identifier les clients diffusant via le moteur d'enregistrement DVR par SSH",
 			"ssh_username_label": "Nom d'utilisateur",
