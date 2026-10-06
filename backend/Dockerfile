@@ -154,7 +154,7 @@ RUN ./autogen.sh && ./configure --disable-gui && make -j"$(nproc)"
 # Pinned to bookworm (not the floating "slim" tag) so this stays on the same
 # Debian release as the jellyfin-ffmpeg7 apt repo below — "slim" has drifted
 # to trixie, whose libvpx7/libx265-199 don't satisfy jellyfin's bookworm .deb.
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 # Set by buildx automatically (also honored by plain `docker build`/`docker
 # compose build` under BuildKit, the default since Docker 23) — used below to
