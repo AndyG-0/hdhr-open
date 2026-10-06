@@ -101,7 +101,7 @@
 			"optional": "(optional)",
 			"dvr_settings_heading": "DVR recording engine",
 			"recordings_path_label": "Recordings path (local mount)",
-			"recordings_path_hint": "Local filesystem path where the HDHomeRun DVR engine's recording storage is mounted (a bind mount/NFS/SMB mount for a bare-metal install, or a container volume). Needed only so commercial detection (comskip) can run against HDHomeRun DVR recordings — leave blank to skip them.",
+			"recordings_path_hint": "Local filesystem path where the HDHomeRun DVR engine's recording storage is mounted (a bind mount/NFS/SMB mount for a bare-metal install, or a container volume). Needed only so commercial detection (comskip) can run against HDHomeRun DVR recordings — leave blank to skip them. In Docker, enter /app/hdhomerun-recordings (set HDHOMERUN_RECORDINGS_PATH in .env to the host folder).",
 			"ssh_heading": "Client monitoring (SSH)",
 			"ssh_enabled_label": "Identify clients streaming through the DVR recording engine via SSH",
 			"ssh_username_label": "Username",

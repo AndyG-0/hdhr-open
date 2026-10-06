@@ -21,6 +21,13 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
   one click. Playback works either by transcoding server-side to H.264
   (`server_transcode`, works with any tuner but costs CPU per viewer) or by
   handing a raw stream link to an external player like VLC (`external`).
+- **Live playback controls** — a Go Live button returns to the live edge of
+  an in-progress channel or recording, with live-edge join, a playback stats
+  panel, and automatic quality downgrade for single-viewer live TV.
+- **Commercial detection** — comskip marks commercial breaks in completed
+  recordings (Built-in DVR, and HDHomeRun DVR once its storage is mounted),
+  with an opt-in auto-skip in the player.
+  See [`docs/dvr-usage-guide.md`](docs/dvr-usage-guide.md#commercial-detection).
 - **Optional hardware-accelerated transcoding** — VAAPI/Quick Sync support
   with a built-in diagnostics page (Settings → playback) to verify the
   container actually has GPU access before relying on it.
@@ -74,6 +81,15 @@ case something else inside that same namespace needs port 8000.
 
 For a tagged-image production deployment (pulling from a registry instead of
 building locally), see `docker-compose.prod.yml`.
+
+Recordings are stored in a Docker volume by default. To keep them on a NAS or
+large disk, set `RECORDINGS_PATH` to a host directory. To let commercial
+detection read recordings made by the HDHomeRun DVR engine, set
+`HDHOMERUN_RECORDINGS_PATH` to that engine's storage mount (read-only in the
+container), then enter `/app/hdhomerun-recordings` as the "Recordings path
+(local mount)" in HDHomeRun network settings. Host directories must be
+readable by uid 1000, and writable for `RECORDINGS_PATH` (see the comments in
+`docker-compose.yml`).
 
 Hardware-accelerated transcoding (VAAPI/Quick Sync, or NVENC with an NVIDIA
 GPU) requires passing the right device through to the backend container —

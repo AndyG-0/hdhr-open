@@ -15,15 +15,18 @@ import time
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app import jobs, media_probe, transcoding
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
-from app.config import RECORDINGS_DIR
+from app.config import RECORDINGS_DIR, effective_settings, resolve_timezone
 from app.dvr.builtin import poster_lookup
 from app.dvr.media import captions_live, captions_static
 from app.integrations import hdhomerun_client
+from app.integrations.thesportsdb import extract_matchup_teams
 from app.storage import db
 from app.subprocess_streaming import STDERR_TAIL_BYTES
 
@@ -125,10 +128,16 @@ class CapturePipeline:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         return RECORDINGS_DIR
 
-    def generate_file_path(self, title: str, start_ts: float, recording_id: str) -> Path:
+    def generate_file_path(
+        self, title: str, episode_title: str | None, start_ts: float, recording_id: str, tz: ZoneInfo
+    ) -> Path:
         recordings_dir = self._ensure_recordings_dir()
-        safe_title = sanitize_filename(title)[:50]
-        filename = f"{safe_title}_{int(start_ts)}_{recording_id[:8]}.ts"
+        parts = [sanitize_filename(title)[:50]]
+        if episode_title:
+            extra = "_".join(extract_matchup_teams(episode_title))
+            parts.append(sanitize_filename(extra)[:60])
+        air_date = datetime.fromtimestamp(start_ts, tz).strftime("%Y-%m-%d")
+        filename = f"{'_'.join(parts)}_{air_date}_{recording_id[:8]}.ts"
         return recordings_dir / filename
 
     async def start_capture(
@@ -177,7 +186,10 @@ class CapturePipeline:
             raw_url = hdhomerun_client.tuner_transcode_url(settings, channel_number, profile)
         else:
             raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
-        file_path = self.generate_file_path(title, start_ts, recording_id)
+        app_settings = await asyncio.to_thread(effective_settings)
+        file_path = self.generate_file_path(
+            title, episode_title, start_ts, recording_id, resolve_timezone(app_settings.get("timezone", "UTC"))
+        )
 
         codec_args = ["-c:v", "copy", "-c:a", "aac", "-ac", "2"] if using_tuner_transcode else ["-c", "copy"]
         argv = [
