@@ -36,9 +36,19 @@ async def list_recording_rules() -> dict[str, Any]:
     return {"rules": rules}
 
 
+_LIST_RECORDINGS_LIMIT = 50
+_SEARCH_RECORDINGS_LIMIT = 50
+
+
 async def list_recordings() -> dict[str, Any]:
-    recordings = await dvr_api.list_recordings()
+    recordings = await dvr_api.list_recordings(search=None, limit=_LIST_RECORDINGS_LIMIT, offset=0)
     return {"recordings": recordings}
+
+
+async def search_recordings(query: str, limit: int = 20) -> dict[str, Any]:
+    capped_limit = min(limit, _SEARCH_RECORDINGS_LIMIT)
+    recordings = await dvr_api.list_recordings(search=query, limit=capped_limit, offset=0)
+    return {"results": recordings}
 
 
 async def check_recording_conflicts(channel_number: str) -> dict[str, Any]:
@@ -185,9 +195,32 @@ register(
 register(
     ToolDefinition(
         name="list_recordings",
-        description="List completed/in-progress recordings in the DVR library.",
+        description=(
+            f"List completed/in-progress recordings in the DVR library, capped at {_LIST_RECORDINGS_LIMIT} "
+            "most recent. Use search_recordings instead to find something specific by title/synopsis/category."
+        ),
         parameters={"type": "object", "properties": {}},
         handler=list_recordings,
+        requires_permission=_PERMISSION,
+    )
+)
+
+register(
+    ToolDefinition(
+        name="search_recordings",
+        description=(
+            "Search recordings in the DVR library by a text query matched against title, episode title, "
+            f"synopsis, category, and channel name. Capped at {_SEARCH_RECORDINGS_LIMIT} results."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search text to match against the recording library."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": _SEARCH_RECORDINGS_LIMIT, "default": 20},
+            },
+            "required": ["query"],
+        },
+        handler=search_recordings,
         requires_permission=_PERMISSION,
     )
 )

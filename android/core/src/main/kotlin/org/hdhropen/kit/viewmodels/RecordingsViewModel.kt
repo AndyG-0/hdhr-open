@@ -2,11 +2,17 @@ package org.hdhropen.kit.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.hdhropen.kit.models.AddRecordingRulePayload
 import org.hdhropen.kit.models.HDHomeRunDvrInfo
@@ -24,11 +30,38 @@ enum class RecordingCategoryFilter(val label: String) {
     IN_PROGRESS("In Progress")
 }
 
+@OptIn(FlowPreview::class)
 class RecordingsViewModel(
-    private val apiClient: APIClient
+    private val apiClient: APIClient,
+    private val externalScope: CoroutineScope? = null
 ) : ViewModel() {
+
+    // Defers to `externalScope` (e.g. a test's `TestScope`) when supplied, so the
+    // debounced search collector below is a structured child of that scope instead
+    // of the framework's own `viewModelScope` - mirrors AIAssistantViewModel.
+    private val workScope: CoroutineScope
+        get() = externalScope ?: viewModelScope
+
     private val _recordings = MutableStateFlow<List<HDHomeRunRecording>>(emptyList())
     val recordings: StateFlow<List<HDHomeRunRecording>> = _recordings.asStateFlow()
+
+    val searchQuery = MutableStateFlow("")
+
+    private var searchObserverStarted = false
+
+    // Started explicitly (from loadData(), guarded to run once) rather than from init{},
+    // so its start point is deterministic relative to the screen's own initial load call -
+    // and, in tests, relative to the test body - instead of racing whatever happens to run
+    // first when the ViewModel is constructed.
+    internal fun startSearchObserver() {
+        if (searchObserverStarted) return
+        searchObserverStarted = true
+        workScope.launch {
+            searchQuery.drop(1).debounce(300).distinctUntilChanged().collectLatest { query ->
+                loadRecordings(query.ifBlank { null })
+            }
+        }
+    }
 
     private val _recordingRules = MutableStateFlow<List<HDHomeRunRecordingRule>>(emptyList())
     val recordingRules: StateFlow<List<HDHomeRunRecordingRule>> = _recordingRules.asStateFlow()
@@ -69,6 +102,7 @@ class RecordingsViewModel(
         get() = _recordings.value.filter { !it.isInProgress }
 
     fun loadData() {
+        startSearchObserver()
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
@@ -85,9 +119,9 @@ class RecordingsViewModel(
         }
     }
 
-    suspend fun loadRecordings() {
+    suspend fun loadRecordings(search: String? = searchQuery.value.ifBlank { null }) {
         try {
-            _recordings.value = apiClient.listRecordings()
+            _recordings.value = apiClient.listRecordings(search)
         } catch (e: Exception) {
             _error.value = e.localizedMessage
             Log.dvr.error("Failed to load recordings: ${e.localizedMessage}")

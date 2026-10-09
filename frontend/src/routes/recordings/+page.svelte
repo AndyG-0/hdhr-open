@@ -10,6 +10,7 @@
 		type RecordingRuleOptions,
 	} from '$lib/api';
 	import RecordingCard from '$lib/components/RecordingCard.svelte';
+	import VirtualizedRecordingGrid from '$lib/components/VirtualizedRecordingGrid.svelte';
 	import { openPopoutPlayer } from '$lib/popout';
 	import HDHomeRunKeywordRuleDialog, {
 		type KeywordRuleOptions,
@@ -27,12 +28,7 @@
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
 	import { page } from '$app/state';
-	import {
-		startPlayback,
-		stopPlayback,
-		useOwnedPlaybackContext,
-		type PlaybackMedia,
-	} from '$lib/stores/playback';
+	import { startPlayback, stopPlayback, useOwnedPlaybackContext, type PlaybackMedia } from '$lib/stores/playback';
 
 	let loading = $state(true);
 	let tunerConfigured = $state(true);
@@ -61,6 +57,8 @@
 	let showKeywordRuleDialog = $state(false);
 	let typeFilter = $state<'all' | 'shows' | 'movies' | 'sports'>('all');
 	let failedImages = $state<Record<string, boolean>>({});
+	let searchQuery = $state('');
+	let debouncedSearchQuery = $state('');
 
 	const serverFilteredInProgress = $derived(
 		recordingsInProgress.filter((r) => serverFilter === 'all' || (r.provider ?? 'builtin') === serverFilter),
@@ -102,15 +100,14 @@
 	]);
 
 	const displayedRecordingRules = $derived(
-		recordingRules.filter((r) => serverFilter === 'all' || ((r.provider ?? r.Provider) ?? 'builtin') === serverFilter),
+		recordingRules.filter((r) => serverFilter === 'all' || (r.provider ?? r.Provider ?? 'builtin') === serverFilter),
 	);
 
 	async function loadAll() {
 		loading = true;
 		try {
-			const [dvr, recordings, rules, channelsResult, integration, tunerInfoResult, tunersResult] = await Promise.all([
+			const [dvr, rules, channelsResult, integration, tunerInfoResult, tunersResult] = await Promise.all([
 				api.getDvrInfo().catch(() => null),
-				api.listRecordings({ limit: RECORDINGS_PAGE_SIZE, offset: 0 }).catch(() => []),
 				api.listRecordingRules().catch(() => []),
 				api.getHDHomeRunChannels().catch(() => null),
 				api.getNetworkIntegration('hdhomerun').catch(() => null),
@@ -123,11 +120,6 @@
 			if (integration && typeof integration.settings.playback_mode === 'string') {
 				playbackMode = integration.settings.playback_mode;
 			}
-			const now = Date.now() / 1000;
-			recordingsInProgress = recordings.filter((r) => r.record_end === null || r.record_end > now);
-			allRecordings = recordings.filter((r) => r.record_end !== null && r.record_end <= now);
-			recordingsOffset = recordings.length;
-			hasMoreRecordings = recordings.length === RECORDINGS_PAGE_SIZE;
 			recordingRules = rules;
 			if (channelsResult) {
 				channels = channelsResult.channels;
@@ -144,11 +136,44 @@
 		loadAll();
 	});
 
+	// Debounces the search box into debouncedSearchQuery (network-backed, so
+	// a longer delay than the guide grid's in-memory 150ms filter).
+	$effect(() => {
+		const term = searchQuery;
+		const timer = setTimeout(() => {
+			debouncedSearchQuery = term;
+		}, 300);
+		return () => clearTimeout(timer);
+	});
+
+	async function reloadRecordings() {
+		const search = debouncedSearchQuery || undefined;
+		try {
+			const recordings = await api.listRecordings({ search, limit: RECORDINGS_PAGE_SIZE, offset: 0 });
+			const now = Date.now() / 1000;
+			recordingsInProgress = recordings.filter((r) => r.record_end === null || r.record_end > now);
+			allRecordings = recordings.filter((r) => r.record_end !== null && r.record_end <= now);
+			recordingsOffset = recordings.length;
+			hasMoreRecordings = recordings.length === RECORDINGS_PAGE_SIZE;
+		} catch {
+			recordingsInProgress = [];
+			allRecordings = [];
+			recordingsOffset = 0;
+			hasMoreRecordings = false;
+		}
+	}
+
+	$effect(() => {
+		void debouncedSearchQuery;
+		reloadRecordings();
+	});
+
 	async function loadMoreRecordings() {
 		if (loadingMoreRecordings || !hasMoreRecordings) return;
 		loadingMoreRecordings = true;
 		try {
-			const page = await api.listRecordings({ limit: RECORDINGS_PAGE_SIZE, offset: recordingsOffset });
+			const search = debouncedSearchQuery || undefined;
+			const page = await api.listRecordings({ search, limit: RECORDINGS_PAGE_SIZE, offset: recordingsOffset });
 			const now = Date.now() / 1000;
 			// Offset pagination can drift as recordings start/finish while the
 			// user scrolls (an in-progress recording completing shifts every
@@ -410,11 +435,7 @@
 		}
 	}
 
-	async function updateRuleFromDialog(
-		ruleId: string,
-		mode: 'episode' | 'series',
-		options: RecordingRuleOptions,
-	) {
+	async function updateRuleFromDialog(ruleId: string, mode: 'episode' | 'series', options: RecordingRuleOptions) {
 		error = null;
 		recordingLoading = ruleId;
 		try {
@@ -456,11 +477,7 @@
 				{#if tunerInfo.model_number}<span>· {tunerInfo.model_number}</span>{/if}
 				{#if tunerInfo.tuner_count}
 					<span>·</span>
-					<TunerStatusPopover
-						{tuners}
-						tunerCount={tunerInfo.tuner_count}
-						onTerminateTuner={handleTerminateTuner}
-					/>
+					<TunerStatusPopover {tuners} tunerCount={tunerInfo.tuner_count} onTerminateTuner={handleTerminateTuner} />
 				{/if}
 			</div>
 		{/if}
@@ -480,6 +497,27 @@
 				<button type="button" class="dismiss-notice-btn" onclick={() => (fallbackNotice = null)}>✕</button>
 			</div>
 		{/if}
+
+		<div class="recordings-search-wrapper">
+			<span class="search-icon" aria-hidden="true">🔍</span>
+			<input
+				type="search"
+				class="recordings-search-input"
+				placeholder={$_('hdhomerun.detail.search_recordings_placeholder')}
+				bind:value={searchQuery}
+				onkeydown={(e) => e.key === 'Escape' && (searchQuery = '')}
+			/>
+			{#if searchQuery}
+				<button
+					type="button"
+					class="search-clear-btn"
+					onclick={() => (searchQuery = '')}
+					aria-label={$_('hdhomerun.detail.search_clear')}
+				>
+					✕
+				</button>
+			{/if}
+		</div>
 
 		<div class="filter-bars">
 			<div class="server-filter-bar" role="group" aria-label={$_('hdhomerun.detail.server_label')}>
@@ -565,32 +603,23 @@
 			<p class="hint">{$_('hdhomerun.detail.no_recordings')}</p>
 		{/if}
 
-		{#snippet recordingGrid(items: HDHomeRunRecording[])}
-			<div class="recordings">
-				{#each items as recording, i (recording.recording_id ?? i)}
-					<RecordingCard
-						{recording}
-						variant="completed"
-						failed={failedImages[recording.recording_id ?? ''] ?? false}
-						onImageError={() => {
-							failedImages[recording.recording_id ?? ''] = true;
-						}}
-						onPlay={() => playRecording(recording)}
-						onPopout={() => popoutRecording(recording)}
-						onDelete={() => deleteRecording(recording)}
-						deleting={deletingRecordingId === recording.recording_id}
-					/>
-				{/each}
-			</div>
-		{/snippet}
-
 		{#if typeFilter === 'all'}
 			{#if serverFilteredRecordings.length > 0}
 				<h2>{$_('hdhomerun.detail.recorded_programs')}</h2>
 				{#each categorySections as cat (cat.id)}
 					{#if cat.items.length > 0}
 						<h3 class="category-heading">{cat.emoji} {$_(cat.headingKey)} ({cat.items.length})</h3>
-						{@render recordingGrid(cat.items)}
+						<VirtualizedRecordingGrid
+							items={cat.items}
+							{failedImages}
+							{deletingRecordingId}
+							onImageError={(recording) => {
+								failedImages[recording.recording_id ?? ''] = true;
+							}}
+							onPlay={playRecording}
+							onPopout={popoutRecording}
+							onDelete={deleteRecording}
+						/>
 					{/if}
 				{/each}
 			{/if}
@@ -598,7 +627,17 @@
 			{#each categorySections.filter((c) => c.id === typeFilter) as cat (cat.id)}
 				<h2>{cat.emoji} {$_(cat.headingKey)} ({cat.items.length})</h2>
 				{#if cat.items.length > 0}
-					{@render recordingGrid(cat.items)}
+					<VirtualizedRecordingGrid
+						items={cat.items}
+						{failedImages}
+						{deletingRecordingId}
+						onImageError={(recording) => {
+							failedImages[recording.recording_id ?? ''] = true;
+						}}
+						onPlay={playRecording}
+						onPopout={popoutRecording}
+						onDelete={deleteRecording}
+					/>
 				{:else}
 					<p class="hint">{$_(cat.emptyKey)}</p>
 				{/if}
@@ -623,14 +662,14 @@
 						<div class="rule-title">{rule.Title}</div>
 						<div class="rule-details">
 							<span
-								class="rule-server-badge {((rule.provider ?? rule.Provider) ?? 'builtin')}"
-								title={((rule.provider ?? rule.Provider) === 'hdhomerun_series_watch')
+								class="rule-server-badge {rule.provider ?? rule.Provider ?? 'builtin'}"
+								title={(rule.provider ?? rule.Provider) === 'hdhomerun_series_watch'
 									? $_('hdhomerun.detail.server_badge_series_watch_tooltip')
 									: undefined}
 							>
-								{((rule.provider ?? rule.Provider) === 'hdhomerun')
+								{(rule.provider ?? rule.Provider) === 'hdhomerun'
 									? $_('hdhomerun.detail.server_badge_hdhomerun')
-									: ((rule.provider ?? rule.Provider) === 'hdhomerun_series_watch')
+									: (rule.provider ?? rule.Provider) === 'hdhomerun_series_watch'
 										? $_('hdhomerun.detail.server_badge_series_watch')
 										: $_('hdhomerun.detail.server_badge_builtin')}
 							</span>
@@ -650,7 +689,10 @@
 							{#if rule.StartPadding || rule.EndPadding}
 								<span class="rule-padding">
 									{$_('hdhomerun.detail.padding_summary', {
-										values: { start: Math.round((rule.StartPadding ?? 0) / 60), end: Math.round((rule.EndPadding ?? 0) / 60) },
+										values: {
+											start: Math.round((rule.StartPadding ?? 0) / 60),
+											end: Math.round((rule.EndPadding ?? 0) / 60),
+										},
 									})}
 								</span>
 							{/if}
@@ -707,7 +749,7 @@
 		channelNumber={editingRule.ChannelOnly}
 		{channels}
 		canRecordSeries={Boolean(editingRule.SeriesID || editingRule.Title)}
-		officialDvrActive={((editingRule.provider ?? editingRule.Provider) === 'hdhomerun')}
+		officialDvrActive={(editingRule.provider ?? editingRule.Provider) === 'hdhomerun'}
 		existingRule={editingRule}
 		loading={recordingLoading === editingRule.RecordingRuleID}
 		onCancelRule={(ruleId) => {
@@ -724,7 +766,7 @@
 
 {#if showKeywordRuleDialog}
 	<HDHomeRunKeywordRuleDialog
-		channels={channels}
+		{channels}
 		loading={recordingLoading === 'keyword-rule'}
 		onConfirm={createKeywordRule}
 		onClose={() => (showKeywordRuleDialog = false)}
@@ -753,11 +795,7 @@
 		tabindex="-1"
 	>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<div
-			class="tuner-modal-card"
-			onclick={(e) => e.stopPropagation()}
-			role="presentation"
-		>
+		<div class="tuner-modal-card" onclick={(e) => e.stopPropagation()} role="presentation">
 			<h3 class="tuner-modal-title">
 				{$_('hdhomerun.detail.tuner_terminate_modal_title', { values: { index: tunerToTerminate.index } })}
 			</h3>
@@ -1049,6 +1087,55 @@
 		padding: 0.25rem 0.6rem;
 		font-size: 0.8rem;
 		cursor: pointer;
+	}
+
+	.recordings-search-wrapper {
+		position: relative;
+		display: flex;
+		align-items: center;
+		max-width: 22rem;
+		margin: 0.5rem 0;
+	}
+
+	.search-icon {
+		position: absolute;
+		left: 0.75rem;
+		font-size: 0.85rem;
+		color: var(--color-text-muted);
+		pointer-events: none;
+	}
+
+	.recordings-search-input {
+		width: 100%;
+		padding: 0.45rem 2rem 0.45rem 2.2rem;
+		border: 1px solid var(--color-border);
+		border-radius: 0.5rem;
+		background: var(--color-surface);
+		color: var(--color-text);
+		font: inherit;
+		font-size: 0.88rem;
+		transition: border-color 0.15s ease;
+	}
+
+	.recordings-search-input:focus {
+		outline: none;
+		border-color: var(--color-accent);
+	}
+
+	.search-clear-btn {
+		position: absolute;
+		right: 0.5rem;
+		background: none;
+		border: none;
+		color: var(--color-text-muted);
+		padding: 0.2rem 0.4rem;
+		font-size: 0.8rem;
+		cursor: pointer;
+		border-radius: 0.25rem;
+	}
+
+	.search-clear-btn:hover {
+		color: var(--color-text);
 	}
 
 	.filter-bars {

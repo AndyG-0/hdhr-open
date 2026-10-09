@@ -193,6 +193,73 @@ async def test_dispatch_blocks_disabled_recording_tool(tmp_db):
     assert db.list_recording_rules("builtin") == []
 
 
+# --- recording tools: list/search --------------------------------------------
+
+
+def _seed_recording(title: str, *, start_ts: float, synopsis: str | None = None, channel_id: str) -> str:
+    recording_id = uuid.uuid4().hex
+    db.create_recording(
+        {
+            "id": recording_id,
+            "title": title,
+            "synopsis": synopsis,
+            "channel_id": channel_id,
+            "channel_name_snapshot": "WABC",
+            "start_ts": start_ts,
+            "end_ts": start_ts + 1800,
+            "file_path": f"/tmp/{recording_id}.ts",
+            "status": "completed",
+        }
+    )
+    return recording_id
+
+
+@pytest.mark.asyncio
+async def test_list_recordings_tool_caps_results(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    for i in range(55):
+        _seed_recording(f"Show {i}", start_ts=now - i * 60, channel_id=channel_id)
+
+    result = await registry.dispatch("list_recordings", {}, ai_settings=ENABLED)
+
+    assert result.kind == "result"
+    assert len(result.result["recordings"]) == 50
+
+
+@pytest.mark.asyncio
+async def test_search_recordings_tool_matches_title(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    _seed_recording("Jeopardy!", start_ts=now - 3600, channel_id=channel_id)
+    _seed_recording("Wheel of Fortune", start_ts=now - 7200, channel_id=channel_id)
+
+    result = await registry.dispatch("search_recordings", {"query": "jeopardy"}, ai_settings=ENABLED)
+
+    assert result.kind == "result"
+    assert [r["title"] for r in result.result["results"]] == ["Jeopardy!"]
+
+
+@pytest.mark.asyncio
+async def test_search_recordings_tool_caps_limit_argument(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    for i in range(10):
+        _seed_recording(f"Show {i}", start_ts=now - i * 60, channel_id=channel_id)
+
+    result = await registry.dispatch("search_recordings", {"query": "Show", "limit": 500}, ai_settings=ENABLED)
+
+    assert result.kind == "result"
+    assert len(result.result["results"]) == 10
+
+
+@pytest.mark.asyncio
+async def test_search_recordings_tool_blocked_when_disabled(tmp_db):
+    result = await registry.dispatch("search_recordings", {"query": "jeopardy"}, ai_settings=DISABLED)
+
+    assert result.kind == "error"
+
+
 # --- recording tools: preview never mutates -------------------------------------
 
 

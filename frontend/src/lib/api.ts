@@ -932,8 +932,9 @@ export const api = {
 	},
 	getHDHomeRunChannels: () => getJSON<HDHomeRunChannelsResponse>('/api/guide/channels'),
 	getDvrInfo: () => getJSON<HDHomeRunDvrInfo>('/api/dvr/info'),
-	listRecordings: (params?: { limit?: number; offset?: number }) => {
+	listRecordings: (params?: { search?: string; limit?: number; offset?: number }) => {
 		const query = new URLSearchParams();
+		if (params?.search) query.set('search', params.search);
 		if (params?.limit !== undefined) query.set('limit', String(params.limit));
 		if (params?.offset !== undefined) query.set('offset', String(params.offset));
 		const qs = query.toString();
@@ -1001,12 +1002,8 @@ export const api = {
 			...(pin !== undefined && { pin }),
 		}),
 	listHouseholdUsers: () => getJSON<HouseholdUser[]>('/api/admin/users'),
-	createHouseholdUser: (payload: {
-		name: string;
-		avatar?: string | null;
-		pin?: string | null;
-		role?: UserRole;
-	}) => postJSON<HouseholdUser>('/api/admin/users', payload),
+	createHouseholdUser: (payload: { name: string; avatar?: string | null; pin?: string | null; role?: UserRole }) =>
+		postJSON<HouseholdUser>('/api/admin/users', payload),
 	updateHouseholdUser: (
 		id: string,
 		payload: {

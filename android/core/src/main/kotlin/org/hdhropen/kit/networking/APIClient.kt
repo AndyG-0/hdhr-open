@@ -177,7 +177,7 @@ class APIClient(
         method: String = "GET",
         body: Any? = null,
         headers: Map<String, String> = emptyMap()
-    ): T = withContext(Dispatchers.IO) {
+    ): T = withContext(ioDispatcher) {
         val jsonBody = body?.let {
             when (it) {
                 is String -> it
@@ -222,8 +222,8 @@ class APIClient(
     suspend fun getDvrInfo(): HDHomeRunDvrInfo =
         request(APIEndpoints.dvrInfo())
 
-    suspend fun listRecordings(): List<HDHomeRunRecording> =
-        request(APIEndpoints.recordings())
+    suspend fun listRecordings(search: String? = null): List<HDHomeRunRecording> =
+        request(APIEndpoints.recordings(search))
 
     suspend fun deleteRecording(id: String) {
         requestRaw(APIEndpoints.deleteRecording(id), method = "DELETE")
@@ -393,7 +393,7 @@ class APIClient(
         return "$wsBase$path"
     }
 
-    suspend fun fetchRawString(url: String): String = withContext(Dispatchers.IO) {
+    suspend fun fetchRawString(url: String): String = withContext(ioDispatcher) {
         val data = requestRaw(url)
         String(data, Charsets.UTF_8)
     }

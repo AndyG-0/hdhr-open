@@ -8,7 +8,11 @@ object APIEndpoints {
     fun refreshGuide(): String = "/api/guide/refresh"
 
     fun dvrInfo(): String = "/api/dvr/info"
-    fun recordings(): String = "/api/dvr/recordings"
+    fun recordings(search: String? = null): String {
+        val query = mutableListOf<String>()
+        if (!search.isNullOrBlank()) query.add("search=${URLEncoder.encode(search, "UTF-8")}")
+        return if (query.isNotEmpty()) "/api/dvr/recordings?${query.joinToString("&")}" else "/api/dvr/recordings"
+    }
     fun deleteRecording(id: String): String = "/api/dvr/recordings/$id"
 
     fun recordingDetail(
