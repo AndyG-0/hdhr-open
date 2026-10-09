@@ -27,7 +27,18 @@ public final class PlayerEngine: NSObject, ObservableObject {
     @Published public private(set) var availableAudioTracks: [HDHomeRunRecordingAudioInfo] = []
     @Published public private(set) var videoSpecs: HDHomeRunRecordingVideoInfo?
     @Published public private(set) var transcodeInfo: HDHomeRunTranscodeInfo?
-    @Published public private(set) var observedBitrate: Double?
+    // `internal(set)` (not `private(set)`) so `@testable import` test code can
+    // inject a fake value to drive `PlayerViewModel.sampleAutoQualityTick()`'s
+    // throughput branches, mirroring `StreamSessionCoordinator.activeHLSSessionId`'s
+    // existing pattern for the same reason.
+    @Published public internal(set) var observedBitrate: Double?
+    /// Timestamp of the most recent stall - an `AVPlayerItem.playbackStalledNotification`
+    /// after playback has already started once since the last `loadMedia()`
+    /// (mirrors the web player's `currentTime > 0` guard on `waiting` events
+    /// and Android's `hasStartedPlaybackSinceLoad`, so the initial pre-roll
+    /// buffering never counts as a stall). `PlayerViewModel`'s auto-quality
+    /// poll collects this to drive its own rolling stall-window count.
+    @Published public private(set) var stallPulse: Date?
     @Published public private(set) var commercialSegments: [HDHomeRunCommercialSegment] = []
     /// Whether AirPlay (or another external-playback route) is currently
     /// active - the app shell (`HDHROpeniOSApp`/`HDHROpenTVApp`) reads this
@@ -65,6 +76,11 @@ public final class PlayerEngine: NSObject, ObservableObject {
     private var itemAccessLogObserver: AnyCancellable?
     private var itemErrorLogObserver: AnyCancellable?
     private var itemStallObserver: AnyCancellable?
+    /// Guards `stallPulse` against counting the initial pre-roll buffering
+    /// (before the item has ever reached `.readyToPlay` once) as a stall -
+    /// mirrors Android's identically-named flag. Set `true` on
+    /// `.readyToPlay`, reset on every `reset()`.
+    private var hasStartedPlaybackSinceLoad = false
     // Lives for the lifetime of `avPlayer` (a single instance reused across
     // `loadMedia` calls via `replaceCurrentItem`), not per-item - never torn
     // down in `reset()`. `timeControlStatus` reflects whether AVPlayer is
@@ -397,6 +413,28 @@ public final class PlayerEngine: NSObject, ObservableObject {
         transcodeInfo = nil
         observedBitrate = nil
         commercialSegments = []
+        hasStartedPlaybackSinceLoad = false
+    }
+
+    /// Seconds between the playhead and the end of the buffered range that
+    /// contains it - `nil` while there's no current item (mirrors Android's
+    /// `bufferedAheadSeconds()` and the web player's `getBufferedAheadSeconds`).
+    /// `PlayerViewModel`'s auto-quality poll uses this as its proactive
+    /// buffer-drain signal.
+    public func bufferedAheadSeconds() -> Double? {
+        guard let item = avPlayer?.currentItem else { return nil }
+        let position = item.currentTime().seconds
+        guard position.isFinite else { return nil }
+        for value in item.loadedTimeRanges {
+            let range = value.timeRangeValue
+            let start = range.start.seconds
+            let end = range.end.seconds
+            guard start.isFinite, end.isFinite else { continue }
+            if position >= start, position <= end {
+                return max(0, end - position)
+            }
+        }
+        return 0
     }
 
     #if os(iOS)
@@ -450,6 +488,7 @@ public final class PlayerEngine: NSObject, ObservableObject {
                 switch status {
                 case .readyToPlay:
                     state = .playing
+                    hasStartedPlaybackSinceLoad = true
                     if let dur = avPlayer?.currentItem?.duration.seconds, dur.isFinite, !dur.isNaN, dur > 0 {
                         let total = timeOffset + dur
                         if duration == 0 || total > duration {
@@ -501,8 +540,10 @@ public final class PlayerEngine: NSObject, ObservableObject {
         itemStallObserver = NotificationCenter.default
             .publisher(for: AVPlayerItem.playbackStalledNotification, object: item)
             .receive(on: DispatchQueue.main)
-            .sink { _ in
+            .sink { [weak self] _ in
                 Log.player.warning("Playback stalled")
+                guard let self, hasStartedPlaybackSinceLoad else { return }
+                stallPulse = Date()
             }
     }
 }

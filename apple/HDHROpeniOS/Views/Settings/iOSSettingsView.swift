@@ -54,6 +54,12 @@ public struct iOSSettingsView: View {
                 // Playback Section
                 Section(header: Text("Playback")) {
                     Toggle("Auto-skip commercials", isOn: $playbackPreferences.autoSkipCommercialsEnabled)
+
+                    Picker("Video Quality", selection: $playbackPreferences.videoQuality) {
+                        ForEach(VideoQuality.allCases, id: \.self) { quality in
+                            Text(quality.label).tag(quality)
+                        }
+                    }
                 }
 
                 // Profile Section

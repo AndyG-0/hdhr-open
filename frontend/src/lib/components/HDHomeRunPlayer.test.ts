@@ -148,6 +148,23 @@ function setMeasuredSpeedMbps(mbps: number) {
 	statisticsInfo.speed = (mbps * 1000) / 8;
 }
 
+// jsdom doesn't implement HTMLMediaElement.buffered, so the component's
+// buffer-drain gate (getBufferedAheadSeconds/isBufferDraining) is driven here
+// the same way mpegts.js's speed stat is above: a mutable ref the test can
+// update between ticks, surfaced as a single TimeRange starting at 0
+// (currentTime stays 0 in these tests unless a test sets it itself).
+function mockBufferedAheadSeconds(video: HTMLVideoElement, secondsRef: { current: number }) {
+	Object.defineProperty(video, 'buffered', {
+		configurable: true,
+		get: () =>
+			({
+				length: 1,
+				start: () => 0,
+				end: () => secondsRef.current,
+			}) as unknown as TimeRanges,
+	});
+}
+
 describe('HDHomeRunPlayer', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -2842,6 +2859,13 @@ describe('HDHomeRunPlayer', () => {
 			render(HDHomeRunPlayer, { props: seekableProps });
 			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
 
+			// A genuine throughput drop alone isn't enough to downgrade anymore -
+			// also simulate the buffer actually draining in step with it (see
+			// isBufferDraining in the component), since that's the real gate now.
+			const video = document.querySelector('video')!;
+			const bufferedAheadRef = { current: 15 };
+			mockBufferedAheadSeconds(video, bufferedAheadRef);
+
 			// Build a steady baseline well below the "high" tier's target (so the
 			// absolute-target comparison is never trusted - see
 			// BASELINE_NEAR_TARGET_RATIO in the component), then force a genuine
@@ -2851,7 +2875,9 @@ describe('HDHomeRunPlayer', () => {
 				await vi.advanceTimersByTimeAsync(5_000);
 			}
 			setMeasuredSpeedMbps(0.5);
+			const drainSchedule = [9, 6, 3];
 			for (let i = 0; i < 3; i++) {
+				bufferedAheadRef.current = drainSchedule[i];
 				await vi.advanceTimersByTimeAsync(5_000);
 			}
 
@@ -2872,6 +2898,14 @@ describe('HDHomeRunPlayer', () => {
 			render(HDHomeRunPlayer, { props: seekableProps });
 			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
 
+			// Also simulate the buffer genuinely draining in step with the
+			// throughput collapse below - see isBufferDraining in the component,
+			// the actual gate a downgrade now requires.
+			const video = document.querySelector('video')!;
+			const bufferedAheadRef = { current: 15 };
+			mockBufferedAheadSeconds(video, bufferedAheadRef);
+			const drainSchedule = [9, 6, 3];
+
 			// Baseline comfortably above the "high" tier's target (safe, no
 			// downgrade), then a severe, sustained drop representing a real
 			// network collapse.
@@ -2884,12 +2918,44 @@ describe('HDHomeRunPlayer', () => {
 			// (auto-dismissed after 5s) is still checked within its own window -
 			// not after however many more ticks it took to loop out.
 			for (let i = 0; i < 10 && createPlayer.mock.calls.length < 2; i++) {
+				bufferedAheadRef.current = drainSchedule[Math.min(i, drainSchedule.length - 1)];
 				await vi.advanceTimersByTimeAsync(5_000);
 			}
 
 			expect(createPlayer.mock.calls.length).toBeGreaterThan(1);
 			expect(['medium', 'low', 'minimal']).toContain(lastRequestedQuality());
 			expect(await screen.findByText(/Reduced quality/i)).toBeInTheDocument();
+
+			vi.useRealTimers();
+		});
+
+		it('does not downgrade on a severe measured-throughput drop when the buffer stays healthy and stable (regression: the actual reported bug - a fast LAN reads a low byte-arrival-rate for ordinary live content as a struggling network, even though nothing is draining)', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			mockDetailWithSourceHeight(1080);
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+
+			// Buffer stays large and flat throughout - direct, content-agnostic
+			// proof the network is keeping up, regardless of what the measured
+			// byte-rate below looks like.
+			const video = document.querySelector('video')!;
+			mockBufferedAheadSeconds(video, { current: 20 });
+
+			setMeasuredSpeedMbps(6.5);
+			for (let i = 0; i < 4; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+			// A severe, sustained drop in measured throughput alone - on its own
+			// this used to trigger a downgrade; it must not here, since the
+			// buffer never shows any sign of actually losing ground.
+			setMeasuredSpeedMbps(0.1);
+			for (let i = 0; i < 10; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+
+			expect(createPlayer).toHaveBeenCalledTimes(1);
+			expect(screen.queryByText(/Reduced quality/i)).not.toBeInTheDocument();
 
 			vi.useRealTimers();
 		});

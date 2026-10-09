@@ -59,10 +59,16 @@ object APIEndpoints {
     fun updateRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
     fun deleteRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
 
-    fun hlsChannelSession(channelNumber: String, forCast: Boolean = false, audioIndex: Int? = null): String {
+    fun hlsChannelSession(
+        channelNumber: String,
+        forCast: Boolean = false,
+        audioIndex: Int? = null,
+        quality: String? = null
+    ): String {
         val params = mutableListOf<String>()
         if (forCast) params.add("for_cast=true")
         if (audioIndex != null) params.add("audio_index=$audioIndex")
+        if (quality != null) params.add("quality=$quality")
         val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
         return "/api/streaming/hls/$channelNumber$query"
     }

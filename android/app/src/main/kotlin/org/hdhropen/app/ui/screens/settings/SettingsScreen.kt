@@ -26,6 +26,7 @@ import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.networking.AuthManager
 import org.hdhropen.kit.networking.ServerDiscovery
 import org.hdhropen.kit.playback.PlaybackPreferences
+import org.hdhropen.kit.playback.QualityPreference
 import org.hdhropen.kit.theme.ThemeMode
 import org.hdhropen.kit.theme.ThemePreferences
 import org.hdhropen.kit.viewmodels.SettingsViewModel
@@ -52,6 +53,7 @@ fun SettingsScreen(
     val hwAccelDiagnostics by settingsViewModel.hwAccelDiagnostics.collectAsState()
     val directPlayEnabled by playbackPreferences.directPlayEnabled.collectAsState()
     val autoSkipCommercialsEnabled by playbackPreferences.autoSkipCommercialsEnabled.collectAsState()
+    val qualityPreference by playbackPreferences.qualityPreference.collectAsState()
     val themeMode by themePreferences.themeMode.collectAsState()
 
     var showServerSetupDialog by remember { mutableStateOf(false) }
@@ -237,6 +239,35 @@ fun SettingsScreen(
                                     checked = autoSkipCommercialsEnabled,
                                     onCheckedChange = { playbackPreferences.setAutoSkipCommercialsEnabled(it) }
                                 )
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "Video Quality",
+                                style = MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Default quality for new playback sessions. Auto adjusts to network conditions automatically.",
+                                style = MaterialTheme.typography.labelSmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                                val qualityOptions = listOf(
+                                    QualityPreference.AUTO to "Auto",
+                                    QualityPreference.HIGH to "High",
+                                    QualityPreference.MEDIUM to "Medium",
+                                    QualityPreference.LOW to "Low"
+                                )
+                                qualityOptions.forEachIndexed { index, (preference, label) ->
+                                    SegmentedButton(
+                                        selected = qualityPreference == preference,
+                                        onClick = { playbackPreferences.setQualityPreference(preference) },
+                                        shape = SegmentedButtonDefaults.itemShape(index = index, count = qualityOptions.size)
+                                    ) {
+                                        Text(label)
+                                    }
+                                }
                             }
                         }
                     }

@@ -59,7 +59,7 @@ class PlayerViewModelChannelFallbackTest {
         every { apiClient.baseURL } returns "http://localhost:8000"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("4.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("4.1") } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("4.1", forCast = any(), audioIndex = any(), quality = any()) } returns HDHomeRunRecording(
             recordingId = "rec_fallback",
             sessionId = "sess-123",
             playlistUrl = "/api/hls/sess-123/playlist.m3u8",
@@ -84,7 +84,7 @@ class PlayerViewModelChannelFallbackTest {
         every { apiClient.baseURL } returns "http://localhost:8000"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("4.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("4.1") } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("4.1", forCast = any(), audioIndex = any(), quality = any()) } returns HDHomeRunRecording(
             sessionId = "sess-456",
             playlistUrl = "/api/hls/sess-456/playlist.m3u8",
             title = "Channel 4.1"

@@ -131,7 +131,7 @@ class PlayerErrorHandlingTest {
         every { apiClient.baseURL } returns "http://localhost:8100"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("3.3") } throws APIError.ServerError(502, "All 4 tuners in use by other clients")
-        coEvery { apiClient.createChannelHLSSession("3.3", any()) } throws APIError.ServerError(502, "All 4 tuners in use by other clients")
+        coEvery { apiClient.createChannelHLSSession("3.3", any(), any(), any()) } throws APIError.ServerError(502, "All 4 tuners in use by other clients")
 
         val engine = PlayerEngine()
         val vm = PlayerViewModel(apiClient, WatchSessionManager(apiClient), engine, CaptionController())
@@ -153,7 +153,7 @@ class PlayerErrorHandlingTest {
         every { apiClient.baseURL } returns "http://localhost:8100"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("3.3") } throws APIError.ServerError(502, "Tuner busy")
-        coEvery { apiClient.createChannelHLSSession("3.3", any()) } throws APIError.ServerError(502, "Tuner busy")
+        coEvery { apiClient.createChannelHLSSession("3.3", any(), any(), any()) } throws APIError.ServerError(502, "Tuner busy")
 
         val engine = PlayerEngine()
         val vm = PlayerViewModel(apiClient, WatchSessionManager(apiClient), engine, CaptionController())
@@ -162,7 +162,7 @@ class PlayerErrorHandlingTest {
         assertTrue(engine.state.value is PlaybackState.Failed)
 
         // Now mock success for retry
-        coEvery { apiClient.createChannelHLSSession("3.3", any()) } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("3.3", any(), any(), any()) } returns HDHomeRunRecording(
             sessionId = "sess-recovered",
             playlistUrl = "/api/hls/sess-recovered/playlist.m3u8",
             title = "Outlaw"
@@ -178,7 +178,7 @@ class PlayerErrorHandlingTest {
         val apiClient = mockk<APIClient>()
         every { apiClient.baseURL } returns "http://localhost:8100"
         every { apiClient.bearerToken } returns null
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } throws APIError.ServerError(502, "Transcoder failed")
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } throws APIError.ServerError(502, "Transcoder failed")
 
         val engine = PlayerEngine()
         val vm = PlayerViewModel(apiClient, WatchSessionManager(apiClient), engine, CaptionController())
@@ -192,7 +192,7 @@ class PlayerErrorHandlingTest {
         assertEquals("Transcoder failed", failed.detail)
 
         // Retry succeeds
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns HLSSessionResponse(
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } returns HLSSessionResponse(
             sessionId = "rec-sess-ok",
             playlistUrl = "/api/hls/rec-sess-ok/playlist.m3u8"
         )

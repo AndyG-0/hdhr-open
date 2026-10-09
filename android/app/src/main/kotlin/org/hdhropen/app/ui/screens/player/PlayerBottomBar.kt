@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -50,6 +51,7 @@ import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
 import org.hdhropen.kit.models.HDHomeRunRecordingAudioInfo
 import org.hdhropen.kit.models.HDHomeRunRecordingRule
+import org.hdhropen.kit.playback.QualityPreference
 import org.hdhropen.kit.playback.ThumbnailCue
 import androidx.compose.material.icons.filled.FastForward
 
@@ -68,6 +70,9 @@ fun PlayerBottomBar(
     availableAudioTracks: List<HDHomeRunRecordingAudioInfo>,
     currentAudioTrack: HDHomeRunRecordingAudioInfo?,
     isSwitchingAudioTrack: Boolean,
+    showQualityPicker: Boolean,
+    quality: QualityPreference,
+    isSwitchingQuality: Boolean,
     commercialSegments: List<CommercialSegment>,
     activeCommercialSegment: CommercialSegment?,
     autoSkipCommercialsEnabled: Boolean,
@@ -80,11 +85,13 @@ fun PlayerBottomBar(
     onCancelRule: (String) -> Unit,
     onOpenRecordingOptions: () -> Unit,
     onSelectAudioTrack: (HDHomeRunRecordingAudioInfo) -> Unit,
+    onSelectQuality: (QualityPreference) -> Unit,
     onSkipCommercial: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showRecordMenu by remember { mutableStateOf(false) }
     var showAudioMenu by remember { mutableStateOf(false) }
+    var showQualityMenu by remember { mutableStateOf(false) }
     var showAutoSkipPill by remember { mutableStateOf(false) }
 
     LaunchedEffect(autoSkipCommercialPulse) {
@@ -280,6 +287,41 @@ fun PlayerBottomBar(
                                 onClick = {
                                     onSelectAudioTrack(track)
                                     showAudioMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Quality Selector
+            if (showQualityPicker) {
+                Box {
+                    IconButton(onClick = { showQualityMenu = !showQualityMenu }) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = "Video Quality",
+                            tint = Color.White
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showQualityMenu,
+                        onDismissRequest = { showQualityMenu = false },
+                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                    ) {
+                        QualityPreference.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = option.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        color = if (option == quality) BluePrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                },
+                                enabled = !isSwitchingQuality,
+                                onClick = {
+                                    onSelectQuality(option)
+                                    showQualityMenu = false
                                 }
                             )
                         }

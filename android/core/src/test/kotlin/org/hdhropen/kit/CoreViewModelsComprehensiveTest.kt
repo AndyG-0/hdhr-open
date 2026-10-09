@@ -259,7 +259,13 @@ class CoreViewModelsComprehensiveTest {
         val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
         val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
         val captionController = org.hdhropen.kit.playback.CaptionController()
-        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+        // Pin quality away from AUTO: the auto-quality poll loop only runs while
+        // AUTO, and it never stops on its own, so leaving it AUTO here would make
+        // advanceUntilIdle() spin forever once playChannel()/playRecording() starts it.
+        val playbackPreferences = org.hdhropen.kit.playback.PlaybackPreferences().apply {
+            setQualityPreference(org.hdhropen.kit.playback.QualityPreference.HIGH)
+        }
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController, playbackPreferences = playbackPreferences)
 
         val track1 = HDHomeRunRecordingAudioInfo(index = 0, title = "Main", channels = 2)
         val track2 = HDHomeRunRecordingAudioInfo(index = 1, title = "Spanish", channels = 2)
@@ -273,7 +279,7 @@ class CoreViewModelsComprehensiveTest {
         )
 
         coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } returns
             org.hdhropen.kit.networking.HLSSessionResponse(
                 sessionId = "rec_sess_hls",
                 playlistUrl = "/api/hls/rec_sess_hls/playlist.m3u8"
@@ -296,7 +302,8 @@ class CoreViewModelsComprehensiveTest {
                 start = any(),
                 audioIndex = 1,
                 provider = "internal",
-                forCast = any()
+                forCast = any(),
+                quality = any()
             )
         }
         assertEquals(track2, playerEngine.currentAudioTrack.value)
@@ -325,14 +332,20 @@ class CoreViewModelsComprehensiveTest {
         val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
         val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
         val captionController = org.hdhropen.kit.playback.CaptionController()
-        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+        // Pin quality away from AUTO: the auto-quality poll loop only runs while
+        // AUTO, and it never stops on its own, so leaving it AUTO here would make
+        // advanceUntilIdle() spin forever once playChannel()/playRecording() starts it.
+        val playbackPreferences = org.hdhropen.kit.playback.PlaybackPreferences().apply {
+            setQualityPreference(org.hdhropen.kit.playback.QualityPreference.HIGH)
+        }
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController, playbackPreferences = playbackPreferences)
 
         val channel = HDHomeRunChannel(channelNumber = "5.1", name = "KING")
         val watchRec = HDHomeRunRecording(recordingId = "rec_live_51", title = "KING Live", playUrl = "/api/dvr/live_51.mpg")
 
         coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
         coEvery { watchSessionManager.startWatch("5.1") } returns watchRec
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } returns
             org.hdhropen.kit.networking.HLSSessionResponse(
                 sessionId = "sess_watch_hls",
                 playlistUrl = "/api/hls/sess_watch_hls/playlist.m3u8"
@@ -360,14 +373,20 @@ class CoreViewModelsComprehensiveTest {
         val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
         val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
         val captionController = org.hdhropen.kit.playback.CaptionController()
-        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+        // Pin quality away from AUTO: the auto-quality poll loop only runs while
+        // AUTO, and it never stops on its own, so leaving it AUTO here would make
+        // advanceUntilIdle() spin forever once playChannel()/playRecording() starts it.
+        val playbackPreferences = org.hdhropen.kit.playback.PlaybackPreferences().apply {
+            setQualityPreference(org.hdhropen.kit.playback.QualityPreference.HIGH)
+        }
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController, playbackPreferences = playbackPreferences)
 
         val channel = HDHomeRunChannel(channelNumber = "7.1", name = "KGO")
         val watchRec = HDHomeRunRecording(recordingId = "rec_live_71", title = "KGO Live", playUrl = "/api/dvr/live_71.mpg")
 
         coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
         coEvery { watchSessionManager.startWatch("7.1") } returns watchRec
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } returns
             org.hdhropen.kit.networking.HLSSessionResponse(
                 sessionId = "sess_watch_71",
                 playlistUrl = "/api/hls/sess_watch_71/playlist.m3u8"
@@ -394,7 +413,13 @@ class CoreViewModelsComprehensiveTest {
         val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
         val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
         val captionController = org.hdhropen.kit.playback.CaptionController()
-        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+        // Pin quality away from AUTO: the auto-quality poll loop only runs while
+        // AUTO, and it never stops on its own, so leaving it AUTO here would make
+        // advanceUntilIdle() spin forever once playChannel()/playRecording() starts it.
+        val playbackPreferences = org.hdhropen.kit.playback.PlaybackPreferences().apply {
+            setQualityPreference(org.hdhropen.kit.playback.QualityPreference.HIGH)
+        }
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController, playbackPreferences = playbackPreferences)
 
         val track1 = HDHomeRunRecordingAudioInfo(index = 0, title = "Main", channels = 2)
         val track2 = HDHomeRunRecordingAudioInfo(index = 1, title = "Spanish", channels = 2)
@@ -408,7 +433,7 @@ class CoreViewModelsComprehensiveTest {
         )
 
         coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } returns
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } returns
             org.hdhropen.kit.networking.HLSSessionResponse(
                 sessionId = "rec_sess_hls",
                 playlistUrl = "/api/hls/rec_sess_hls/playlist.m3u8"
@@ -418,7 +443,7 @@ class CoreViewModelsComprehensiveTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         // Make subsequent audio track switch fail
-        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any()) } throws
+        coEvery { apiClient.createRecordingHLSSession(any(), any(), any(), any(), any(), any(), any()) } throws
             org.hdhropen.kit.networking.APIError.ServerError(500, "Transcoder died")
 
         vm.selectAudioTrack(track2)
@@ -437,7 +462,13 @@ class CoreViewModelsComprehensiveTest {
         val watchSessionManager = mockk<org.hdhropen.kit.networking.WatchSessionManager>(relaxed = true)
         val playerEngine = org.hdhropen.kit.playback.PlayerEngine()
         val captionController = org.hdhropen.kit.playback.CaptionController()
-        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController)
+        // Pin quality away from AUTO: the auto-quality poll loop only runs while
+        // AUTO, and it never stops on its own, so leaving it AUTO here would make
+        // advanceUntilIdle() spin forever once playChannel()/playRecording() starts it.
+        val playbackPreferences = org.hdhropen.kit.playback.PlaybackPreferences().apply {
+            setQualityPreference(org.hdhropen.kit.playback.QualityPreference.HIGH)
+        }
+        val vm = PlayerViewModel(apiClient, watchSessionManager, playerEngine, captionController, playbackPreferences = playbackPreferences)
 
         val channel = HDHomeRunChannel(channelNumber = "2.1", name = "KTVU")
         val directRec = HDHomeRunRecording(title = "KTVU Live", sessionId = "channel_direct_hls", playlistUrl = "/api/hls/ch_21/playlist.m3u8")
@@ -445,7 +476,7 @@ class CoreViewModelsComprehensiveTest {
         coEvery { apiClient.baseURL } returns "http://127.0.0.1:8000"
         // Watch session start returns null (unsupported/unavailable)
         coEvery { watchSessionManager.startWatch("2.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("2.1", forCast = any()) } returns directRec
+        coEvery { apiClient.createChannelHLSSession("2.1", forCast = any(), quality = any()) } returns directRec
 
         vm.playChannel(channel)
         testDispatcher.scheduler.advanceUntilIdle()

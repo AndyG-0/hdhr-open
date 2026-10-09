@@ -26,6 +26,7 @@ public struct TVSettingsView: View {
 
     @FocusState private var focusedPresetId: String?
     @FocusState private var focusedThemeMode: ThemeMode?
+    @FocusState private var focusedVideoQuality: VideoQuality?
     @FocusState private var focusedSettingsGroup: SettingsGroup?
 
     @State private var selectedGroup: SettingsGroup = .general
@@ -129,6 +130,36 @@ public struct TVSettingsView: View {
                                     .padding(24)
                                     .background(Theme.appSurface)
                                     .cornerRadius(16)
+
+                                HStack(spacing: 16) {
+                                    Spacer()
+
+                                    ForEach(VideoQuality.allCases, id: \.self) { quality in
+                                        let isActive = playbackPreferences.videoQuality == quality
+                                        let isFocused = focusedVideoQuality == quality
+
+                                        Button(action: { playbackPreferences.videoQuality = quality }) {
+                                            Text(quality.label)
+                                                .font(.headline)
+                                                .foregroundColor(isActive ? .white : Theme.textPrimary)
+                                                .padding(.horizontal, 24)
+                                                .padding(.vertical, 12)
+                                                .background(isActive ? Color.blue : Theme.appSurfaceVariant)
+                                                .cornerRadius(12)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
+                                                )
+                                                .scaleEffect(isFocused ? 1.05 : 1.0)
+                                                .animation(.easeInOut(duration: 0.15), value: isFocused)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .focused($focusedVideoQuality, equals: quality)
+                                    }
+                                }
+                                .padding(24)
+                                .background(Theme.appSurface)
+                                .cornerRadius(16)
                             }
                             .focusSection()
 

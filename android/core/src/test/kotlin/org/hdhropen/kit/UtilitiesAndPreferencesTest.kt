@@ -3,6 +3,7 @@ package org.hdhropen.kit
 import kotlinx.serialization.json.JsonPrimitive
 import org.hdhropen.kit.models.*
 import org.hdhropen.kit.playback.PlaybackPreferences
+import org.hdhropen.kit.playback.QualityPreference
 import org.hdhropen.kit.theme.ThemeMode
 import org.hdhropen.kit.theme.ThemePreferences
 import org.hdhropen.kit.utilities.Log
@@ -87,6 +88,28 @@ class UtilitiesAndPreferencesTest {
 
         prefs.setDirectPlayEnabled(true)
         assertTrue(prefs.directPlayEnabled.value)
+    }
+
+    @Test
+    fun testPlaybackPreferences_qualityPreference() {
+        val prefs = PlaybackPreferences(context = null)
+        assertEquals(QualityPreference.AUTO, prefs.qualityPreference.value)
+
+        prefs.setQualityPreference(QualityPreference.MEDIUM)
+        assertEquals(QualityPreference.MEDIUM, prefs.qualityPreference.value)
+
+        prefs.setQualityPreference(QualityPreference.LOW)
+        assertEquals(QualityPreference.LOW, prefs.qualityPreference.value)
+    }
+
+    @Test
+    fun testPlaybackPreferences_qualityPreference_persistsAcrossInstances() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val first = PlaybackPreferences(context)
+        first.setQualityPreference(QualityPreference.HIGH)
+
+        val second = PlaybackPreferences(context)
+        assertEquals(QualityPreference.HIGH, second.qualityPreference.value)
     }
 
     // MARK: - Logger Test

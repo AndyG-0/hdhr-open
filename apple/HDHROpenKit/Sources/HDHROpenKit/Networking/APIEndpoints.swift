@@ -88,11 +88,18 @@ public enum APIEndpoints {
         "/api/dvr/recording-rules/\(id)"
     }
 
-    public static func hlsChannelSession(channelNumber: String, audioIndex: Int? = nil) -> String {
+    public static func hlsChannelSession(channelNumber: String, audioIndex: Int? = nil, quality: String? = nil) -> String {
+        var query: [String] = []
         if let audio = audioIndex {
-            return "/api/streaming/hls/\(channelNumber)?audio_index=\(audio)"
+            query.append("audio_index=\(audio)")
         }
-        return "/api/streaming/hls/\(channelNumber)"
+        if let q = quality {
+            query.append("quality=\(q)")
+        }
+        guard !query.isEmpty else {
+            return "/api/streaming/hls/\(channelNumber)"
+        }
+        return "/api/streaming/hls/\(channelNumber)?\(query.joined(separator: "&"))"
     }
 
     public static func hlsRecordingSession() -> String {

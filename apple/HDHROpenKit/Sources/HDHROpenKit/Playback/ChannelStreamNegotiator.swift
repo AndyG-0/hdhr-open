@@ -52,12 +52,12 @@ public final class ChannelStreamNegotiator {
         self.watchSessionManager = watchSessionManager
     }
 
-    public func negotiate(_ target: StreamNegotiationTarget) async throws -> StreamNegotiationResult {
+    public func negotiate(_ target: StreamNegotiationTarget, quality: String? = nil) async throws -> StreamNegotiationResult {
         switch target {
         case let .channel(channel):
-            try await negotiateChannel(channel)
+            try await negotiateChannel(channel, quality: quality)
         case let .recording(recording):
-            try await negotiateRecording(recording)
+            try await negotiateRecording(recording, quality: quality)
         }
     }
 
@@ -75,7 +75,7 @@ public final class ChannelStreamNegotiator {
         }
     }
 
-    private func negotiateChannel(_ channel: HDHomeRunChannel) async throws -> StreamNegotiationResult {
+    private func negotiateChannel(_ channel: HDHomeRunChannel, quality: String? = nil) async throws -> StreamNegotiationResult {
         let baseURL = await apiClient.baseURL
 
         // 1. Try starting a watch session for live pause/rewind, packaged as HLS.
@@ -83,7 +83,7 @@ public final class ChannelStreamNegotiator {
             if let watchRec = try await watchSessionManager.startSession(channelNumber: channel.channelNumber),
                let playUrl = watchRec.playUrl
             {
-                let hlsSession = try await apiClient.createRecordingHLSSession(url: playUrl, recordingId: watchRec.recordingId, provider: watchRec.provider)
+                let hlsSession = try await apiClient.createRecordingHLSSession(url: playUrl, recordingId: watchRec.recordingId, provider: watchRec.provider, quality: quality)
                 if let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) {
                     Log.player
                         .info("Watch session HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
@@ -108,7 +108,7 @@ public final class ChannelStreamNegotiator {
         }
 
         // 2. Direct HLS streaming fallback (busy tuner / no watch session).
-        let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber)
+        let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber, quality: quality)
         guard let sessionId = rec.sessionId,
               let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: sessionId)
         else {
@@ -126,12 +126,12 @@ public final class ChannelStreamNegotiator {
         )
     }
 
-    private func negotiateRecording(_ recording: HDHomeRunRecording) async throws -> StreamNegotiationResult {
+    private func negotiateRecording(_ recording: HDHomeRunRecording, quality: String? = nil) async throws -> StreamNegotiationResult {
         guard let playUrl = recording.playUrl, !playUrl.isEmpty else {
             throw StreamNegotiationError.noPlayableURL
         }
         let baseURL = await apiClient.baseURL
-        let hlsSession = try await apiClient.createRecordingHLSSession(url: playUrl, recordingId: recording.recordingId, provider: recording.provider)
+        let hlsSession = try await apiClient.createRecordingHLSSession(url: playUrl, recordingId: recording.recordingId, provider: recording.provider, quality: quality)
         guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
             throw StreamNegotiationError.streamURLCreationFailed
         }
