@@ -112,6 +112,7 @@
 
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
 	const CAPTION_POLL_INTERVAL_MS = 500;
+	const MIN_SEEKABLE_SECONDS_FOR_START_OVER = 5;
 
 	let overlayEl = $state<HTMLDivElement | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
@@ -1347,7 +1348,9 @@
 				captionController.pollLiveCaptions();
 				startPolling();
 				startCaptionPolling();
-				showStartOverHint();
+				if ((duration ?? 0) >= MIN_SEEKABLE_SECONDS_FOR_START_OVER) {
+					showStartOverHint();
+				}
 			} else {
 				baseOffsetSeconds = 0;
 				mpegtsPlayer.createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
@@ -2147,7 +2150,7 @@
 
 	.start-over-overlay {
 		position: absolute;
-		top: 1.25rem;
+		top: 5rem;
 		left: 1.25rem;
 		z-index: 106;
 		display: flex;
