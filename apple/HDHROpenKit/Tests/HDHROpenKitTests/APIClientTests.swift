@@ -557,7 +557,13 @@ final class APIClientTests: XCTestCase {
         """.utf8)
         let client = makeRecordingAPIClient()
 
-        let response = try await client.createRecordingHLSSession(url: "http://tuner/rec.ts", recordingId: "rec1", start: 5, audioIndex: 2, provider: "hdhomerun")
+        let response = try await client.createRecordingHLSSession(
+            url: "http://tuner/rec.ts",
+            recordingId: "rec1",
+            start: 5,
+            audioIndex: 2,
+            provider: "hdhomerun"
+        )
 
         XCTAssertEqual(response.sessionId, "sess-9")
         XCTAssertEqual(response.playlistUrl, "/api/hls/sess-9/playlist.m3u8")

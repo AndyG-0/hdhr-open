@@ -170,7 +170,13 @@ public actor APIClient {
         _ = try await requestRaw(path: APIEndpoints.deleteRecording(id), method: "DELETE")
     }
 
-    public func getRecordingDetail(url: String, recordingId: String, start: Double? = nil, recordEnd: Double? = nil, provider: String? = nil) async throws -> HDHomeRunRecordingDetail {
+    public func getRecordingDetail(
+        url: String,
+        recordingId: String,
+        start: Double? = nil,
+        recordEnd: Double? = nil,
+        provider: String? = nil
+    ) async throws -> HDHomeRunRecordingDetail {
         try await request(path: APIEndpoints.recordingDetail(url: url, recordingId: recordingId, start: start, recordEnd: recordEnd, provider: provider))
     }
 

@@ -105,10 +105,6 @@
 		recordingRules.filter((r) => serverFilter === 'all' || ((r.provider ?? r.Provider) ?? 'builtin') === serverFilter),
 	);
 
-	function canDeleteRecording(_recording: HDHomeRunRecording): boolean {
-		return true;
-	}
-
 	async function loadAll() {
 		loading = true;
 		try {
@@ -581,7 +577,7 @@
 						}}
 						onPlay={() => playRecording(recording)}
 						onPopout={() => popoutRecording(recording)}
-						onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
+						onDelete={() => deleteRecording(recording)}
 						deleting={deletingRecordingId === recording.recording_id}
 					/>
 				{/each}
