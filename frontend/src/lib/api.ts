@@ -771,13 +771,20 @@ export const api = {
 	hdhomerunPlaybackUrl: (url: string) => (url.startsWith('/') ? `${env.PUBLIC_API_BASE_URL}${url}` : url),
 	hdhomerunRecordingStreamUrl: (
 		playUrl: string,
-		options?: { start?: number; audioIndex?: number; recordingId?: string | null; quality?: string | null },
+		options?: {
+			start?: number;
+			audioIndex?: number;
+			recordingId?: string | null;
+			quality?: string | null;
+			provider?: 'builtin' | 'hdhomerun' | null;
+		},
 	) => {
 		const params = new URLSearchParams({ url: playUrl });
 		if (options?.start !== undefined) params.set('start', String(options.start));
 		if (options?.audioIndex !== undefined) params.set('audio_index', String(options.audioIndex));
 		if (options?.recordingId) params.set('recording_id', options.recordingId);
 		if (options?.quality) params.set('quality', options.quality);
+		if (options?.provider) params.set('provider', options.provider);
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-stream?${params.toString()}`;
 	},
 	hdhomerunRecordingDetail: (options: {
@@ -785,12 +792,14 @@ export const api = {
 		recordingId: string;
 		start?: number | null;
 		recordEnd?: number | null;
+		provider?: 'builtin' | 'hdhomerun' | null;
 	}) => {
 		const params = new URLSearchParams({ url: options.url, recording_id: options.recordingId });
 		if (options.start !== undefined && options.start !== null) params.set('start', String(options.start));
 		if (options.recordEnd !== undefined && options.recordEnd !== null) {
 			params.set('record_end', String(options.recordEnd));
 		}
+		if (options.provider) params.set('provider', options.provider);
 		return getJSON<HDHomeRunRecordingDetail>(`/api/dvr/recording-detail?${params.toString()}`);
 	},
 	hdhomerunRecordingCaptionsUrl: (options: {
@@ -798,6 +807,7 @@ export const api = {
 		recordingId: string;
 		recordEnd?: number | null;
 		track?: 1 | 2;
+		provider?: 'builtin' | 'hdhomerun' | null;
 	}) => {
 		const params = new URLSearchParams({ url: options.url, recording_id: options.recordingId });
 		if (options.recordEnd !== undefined && options.recordEnd !== null) {
@@ -806,6 +816,7 @@ export const api = {
 		if (options.track !== undefined && options.track !== 1) {
 			params.set('track', String(options.track));
 		}
+		if (options.provider) params.set('provider', options.provider);
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-captions.vtt?${params.toString()}`;
 	},
 	hdhomerunRecordingThumbnailSpriteUrl: (options: { url: string; recordingId: string; recordEnd?: number | null }) => {

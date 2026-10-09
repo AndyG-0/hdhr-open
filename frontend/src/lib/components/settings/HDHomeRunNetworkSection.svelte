@@ -24,6 +24,11 @@
 	let hdhomerunSshPasswordInput = $state('');
 	let hdhomerunSshHasKey = $state(false);
 	let hdhomerunSshHasPassword = $state(false);
+	// Guards saveHdhomerun(): until the real settings have loaded, the
+	// $state fields above still hold their blank defaults, and saving then
+	// would overwrite genuinely-configured values (e.g. dvr_recordings_path)
+	// with those blanks.
+	let hdhomerunLoaded = $state(false);
 	const hdhomerunState = new SaveState();
 	let hdhomerunTestingTuner = $state(false);
 	let hdhomerunTunerTestResult = $state<NetworkTestConnectionResult | null>(null);
@@ -48,6 +53,7 @@
 			hdhomerunSshUsernameInput = (initialSettings!.dvr_ssh_username as string) ?? '';
 			hdhomerunSshHasKey = Boolean(initialSettings!.has_dvr_ssh_key);
 			hdhomerunSshHasPassword = Boolean(initialSettings!.has_dvr_ssh_password);
+			hdhomerunLoaded = true;
 		},
 	);
 
@@ -269,7 +275,7 @@
 		<p class="hint error">{hdhomerunState.error}</p>
 	{/if}
 
-	<button class="save" disabled={hdhomerunState.saving} onclick={saveHdhomerun}>
+	<button class="save" disabled={hdhomerunState.saving || !hdhomerunLoaded} onclick={saveHdhomerun}>
 		{hdhomerunState.saving ? $_('common.saving') : $_('common.save')}
 	</button>
 </section>

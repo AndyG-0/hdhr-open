@@ -105,32 +105,72 @@ def invalidate_recording_cache(recording_id: str) -> None:
     _edl_cache.pop(recording_id, None)
 
 
+async def _resolve_hdhomerun_edl_filename(settings: dict[str, Any], recording_id: str) -> str | None:
+    """The HDHomeRun DVR engine's own filename for `recording_id`, needed to
+    locate its local-mount copy for `.edl` lookup. Prefers the filename this
+    app's own comskip sweep already tracked (`hdhomerun_comskip_status`, no
+    network round trip); falls back to asking the DVR engine directly, since
+    a `.edl` can already exist next to a recording the sweep hasn't reached
+    yet (just finished, ahead of its next run) or never ran against at all
+    (e.g. one produced by the DVR engine's own comskip support).
+    """
+    tracked = await asyncio.to_thread(db.get_hdhomerun_comskip_status, recording_id)
+    if tracked and tracked.get("filename"):
+        return tracked["filename"]
+
+    for entry in await hdhomerun_client.fetch_dvr_recordings(settings):
+        if entry.get("recording_id") == recording_id:
+            return entry.get("filename")
+    return None
+
+
 def _resolve_local_media_path_for_edl(
-    settings: dict[str, Any], target_url: str, recording_id: str, provider: str | None
+    target_url: str, recording_id: str, provider: str | None, settings: dict[str, Any], hdhomerun_filename: str | None
 ) -> Path | None:
     """The local file comskip would have written `<file>.edl` next to, if
     any - `target_url` itself is only ever that file for a builtin
     recording (an official HDHomeRun DVR recording's `target_url` is
     always the remote HTTP URL it's streamed from). For a HDHomeRun
-    recording, resolve it instead via the filename comskip's own sweep
-    (`app.dvr.builtin.comskip`) tracked for this recording_id, joined onto
-    the admin-configured local mount of that engine's storage.
+    recording, resolve it instead via `hdhomerun_filename` (see
+    `_resolve_hdhomerun_edl_filename`), joined onto the admin-configured
+    local mount of that engine's storage.
     """
     if provider != "hdhomerun":
         p = Path(target_url)
-        return p if p.is_file() else None
+        found = p.is_file()
+        logger.info(
+            "EDL lookup for %s: provider=%r treated as local path %s (exists=%s)",
+            recording_id,
+            provider,
+            p,
+            found,
+        )
+        return p if found else None
 
     recordings_path = settings.get("dvr_recordings_path")
     if not recordings_path:
+        logger.info("EDL lookup for %s: provider=hdhomerun but dvr_recordings_path is not configured", recording_id)
         return None
-    tracked = db.get_hdhomerun_comskip_status(recording_id)
-    if not tracked:
+    if not hdhomerun_filename:
+        logger.info(
+            "EDL lookup for %s: provider=hdhomerun but no DVR filename could be found for this recording_id"
+            " (not tracked locally, and not in the DVR engine's current recordings list)",
+            recording_id,
+        )
         return None
 
     from app.dvr.builtin.comskip import resolve_hdhomerun_local_path
 
-    path = resolve_hdhomerun_local_path(recordings_path, tracked["filename"])
-    return path if path is not None and path.is_file() else None
+    path = resolve_hdhomerun_local_path(recordings_path, hdhomerun_filename)
+    resolved = path is not None and path.is_file()
+    logger.info(
+        "EDL lookup for %s: filename=%r -> resolved local path=%s (exists=%s)",
+        recording_id,
+        hdhomerun_filename,
+        path,
+        resolved,
+    )
+    return path if resolved else None
 
 
 def _load_commercial_segments(recording_id: str, local_path: Path | None) -> list[dict[str, float]]:
@@ -142,21 +182,25 @@ def _load_commercial_segments(recording_id: str, local_path: Path | None) -> lis
     configured), in which case there's nothing to read.
     """
     if local_path is None:
+        logger.info("EDL load for %s: no local media path resolved, returning []", recording_id)
         return []
 
     edl_path = local_path.with_suffix(".edl")
     try:
         mtime = edl_path.stat().st_mtime
-    except OSError:
+    except OSError as exc:
+        logger.info("EDL load for %s: %s not found/unreadable (%s), returning []", recording_id, edl_path, exc)
         _edl_cache.pop(recording_id, None)
         return []
 
     cached = _edl_cache.get(recording_id)
     if cached is not None and cached[0] == mtime:
         _edl_cache.move_to_end(recording_id)
+        logger.info("EDL load for %s: serving %d cached segment(s) from %s", recording_id, len(cached[1]), edl_path)
         return cached[1]
 
     segments = edl_parser.parse_edl_file(edl_path)
+    logger.info("EDL load for %s: parsed %d segment(s) from %s", recording_id, len(segments), edl_path)
     _edl_cache[recording_id] = (mtime, segments)
     _edl_cache.move_to_end(recording_id)
     while len(_edl_cache) > _EDL_CACHE_MAX_ENTRIES:
@@ -682,6 +726,13 @@ async def recording_detail(
     record_end: float | None = None,
     provider: str | None = None,
 ):
+    logger.info(
+        "recording-detail request: recording_id=%s provider=%r url=%s record_end=%s",
+        recording_id,
+        provider,
+        url,
+        record_end,
+    )
     settings = await get_hdhomerun_settings()
     transcode_info = _resolve_transcode_info(settings)
 
@@ -743,8 +794,11 @@ async def recording_detail(
     # Known v1 limitation: opening a just-finished recording before comskip
     # completes yields [] for that whole playback session, since finished
     # recordings aren't polled - re-opening later picks up the markers.
+    hdhomerun_filename = (
+        await _resolve_hdhomerun_edl_filename(settings, recording_id) if provider == "hdhomerun" else None
+    )
     local_path = await asyncio.to_thread(
-        _resolve_local_media_path_for_edl, settings, target_url, recording_id, provider
+        _resolve_local_media_path_for_edl, target_url, recording_id, provider, settings, hdhomerun_filename
     )
     commercial_segments = _load_commercial_segments(recording_id, local_path)
 

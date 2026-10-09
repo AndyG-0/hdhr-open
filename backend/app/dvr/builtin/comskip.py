@@ -188,6 +188,13 @@ async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
 
         await asyncio.to_thread(db.upsert_hdhomerun_comskip_status, recording_id, filename, "running", attempts)
         ok = await run_comskip(path)
+        logger.info(
+            "HDHomeRun comskip sweep: recording_id=%s filename=%r resolved to %s -> %s",
+            recording_id,
+            filename,
+            path,
+            "done" if ok else "failed",
+        )
         await asyncio.to_thread(
             db.upsert_hdhomerun_comskip_status,
             recording_id,

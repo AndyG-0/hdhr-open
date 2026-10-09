@@ -35,6 +35,7 @@
 		src: string;
 		title: string;
 		playUrl?: string;
+		provider?: 'builtin' | 'hdhomerun' | null;
 		recordingId?: string | null;
 		watchSessionId?: string | null;
 		startTimestamp?: number | null;
@@ -80,6 +81,7 @@
 		src,
 		title,
 		playUrl,
+		provider = null,
 		recordingId,
 		watchSessionId,
 		startTimestamp,
@@ -339,6 +341,7 @@
 					recordingId: recordingId ?? '',
 					recordEnd: recordEndTimestamp,
 					track: currentCaptionTrack,
+					provider,
 				})
 			: '',
 	);
@@ -408,6 +411,7 @@
 			audioIndex: audioIndex ?? undefined,
 			recordingId,
 			quality: effectiveTier === 'high' ? undefined : effectiveTier,
+			provider,
 		});
 	}
 
@@ -419,6 +423,7 @@
 				recordingId: recordingId ?? '',
 				start: startTimestamp,
 				recordEnd: recordEndTimestamp,
+				provider,
 			});
 			duration = detail.duration_seconds;
 			isInProgress = detail.is_in_progress;
@@ -851,18 +856,54 @@
 	// can reach on its own (see AutoTier/QUALITY_TIERS in
 	// backend/app/transcoding.py); it's never offered in the manual picker.
 	const TIER_ORDER: AutoTier[] = ['minimal', 'low', 'medium', 'high'];
-	const AUTO_TIER_DOWNGRADE_STEPS: Record<AutoTier, AutoTier | null> = {
-		high: 'medium',
-		medium: 'low',
-		low: 'minimal',
-		minimal: null,
-	};
-	const AUTO_TIER_UPGRADE_STEPS: Record<AutoTier, AutoTier | null> = {
+	// Rescale target for each tier - mirrors QUALITY_TIERS' scale_height
+	// column in backend/app/transcoding.py. Used to keep auto-downgrade from
+	// ever stepping into a tier that would *upscale* past the source's native
+	// resolution (pure quality loss, not a bandwidth saving) - see
+	// effectiveAutoTierOrder below.
+	const TIER_SCALE_HEIGHT: Record<AutoTier, number | null> = {
 		high: null,
-		medium: 'high',
-		low: 'medium',
-		minimal: 'low',
+		medium: 720,
+		low: 480,
+		minimal: 360,
 	};
+
+	// The subset of TIER_ORDER that's actually meaningful for a stream of the
+	// given source height: a tier whose scale_height is >= the source height
+	// would rescale to the same or a larger frame than the source already is
+	// (an upscale, or a no-op resize), so it's collapsed out rather than
+	// offered as a distinct, worse downgrade step. `sourceHeight` null/<=0
+	// (ffprobe not loaded yet, or failed) falls back to the full unfiltered
+	// order - the old, resolution-unaware behavior.
+	function effectiveAutoTierOrder(sourceHeight: number | null): AutoTier[] {
+		if (!sourceHeight || sourceHeight <= 0) return TIER_ORDER;
+		const ladder = TIER_ORDER.filter(
+			(tier) => tier === 'high' || TIER_SCALE_HEIGHT[tier]! < sourceHeight,
+		);
+		// Keep a floor below "high" even for a sub-360p source, so a
+		// connection too slow even for "low" still has a lever to pull -
+		// despite "minimal" being technically an upscale there, this is the
+		// one deliberate exception to the no-upscale rule above.
+		if (ladder.length === 1) ladder.unshift('minimal');
+		return ladder;
+	}
+
+	// Walk TIER_ORDER (not the ladder's own positions) so a tier the ladder
+	// has since collapsed out from under us (e.g. videoInfo resolving after a
+	// downgrade already landed on it) still has a well-defined next-more- or
+	// next-less-aggressive neighbor.
+	function stepDown(tier: AutoTier, ladder: AutoTier[]): AutoTier | null {
+		for (let i = TIER_ORDER.indexOf(tier) - 1; i >= 0; i--) {
+			if (ladder.includes(TIER_ORDER[i])) return TIER_ORDER[i];
+		}
+		return null;
+	}
+	function stepUp(tier: AutoTier, ladder: AutoTier[]): AutoTier | null {
+		for (let i = TIER_ORDER.indexOf(tier) + 1; i < TIER_ORDER.length; i++) {
+			if (ladder.includes(TIER_ORDER[i])) return TIER_ORDER[i];
+		}
+		return null;
+	}
 	// Target bitrate each tier asks the backend for - mirrors
 	// QUALITY_TIERS/DEFAULT_MAX_BITRATE_MBPS in backend/app/transcoding.py.
 	// Used only as a relative yardstick against measured throughput, not
@@ -882,9 +923,9 @@
 	// severely degraded connection (well below even "low") jump straight to
 	// "minimal" in one step instead of crawling down one tier per ~15s
 	// sampling window while it keeps stalling along the way.
-	function bestTierForSpeed(avgMbps: number): AutoTier {
-		let best: AutoTier = 'minimal';
-		for (const tier of TIER_ORDER) {
+	function bestTierForSpeed(avgMbps: number, ladder: AutoTier[]): AutoTier {
+		let best: AutoTier = ladder[0];
+		for (const tier of ladder) {
 			if (avgMbps >= TIER_TARGET_MBPS[tier] * DOWNGRADE_MARGIN) best = tier;
 		}
 		return best;
@@ -912,9 +953,24 @@
 	// above the *next tier up's* target, sustained, before upgrading to it.
 	const DOWNGRADE_MARGIN = 1.2;
 	const UPGRADE_MARGIN = 1.5;
+	// Longer-window steady-state baseline for the CURRENT tier (naturally
+	// tier-scoped since speedSamplesMbps resets on every tier change - see
+	// applyAutoDowngrade/handleQualityChange/switchMedia). Lets sampleThroughput
+	// tell "this stream's throughput genuinely dropped" apart from "this
+	// stream never needed much bitrate in the first place" (e.g. a simple/
+	// low-resolution source whose real encode sits well under TIER_TARGET_MBPS
+	// regardless of network speed - the bug this is fixing).
+	const BASELINE_SAMPLE_COUNT = 24; // ~2 min @ 5s
+	const BASELINE_DROP_RATIO = 0.5; // recent avg < 50% of this tier's own baseline = genuine drop
+	// Only trust the absolute TIER_TARGET_MBPS comparison once the baseline
+	// has actually run close to that target - otherwise a naturally
+	// low-bitrate stream looks like a perpetual shortfall against a number
+	// it was never trying to hit, and gets downgraded regardless of the
+	// network's real condition.
+	const BASELINE_NEAR_TARGET_RATIO = 0.8;
 
 	function applyAutoDowngrade(reason: 'stalling' | 'throughput', target?: AutoTier) {
-		const next = target ?? AUTO_TIER_DOWNGRADE_STEPS[autoEffectiveTier];
+		const next = target ?? stepDown(autoEffectiveTier, effectiveAutoTierOrder(videoInfo?.height ?? null));
 		if (!next) return;
 		stallTimestamps = [];
 		speedSamplesMbps = [];
@@ -943,25 +999,51 @@
 		if (typeof speedKBs !== 'number' || !Number.isFinite(speedKBs) || speedKBs <= 0) return;
 		const speedMbps = (speedKBs * 8) / 1000;
 		measuredSpeedMbps = speedMbps;
-		speedSamplesMbps = [...speedSamplesMbps, speedMbps].slice(-UPGRADE_SAMPLE_COUNT);
+		speedSamplesMbps = [...speedSamplesMbps, speedMbps].slice(-BASELINE_SAMPLE_COUNT);
 
-		const downgradeWindow = speedSamplesMbps.slice(-DOWNGRADE_SAMPLE_COUNT);
-		if (downgradeWindow.length >= DOWNGRADE_SAMPLE_COUNT) {
-			const avg = downgradeWindow.reduce((a, b) => a + b, 0) / downgradeWindow.length;
-			if (avg < TIER_TARGET_MBPS[autoEffectiveTier] * DOWNGRADE_MARGIN) {
-				const target = bestTierForSpeed(avg);
-				if (TIER_ORDER.indexOf(target) < TIER_ORDER.indexOf(autoEffectiveTier)) {
+		const ladder = effectiveAutoTierOrder(videoInfo?.height ?? null);
+		const avgOf = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+		const recentWindow = speedSamplesMbps.slice(-DOWNGRADE_SAMPLE_COUNT);
+		if (recentWindow.length >= DOWNGRADE_SAMPLE_COUNT) {
+			const recentAvg = avgOf(recentWindow);
+			const baselineAvg = avgOf(speedSamplesMbps);
+			const tierTarget = TIER_TARGET_MBPS[autoEffectiveTier];
+			const baselineNearTarget = baselineAvg >= tierTarget * BASELINE_NEAR_TARGET_RATIO;
+
+			if (baselineNearTarget) {
+				// This stream has genuinely been running near its tier's target
+				// bitrate, so a shortfall against that target is a trustworthy
+				// signal - keep today's behavior, including the multi-step jump
+				// for a severely degraded connection.
+				if (recentAvg < tierTarget * DOWNGRADE_MARGIN) {
+					const target = bestTierForSpeed(recentAvg, ladder);
+					if (ladder.indexOf(target) < ladder.indexOf(autoEffectiveTier)) {
+						applyAutoDowngrade('throughput', target);
+						return;
+					}
+				}
+			} else if (recentAvg < baselineAvg * BASELINE_DROP_RATIO) {
+				// The baseline never got near the target in the first place
+				// (e.g. a low-resolution/low-complexity source that simply
+				// doesn't need much bitrate) - the absolute target means
+				// nothing here, so fall back to a relative drop from this
+				// stream's own baseline, and only step down one tier since
+				// there's no absolute anchor to justify a bigger jump.
+				const target = stepDown(autoEffectiveTier, ladder);
+				if (target) {
 					applyAutoDowngrade('throughput', target);
 					return;
 				}
 			}
 		}
 
-		const nextUp = AUTO_TIER_UPGRADE_STEPS[autoEffectiveTier];
+		const nextUp = stepUp(autoEffectiveTier, ladder);
 		if (!nextUp) return;
-		if (speedSamplesMbps.length < UPGRADE_SAMPLE_COUNT) return;
+		const upgradeWindow = speedSamplesMbps.slice(-UPGRADE_SAMPLE_COUNT);
+		if (upgradeWindow.length < UPGRADE_SAMPLE_COUNT) return;
 		if (stallTimestamps.length > 0) return;
-		const avgAll = speedSamplesMbps.reduce((a, b) => a + b, 0) / speedSamplesMbps.length;
+		const avgAll = avgOf(upgradeWindow);
 		if (avgAll < TIER_TARGET_MBPS[nextUp] * UPGRADE_MARGIN) return;
 		speedSamplesMbps = [];
 		autoEffectiveTier = nextUp;
@@ -1337,6 +1419,33 @@
 		if (key === initializedMediaKey) return;
 		initializedMediaKey = key;
 		switchMedia();
+	});
+
+	// Corrects autoEffectiveTier if videoInfo's source height resolves or
+	// changes (e.g. an in-progress recording's ffprobe data lagging behind a
+	// stall-driven downgrade) *after* auto mode already landed on a tier the
+	// now-known resolution collapses out of effectiveAutoTierOrder - e.g. a
+	// downgrade to "medium" (720p rescale) that turns out to upscale a 480p
+	// source once its real height is known. Silent on purpose (no toast/
+	// lastQualityAdjustment update) since this isn't a network event - purely
+	// an internal correction. Self-limiting: the landing tier is always
+	// ladder-valid, so it no-ops on the next run.
+	$effect(() => {
+		if (quality !== 'auto') return;
+		const sourceHeight = videoInfo?.height ?? null;
+		const ladder = effectiveAutoTierOrder(sourceHeight);
+		if (ladder.includes(autoEffectiveTier)) return;
+		let corrected: AutoTier = 'high';
+		for (let i = TIER_ORDER.indexOf(autoEffectiveTier) + 1; i < TIER_ORDER.length; i++) {
+			if (ladder.includes(TIER_ORDER[i])) {
+				corrected = TIER_ORDER[i];
+				break;
+			}
+		}
+		autoEffectiveTier = corrected;
+		stallTimestamps = [];
+		speedSamplesMbps = [];
+		reloadAtCurrentQuality();
 	});
 
 	// Fullscreen & PiP Event Listeners

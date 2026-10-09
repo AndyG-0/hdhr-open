@@ -156,7 +156,12 @@ public final class StreamSessionCoordinator: ObservableObject {
                 return
             }
 
-            if let detail = try? await apiClient.getRecordingDetail(url: playUrl, recordingId: recId, recordEnd: recording.recordEnd) {
+            if let detail = try? await apiClient.getRecordingDetail(
+                url: playUrl,
+                recordingId: recId,
+                recordEnd: recording.recordEnd,
+                provider: recording.provider
+            ) {
                 if Task.isCancelled {
                     return
                 }

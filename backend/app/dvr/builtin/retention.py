@@ -73,6 +73,11 @@ def delete_local_recording_sync(recording_id: str, reason: str = "user requested
                 file_path.unlink()
                 logger.info("Deleted recording file on disk: %s", file_path)
 
+        edl_path = file_path.with_suffix(".edl")
+        if edl_path.exists():
+            with contextlib.suppress(Exception):
+                edl_path.unlink()
+
     _clean_media_cache(recording_id)
     db.delete_recording(recording_id)
     logger.info(

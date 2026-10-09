@@ -32,7 +32,7 @@ public enum APIEndpoints {
         "/api/dvr/recordings/\(id)"
     }
 
-    public static func recordingDetail(url: String, recordingId: String, start: Double? = nil, recordEnd: Double? = nil) -> String {
+    public static func recordingDetail(url: String, recordingId: String, start: Double? = nil, recordEnd: Double? = nil, provider: String? = nil) -> String {
         var query: [String] = [
             "url=\(url.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url)",
             "recording_id=\(recordingId)"
@@ -42,6 +42,9 @@ public enum APIEndpoints {
         }
         if let e = recordEnd {
             query.append("record_end=\(e)")
+        }
+        if let provider {
+            query.append("provider=\(provider)")
         }
         return "/api/dvr/recording-detail?\(query.joined(separator: "&"))"
     }

@@ -724,11 +724,11 @@ async def fetch_dvr_ssh_clients(settings: dict[str, Any]) -> list[dict[str, Any]
 
 
 def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:
+    cmd_url = entry.get("CmdURL") or entry.get("CmdUrl")
     play_url = (
         entry.get("PlayURL")
         or entry.get("PlayUrl")
-        or entry.get("CmdURL")
-        or entry.get("CmdUrl")
+        or cmd_url
         or entry.get("URL")
         or entry.get("Url")
         or entry.get("RecordURL")
@@ -775,6 +775,10 @@ def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:
         # these are seekable, since seeking needs an actual file/URL on the
         # DVR to -ss into, not a bare live tuner stream.
         "is_dvr_file": True,
+        # This recording's own device-side command endpoint - not exposed to
+        # the frontend, used server-side to delete it (see
+        # delete_dvr_recording below).
+        "cmd_url": cmd_url,
     }
 
 
@@ -954,6 +958,35 @@ async def add_recording_rule(settings: dict[str, Any], rule_data: dict[str, Any]
     )
     await trigger_dvr_sync(settings)
     return rules
+
+
+async def delete_dvr_recording(cmd_url: str) -> None:
+    """Delete a single recording from the official HDHomeRun DVR.
+
+    Unlike delete_recording_rule above (which talks to SiliconDust's cloud
+    recording-rules API with a DeviceAuth token), this hits the recording's
+    own device-local CmdURL - the DVR engine's command endpoint for that
+    specific file - with cmd=delete. rerecord=0 matches the semantics of a
+    local delete: permanently gone, not just skipped-and-will-re-record.
+    Per SiliconDust's documented DVR API this must be a POST (a GET is
+    rejected outright with 400) - but, verified against a real device, the
+    body must stay empty: cmd/rerecord go in the query string, merged onto
+    whatever query CmdURL already has (its own `id=...`) rather than
+    replacing it - passing `params=` straight to client.post() would
+    silently *replace* CmdURL's existing query string instead of merging
+    with it, dropping `id` and making every delete target nothing. A POST
+    with cmd/rerecord in the body gets the same generic 400 as a GET.
+    """
+    url = httpx.URL(cmd_url).copy_merge_params({"cmd": "delete", "rerecord": "0"})
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(url)
+        if response.status_code >= 400:
+            err_msg = _extract_http_error(response, "Delete DVR recording")
+            logger.warning("HDHomeRun DVR delete error: %s", err_msg)
+            raise HDHomeRunError(err_msg)
+    except httpx.HTTPError as exc:
+        raise HDHomeRunError(f"Could not delete DVR recording: {exc}") from exc
 
 
 async def delete_recording_rule(settings: dict[str, Any], rule_id: str) -> list[dict[str, Any]]:

@@ -60,8 +60,14 @@ describe('HDHomeRunNetworkSection', () => {
 		expect(await screen.findByText('✓ v1.2.3')).toBeInTheDocument();
 	});
 
-	it('saves the tuner/DVR settings', async () => {
+	it('disables Save until initialSettings has loaded, so a fast click cannot wipe saved values with blank defaults', async () => {
 		render(HDHomeRunNetworkSection, { initialSettings: null });
+
+		expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+	});
+
+	it('saves the tuner/DVR settings', async () => {
+		render(HDHomeRunNetworkSection, { initialSettings: {} });
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -82,7 +88,7 @@ describe('HDHomeRunNetworkSection', () => {
 
 	it('shows an error message when saving fails', async () => {
 		updateNetworkIntegration.mockRejectedValue(new Error('boom'));
-		render(HDHomeRunNetworkSection, { initialSettings: null });
+		render(HDHomeRunNetworkSection, { initialSettings: {} });
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 

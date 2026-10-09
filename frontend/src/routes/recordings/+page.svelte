@@ -105,14 +105,6 @@
 		recordingRules.filter((r) => serverFilter === 'all' || ((r.provider ?? r.Provider) ?? 'builtin') === serverFilter),
 	);
 
-	// HDHomeRun-native recordings live in HDHomeRun's own storage, not ours -
-	// this app has no way to delete them (see backend delete_recording, which
-	// only handles builtin recordings), so the delete action must not be
-	// offered for them.
-	function canDeleteRecording(recording: HDHomeRunRecording): boolean {
-		return (recording.provider ?? 'builtin') !== 'hdhomerun';
-	}
-
 	async function loadAll() {
 		loading = true;
 		try {
@@ -280,12 +272,13 @@
 		if (!playUrl) return;
 
 		const seekable = recording.is_dvr_file === true && playbackMode === 'server_transcode';
-		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl);
+		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl, { provider: recording.provider });
 
 		const media: PlaybackMedia = {
 			title: recording.episode_title ? `${recording.title} - ${recording.episode_title}` : recording.title,
 			url: streamUrl,
 			playUrl,
+			provider: recording.provider,
 			recordingId: recording.recording_id ?? null,
 			startTimestamp: recording.start,
 			recordEndTimestamp: recording.record_end,
@@ -584,7 +577,7 @@
 						}}
 						onPlay={() => playRecording(recording)}
 						onPopout={() => popoutRecording(recording)}
-						onDelete={canDeleteRecording(recording) ? () => deleteRecording(recording) : undefined}
+						onDelete={() => deleteRecording(recording)}
 						deleting={deletingRecordingId === recording.recording_id}
 					/>
 				{/each}
