@@ -4,10 +4,17 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 // mpegts.js drives an MSE pipeline that jsdom has no implementation for, so
 // the player itself is stubbed down to the one thing this component's error
 // handling depends on: the ERROR event and its type argument.
-const { createPlayer, listeners } = vi.hoisted(() => {
+// Shared across every player instance createPlayer() produces (not a fresh
+// object per call) so auto-quality tests can mutate `.speed` from the test
+// and have it show up via mpegts-player.ts's getStatisticsInfo() regardless
+// of which instance is currently attached (teardownPlayer()/createPlayerAt()
+// swaps the instance on every tier reload).
+const { createPlayer, listeners, statisticsInfo } = vi.hoisted(() => {
 	const listeners = new Map<string, (...args: unknown[]) => void>();
+	const statisticsInfo: { speed?: number } = {};
 	return {
 		listeners,
+		statisticsInfo,
 		createPlayer: vi.fn(() => ({
 			on: (event: string, handler: (...args: unknown[]) => void) => listeners.set(event, handler),
 			attachMediaElement: vi.fn(),
@@ -17,6 +24,7 @@ const { createPlayer, listeners } = vi.hoisted(() => {
 			unload: vi.fn(),
 			detachMediaElement: vi.fn(),
 			destroy: vi.fn(),
+			statisticsInfo,
 		})),
 	};
 });
@@ -133,6 +141,13 @@ async function raiseError(errorType: string) {
 	listeners.get('error')!(errorType);
 }
 
+// sampleThroughput() in the component converts mpegts.js's KB/s loader stat
+// to Mbps via `(speedKBs * 8) / 1000` - this is the inverse, so tests can
+// drive it in the same Mbps units TIER_TARGET_MBPS is expressed in.
+function setMeasuredSpeedMbps(mbps: number) {
+	statisticsInfo.speed = (mbps * 1000) / 8;
+}
+
 describe('HDHomeRunPlayer', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -141,6 +156,7 @@ describe('HDHomeRunPlayer', () => {
 		setActiveCastSessionId(null);
 		setAutoSkipCommercials(false);
 		fakeTextTrack = makeFakeTextTrack();
+		delete statisticsInfo.speed;
 	});
 
 	it("shows the backend's failure detail on a network error", async () => {
@@ -2775,6 +2791,107 @@ describe('HDHomeRunPlayer', () => {
 					provider: null,
 				}),
 			);
+		});
+	});
+
+	describe('Auto quality adjustment', () => {
+		function mockDetailWithSourceHeight(height: number | null) {
+			hdhomerunRecordingDetail.mockResolvedValue({
+				is_in_progress: false,
+				duration_seconds: 1200,
+				video: height === null ? null : { width: Math.round((height * 16) / 9), height, fps: 30, codec: 'h264' },
+				audio: [],
+				has_captions: false,
+				transcode: { transcoding: true, preset: 'software', preset_label: 'Software (libx264)', hardware: false },
+			});
+		}
+
+		// buildStreamUrl() in the component omits `quality` entirely for "high"
+		// (the undefined branch), so a defined value here always means a
+		// downgrade actually landed on a lower tier.
+		function lastRequestedQuality(): string | undefined {
+			const calls = hdhomerunRecordingStreamUrl.mock.calls;
+			return (calls[calls.length - 1]?.[1] as { quality?: string } | undefined)?.quality;
+		}
+
+		it('does not downgrade a naturally low-bitrate 480p recording over several minutes on a fine connection (regression: comparing delivered throughput against a fixed absolute target misread low-complexity content as a struggling network)', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			mockDetailWithSourceHeight(480);
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+
+			// 1.5 Mbps is a realistic native encode rate for 480p content - well
+			// under the "high" tier's 5.0 Mbps target, but perfectly steady.
+			// There's no real network problem here.
+			setMeasuredSpeedMbps(1.5);
+			for (let i = 0; i < 12; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+
+			expect(createPlayer).toHaveBeenCalledTimes(1);
+			expect(screen.queryByText(/Reduced quality/i)).not.toBeInTheDocument();
+
+			vi.useRealTimers();
+		});
+
+		it('skips both the upscale-only "medium" (720p) and no-op "low" (480p) tiers when downgrading an exactly-480p source, landing on "minimal" instead (regression: tier-stepping ignored the source resolution)', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			mockDetailWithSourceHeight(480);
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+
+			// Build a steady baseline well below the "high" tier's target (so the
+			// absolute-target comparison is never trusted - see
+			// BASELINE_NEAR_TARGET_RATIO in the component), then force a genuine
+			// >50% drop from that baseline.
+			setMeasuredSpeedMbps(2.0);
+			for (let i = 0; i < 4; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+			setMeasuredSpeedMbps(0.5);
+			for (let i = 0; i < 3; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(2));
+			// "low" rescales to 480p - a no-op for this exactly-480p source - and
+			// "medium" rescales to 720p - an upscale - so both are collapsed out
+			// of the ladder, leaving "minimal" as the only real step down.
+			expect(lastRequestedQuality()).toBe('minimal');
+			expect(await screen.findByText(/Reduced quality/i)).toBeInTheDocument();
+
+			vi.useRealTimers();
+		});
+
+		it('still downgrades a full-resolution (1080p) source on a genuine severe throughput drop (non-regression: the resolution-aware ladder must not suppress real degradation)', async () => {
+			vi.useFakeTimers({ shouldAdvanceTime: true });
+			mockDetailWithSourceHeight(1080);
+
+			render(HDHomeRunPlayer, { props: seekableProps });
+			await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+
+			// Baseline comfortably above the "high" tier's target (safe, no
+			// downgrade), then a severe, sustained drop representing a real
+			// network collapse.
+			setMeasuredSpeedMbps(6.5);
+			for (let i = 0; i < 4; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+			setMeasuredSpeedMbps(0.1);
+			// Stop as soon as the downgrade lands, so the "Reduced quality" toast
+			// (auto-dismissed after 5s) is still checked within its own window -
+			// not after however many more ticks it took to loop out.
+			for (let i = 0; i < 10 && createPlayer.mock.calls.length < 2; i++) {
+				await vi.advanceTimersByTimeAsync(5_000);
+			}
+
+			expect(createPlayer.mock.calls.length).toBeGreaterThan(1);
+			expect(['medium', 'low', 'minimal']).toContain(lastRequestedQuality());
+			expect(await screen.findByText(/Reduced quality/i)).toBeInTheDocument();
+
+			vi.useRealTimers();
 		});
 	});
 });
