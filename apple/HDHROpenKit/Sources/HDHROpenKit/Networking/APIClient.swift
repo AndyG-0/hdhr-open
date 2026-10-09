@@ -170,8 +170,8 @@ public actor APIClient {
         _ = try await requestRaw(path: APIEndpoints.deleteRecording(id), method: "DELETE")
     }
 
-    public func getRecordingDetail(url: String, recordingId: String, start: Double? = nil, recordEnd: Double? = nil) async throws -> HDHomeRunRecordingDetail {
-        try await request(path: APIEndpoints.recordingDetail(url: url, recordingId: recordingId, start: start, recordEnd: recordEnd))
+    public func getRecordingDetail(url: String, recordingId: String, start: Double? = nil, recordEnd: Double? = nil, provider: String? = nil) async throws -> HDHomeRunRecordingDetail {
+        try await request(path: APIEndpoints.recordingDetail(url: url, recordingId: recordingId, start: start, recordEnd: recordEnd, provider: provider))
     }
 
     public func listRecordingRules() async throws -> [HDHomeRunRecordingRule] {
@@ -222,25 +222,28 @@ public actor APIClient {
         url: String,
         recordingId: String? = nil,
         start: Double? = nil,
-        audioIndex: Int? = nil
+        audioIndex: Int? = nil,
+        provider: String? = nil
     ) async throws -> HLSSessionResponse {
         struct RecordingStreamHLSBody: Encodable {
             let url: String
             let recordingId: String?
             let start: Double?
             let audioIndex: Int?
+            let provider: String?
 
             enum CodingKeys: String, CodingKey {
                 case url
                 case recordingId = "recording_id"
                 case start
                 case audioIndex = "audio_index"
+                case provider
             }
         }
         return try await request(
             path: APIEndpoints.hlsRecordingSession(),
             method: "POST",
-            body: RecordingStreamHLSBody(url: url, recordingId: recordingId, start: start, audioIndex: audioIndex)
+            body: RecordingStreamHLSBody(url: url, recordingId: recordingId, start: start, audioIndex: audioIndex, provider: provider)
         )
     }
 

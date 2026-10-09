@@ -395,6 +395,32 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(query.contains("record_end=10.0"))
     }
 
+    func testGetRecordingDetailIncludesProviderWhenGiven() async throws {
+        RequestRecordingURLProtocol.responseBody = Data("""
+        {"is_in_progress": false, "audio": [], "has_captions": false, "transcode": {"transcoding": false, "hardware": false}}
+        """.utf8)
+        let client = makeRecordingAPIClient()
+
+        _ = try await client.getRecordingDetail(url: "http://tuner/rec.mpg", recordingId: "rec1", provider: "hdhomerun")
+
+        let sentURL = RequestRecordingURLProtocol.lastRequest?.url
+        let query = sentURL?.query ?? ""
+        XCTAssertTrue(query.contains("provider=hdhomerun"))
+    }
+
+    func testGetRecordingDetailOmitsProviderWhenNil() async throws {
+        RequestRecordingURLProtocol.responseBody = Data("""
+        {"is_in_progress": false, "audio": [], "has_captions": false, "transcode": {"transcoding": false, "hardware": false}}
+        """.utf8)
+        let client = makeRecordingAPIClient()
+
+        _ = try await client.getRecordingDetail(url: "http://tuner/rec.ts", recordingId: "rec1")
+
+        let sentURL = RequestRecordingURLProtocol.lastRequest?.url
+        let query = sentURL?.query ?? ""
+        XCTAssertFalse(query.contains("provider="))
+    }
+
     func testGetRecordingDetailPercentEncodesSpacesInUrlQueryParam() async throws {
         RequestRecordingURLProtocol.responseBody = Data("""
         {"is_in_progress": false, "audio": [], "has_captions": false, "transcode": {"transcoding": false, "hardware": false}}
@@ -531,7 +557,7 @@ final class APIClientTests: XCTestCase {
         """.utf8)
         let client = makeRecordingAPIClient()
 
-        let response = try await client.createRecordingHLSSession(url: "http://tuner/rec.ts", recordingId: "rec1", start: 5, audioIndex: 2)
+        let response = try await client.createRecordingHLSSession(url: "http://tuner/rec.ts", recordingId: "rec1", start: 5, audioIndex: 2, provider: "hdhomerun")
 
         XCTAssertEqual(response.sessionId, "sess-9")
         XCTAssertEqual(response.playlistUrl, "/api/hls/sess-9/playlist.m3u8")
@@ -541,6 +567,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(json?["url"] as? String, "http://tuner/rec.ts")
         XCTAssertEqual(json?["recording_id"] as? String, "rec1")
         XCTAssertEqual(json?["audio_index"] as? Int, 2)
+        XCTAssertEqual(json?["provider"] as? String, "hdhomerun")
     }
 
     func testStopHLSSessionSucceeds() async throws {

@@ -387,7 +387,8 @@ public final class PlayerViewModel: ObservableObject {
                     url: playUrl,
                     recordingId: recording.recordingId,
                     start: resumeTime,
-                    audioIndex: track.index
+                    audioIndex: track.index,
+                    provider: recording.provider
                 )
                 sessionId = hlsSession.sessionId
             } else if let channel = activeChannel {
@@ -587,7 +588,8 @@ public final class PlayerViewModel: ObservableObject {
                     url: playUrl,
                     recordingId: recording.recordingId,
                     start: targetSeconds,
-                    audioIndex: previousTrack?.index
+                    audioIndex: previousTrack?.index,
+                    provider: recording.provider
                 )
                 if Task.isCancelled {
                     let apiClient = apiClient
