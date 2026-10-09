@@ -150,6 +150,7 @@
 				src={$playback.media.url}
 				title={$playback.media.title}
 				playUrl={$playback.media.playUrl}
+				provider={$playback.media.provider}
 				recordingId={$playback.media.recordingId}
 				watchSessionId={$playback.media.watchSessionId}
 				startTimestamp={$playback.media.startTimestamp}

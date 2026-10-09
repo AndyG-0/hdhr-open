@@ -199,6 +199,7 @@ describe('HDHomeRunPlayer', () => {
 				start: 0,
 				audioIndex: undefined,
 				recordingId: 'rec1',
+				provider: null,
 			}),
 		);
 		expect(createPlayer).toHaveBeenCalledWith(
@@ -2324,6 +2325,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 0,
 					audioIndex: 1,
 					recordingId: 'rec1',
+					provider: null,
 				}),
 			);
 		});
@@ -2546,6 +2548,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 30,
 					audioIndex: undefined,
 					recordingId: 'rec1',
+					provider: null,
 				}),
 			);
 		});
@@ -2589,6 +2592,7 @@ describe('HDHomeRunPlayer', () => {
 				start: 30,
 				audioIndex: undefined,
 				recordingId: 'rec1',
+				provider: null,
 			});
 		});
 
@@ -2615,6 +2619,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 0,
 					audioIndex: undefined,
 					recordingId: 'rec1',
+					provider: null,
 				}),
 			);
 
@@ -2627,6 +2632,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 30,
 					audioIndex: undefined,
 					recordingId: 'rec1',
+					provider: null,
 				}),
 			);
 			expect(screen.queryByRole('button', { name: 'Skip Commercial' })).not.toBeInTheDocument();
@@ -2711,6 +2717,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 0,
 					audioIndex: undefined,
 					recordingId: 'rec1',
+					provider: null,
 				}),
 			);
 
@@ -2723,6 +2730,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 30,
 					audioIndex: undefined,
 					recordingId: 'rec1',
+					provider: null,
 				}),
 			);
 
@@ -2748,6 +2756,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 0,
 					audioIndex: undefined,
 					recordingId: 'rec2',
+					provider: null,
 				}),
 			);
 
@@ -2763,6 +2772,7 @@ describe('HDHomeRunPlayer', () => {
 					start: 20,
 					audioIndex: undefined,
 					recordingId: 'rec2',
+					provider: null,
 				}),
 			);
 		});

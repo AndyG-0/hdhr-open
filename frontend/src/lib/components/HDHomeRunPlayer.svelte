@@ -35,6 +35,7 @@
 		src: string;
 		title: string;
 		playUrl?: string;
+		provider?: 'builtin' | 'hdhomerun' | null;
 		recordingId?: string | null;
 		watchSessionId?: string | null;
 		startTimestamp?: number | null;
@@ -80,6 +81,7 @@
 		src,
 		title,
 		playUrl,
+		provider = null,
 		recordingId,
 		watchSessionId,
 		startTimestamp,
@@ -339,6 +341,7 @@
 					recordingId: recordingId ?? '',
 					recordEnd: recordEndTimestamp,
 					track: currentCaptionTrack,
+					provider,
 				})
 			: '',
 	);
@@ -408,6 +411,7 @@
 			audioIndex: audioIndex ?? undefined,
 			recordingId,
 			quality: effectiveTier === 'high' ? undefined : effectiveTier,
+			provider,
 		});
 	}
 
@@ -419,6 +423,7 @@
 				recordingId: recordingId ?? '',
 				start: startTimestamp,
 				recordEnd: recordEndTimestamp,
+				provider,
 			});
 			duration = detail.duration_seconds;
 			isInProgress = detail.is_in_progress;

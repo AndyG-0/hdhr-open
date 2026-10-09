@@ -33,6 +33,7 @@
 		title: string;
 		url: string;
 		playUrl?: string;
+		provider?: 'builtin' | 'hdhomerun' | null;
 		recordingId?: string | null;
 		watchSessionId?: string | null;
 		startTimestamp?: number | null;
@@ -299,7 +300,7 @@
 		}
 
 		const seekable = recording.is_dvr_file === true && playbackMode === 'server_transcode';
-		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl);
+		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl, { provider: recording.provider });
 		const computedTitle = recording.episode_title
 			? `${recording.title} - ${recording.episode_title}`
 			: recording.title;
@@ -308,6 +309,7 @@
 			title: fallbackTitle || computedTitle,
 			url: streamUrl,
 			playUrl,
+			provider: recording.provider,
 			recordingId: recording.recording_id ?? null,
 			startTimestamp: recording.start,
 			recordEndTimestamp: recording.record_end,
@@ -426,6 +428,7 @@
 			src={playingMedia.url}
 			title={playingMedia.title}
 			playUrl={playingMedia.seekable ? playingMedia.playUrl : undefined}
+			provider={playingMedia.seekable ? playingMedia.provider : undefined}
 			recordingId={playingMedia.seekable ? playingMedia.recordingId : undefined}
 			watchSessionId={playingMedia.watchSessionId}
 			startTimestamp={playingMedia.seekable ? playingMedia.startTimestamp : undefined}

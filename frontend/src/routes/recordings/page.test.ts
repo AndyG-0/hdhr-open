@@ -271,7 +271,7 @@ describe('recordings +page.svelte', () => {
 
 		await fireEvent.click(await screen.findByRole('button', { name: '▶ ▶ Watch' }));
 
-		expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec-done');
+		expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec-done', { provider: undefined });
 		expect(screen.getByRole('dialog', { name: 'Finished Show' })).toBeInTheDocument();
 		expect(screen.getByRole('slider')).toBeInTheDocument();
 	});

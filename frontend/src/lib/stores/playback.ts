@@ -22,6 +22,7 @@ export interface PlaybackMedia {
 	title: string;
 	url: string;
 	playUrl?: string;
+	provider?: 'builtin' | 'hdhomerun' | null;
 	recordingId?: string | null;
 	watchSessionId?: string | null;
 	startTimestamp?: number | null;

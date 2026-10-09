@@ -203,7 +203,7 @@ describe('/player route', () => {
 		render(PopoutPlayerPage);
 
 		expect(await screen.findByRole('dialog', { name: /Nova - Planets/i })).toBeInTheDocument();
-		expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec-99');
+		expect(hdhomerunRecordingStreamUrl).toHaveBeenCalledWith('/recorded/rec-99', { provider: undefined });
 	});
 
 	it('loads direct play media when ?play_url is provided', async () => {

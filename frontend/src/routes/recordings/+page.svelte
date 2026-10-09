@@ -280,12 +280,13 @@
 		if (!playUrl) return;
 
 		const seekable = recording.is_dvr_file === true && playbackMode === 'server_transcode';
-		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl);
+		const streamUrl = api.hdhomerunRecordingStreamUrl(playUrl, { provider: recording.provider });
 
 		const media: PlaybackMedia = {
 			title: recording.episode_title ? `${recording.title} - ${recording.episode_title}` : recording.title,
 			url: streamUrl,
 			playUrl,
+			provider: recording.provider,
 			recordingId: recording.recording_id ?? null,
 			startTimestamp: recording.start,
 			recordEndTimestamp: recording.record_end,
