@@ -21,6 +21,24 @@ public final class RecordingsViewModel: ObservableObject {
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
 
+    /// Debounced server-backed search term - mirrors the web/Android clients'
+    /// 300ms debounce. Setting it (e.g. from `.searchable(text:)`) cancels any
+    /// pending reload and schedules a new one, so only the last-settled value
+    /// in a burst of keystrokes actually reaches the server.
+    @Published public var searchQuery: String = "" {
+        didSet {
+            guard searchQuery != oldValue else { return }
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.loadRecordings()
+            }
+        }
+    }
+
+    private var searchDebounceTask: Task<Void, Never>?
+
     private let apiClient: APIClient
 
     public init(apiClient: APIClient) {
@@ -64,7 +82,7 @@ public final class RecordingsViewModel: ObservableObject {
 
     public func loadRecordings() async {
         do {
-            recordings = try await apiClient.listRecordings()
+            recordings = try await apiClient.listRecordings(search: searchQuery.isEmpty ? nil : searchQuery)
         } catch {
             self.error = error.localizedDescription
             Log.dvr.error("Failed to load recordings: \(error.localizedDescription)")

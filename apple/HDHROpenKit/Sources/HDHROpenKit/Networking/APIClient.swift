@@ -162,8 +162,8 @@ public actor APIClient {
         try await request(path: APIEndpoints.dvrInfo())
     }
 
-    public func listRecordings() async throws -> [HDHomeRunRecording] {
-        try await request(path: APIEndpoints.recordings())
+    public func listRecordings(search: String? = nil) async throws -> [HDHomeRunRecording] {
+        try await request(path: APIEndpoints.recordings(search: search))
     }
 
     public func deleteRecording(id: String) async throws {

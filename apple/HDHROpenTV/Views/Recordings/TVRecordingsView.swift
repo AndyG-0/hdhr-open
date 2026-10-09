@@ -158,6 +158,7 @@ public struct TVRecordingsView: View {
                 }
             )
         }
+        .searchable(text: $recordingsViewModel.searchQuery, prompt: "Search recordings")
         .fullScreenCover(isPresented: $showRulesModal) {
             TVRecordingRulesView(
                 rules: recordingsViewModel.recordingRules,

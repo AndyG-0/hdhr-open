@@ -24,8 +24,12 @@ public enum APIEndpoints {
         "/api/dvr/info"
     }
 
-    public static func recordings() -> String {
-        "/api/dvr/recordings"
+    public static func recordings(search: String? = nil) -> String {
+        guard let search, !search.isEmpty else {
+            return "/api/dvr/recordings"
+        }
+        let encoded = search.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? search
+        return "/api/dvr/recordings?search=\(encoded)"
     }
 
     public static func deleteRecording(_ id: String) -> String {
