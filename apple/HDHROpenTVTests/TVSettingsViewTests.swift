@@ -42,7 +42,7 @@ final class TVSettingsViewTests: XCTestCase {
         super.tearDown()
     }
 
-    func testShowsAppearanceAndServerConnectionSections() throws {
+    func testShowsAppearanceSectionInGeneralGroup() throws {
         let (environment, settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
         let view = TVSettingsView()
             .environmentObject(environment)
@@ -53,8 +53,27 @@ final class TVSettingsViewTests: XCTestCase {
             .environmentObject(playbackPreferences)
 
         XCTAssertNoThrow(try view.inspect().find(text: "Appearance"))
-        XCTAssertNoThrow(try view.inspect().find(text: "Server Connection"))
-        XCTAssertNoThrow(try view.inspect().find(TVServerConnectionFields.self))
+        XCTAssertThrowsError(try view.inspect().find(text: "Server Connection"))
+        XCTAssertThrowsError(try view.inspect().find(TVServerConnectionFields.self))
+    }
+
+    /// Tapping the pill button mutates the `@State` selection via its
+    /// binding, but per this codebase's documented ViewInspector limitation
+    /// (see `TVMultiPlayerViewTests`, `TVServerConnectionFieldsTests`,
+    /// `TVKeywordRuleModalTests`), that mutation doesn't propagate to a fresh
+    /// inspection without `ViewHosting`. Assert only that the group selector
+    /// exists and tapping the other group's button doesn't throw.
+    func testSettingsGroupSelectorAllowsTappingServerAndAdvanced() throws {
+        let (environment, settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
+        let view = TVSettingsView()
+            .environmentObject(environment)
+            .environmentObject(settingsViewModel)
+            .environmentObject(serverDiscovery)
+            .environmentObject(authManager)
+            .environmentObject(themeManager)
+            .environmentObject(playbackPreferences)
+
+        XCTAssertNoThrow(try view.inspect().find(button: "Server & Advanced").tap())
     }
 
     func testShowsPlaybackSectionWithAutoSkipCommercialsToggle() throws {
@@ -105,6 +124,12 @@ final class TVSettingsViewTests: XCTestCase {
         XCTAssertThrowsError(try view.inspect().find(button: "Switch Profile / Logout"))
     }
 
+    /// Transcoder Presets now lives in the Server & Advanced group, so it's
+    /// hidden in the default (General) render regardless of whether presets
+    /// are loaded - this no longer isolates the inner `!transcodePresets.isEmpty`
+    /// check (see the group-selector limitation noted on
+    /// `testSettingsGroupSelectorAllowsTappingServerAndAdvanced`), but it does
+    /// confirm the section stays scoped to its group.
     func testHidesTranscodePresetsSectionWhenEmpty() throws {
         let (environment, settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
         XCTAssertTrue(settingsViewModel.transcodePresets.isEmpty)
@@ -120,6 +145,10 @@ final class TVSettingsViewTests: XCTestCase {
         XCTAssertThrowsError(try view.inspect().find(text: "Transcoder Presets"))
     }
 
+    /// See the comment on `testHidesTranscodePresetsSectionWhenEmpty`: this
+    /// verifies the same group-scoping holds once presets are loaded, not the
+    /// presence of the Transcoder Presets content itself (unreachable from the
+    /// default General render without `ViewHosting`).
     func testShowsTranscodePresetsSectionWhenLoaded() async throws {
         let (environment, settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
         MockURLProtocol.handlers["/api/streaming/transcode-presets"] = (Data("""
@@ -136,8 +165,6 @@ final class TVSettingsViewTests: XCTestCase {
             .environmentObject(themeManager)
             .environmentObject(playbackPreferences)
 
-        XCTAssertNoThrow(try view.inspect().find(text: "Transcoder Presets"))
-        XCTAssertNoThrow(try view.inspect().find(text: "Hardware H.264"))
-        XCTAssertNoThrow(try view.inspect().find(text: "HW"))
+        XCTAssertThrowsError(try view.inspect().find(text: "Transcoder Presets"))
     }
 }

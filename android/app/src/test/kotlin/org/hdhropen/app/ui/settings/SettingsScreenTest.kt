@@ -59,11 +59,13 @@ class SettingsScreenTest {
         // Header
         composeTestRule.onNodeWithText("Settings").assertIsDisplayed()
 
-        // Section labels
+        // General group is shown by default
         composeTestRule.onNodeWithText("APPEARANCE").assertIsDisplayed()
         composeTestRule.onNodeWithText("PROFILE").assertIsDisplayed()
-        composeTestRule.onNodeWithText("SERVER CONNECTION").assertExists()
         composeTestRule.onNodeWithText("PLAYBACK").assertExists()
+
+        // Server & Advanced content is not shown until that tab is selected
+        composeTestRule.onNodeWithText("SERVER CONNECTION").assertDoesNotExist()
 
         // Theme buttons
         composeTestRule.onNodeWithText("System").assertIsDisplayed()
@@ -74,10 +76,16 @@ class SettingsScreenTest {
         composeTestRule.onNodeWithText("Dark").performClick()
         assertEquals(ThemeMode.DARK, themePreferences.themeMode.value)
 
-        // Server connection URL
-        composeTestRule.onNodeWithText("http://192.168.1.100:8100").assertExists()
-
         // Direct Play toggle
         composeTestRule.onNodeWithText("Direct Play").assertExists()
+
+        // Switch to the Server & Advanced group
+        composeTestRule.onNodeWithText("Server & Advanced").performClick()
+
+        composeTestRule.onNodeWithText("SERVER CONNECTION").assertIsDisplayed()
+        composeTestRule.onNodeWithText("http://192.168.1.100:8100").assertExists()
+
+        // General content is no longer shown
+        composeTestRule.onNodeWithText("APPEARANCE").assertDoesNotExist()
     }
 }

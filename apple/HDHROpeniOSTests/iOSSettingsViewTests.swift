@@ -59,7 +59,7 @@ final class iOSSettingsViewTests: XCTestCase {
         )
     }
 
-    func testShowsAppearanceAndServerConnectionSections() throws {
+    func testShowsAppearanceSectionInGeneralGroup() throws {
         let (settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
         let view = iOSSettingsView()
             .environmentObject(settingsViewModel)
@@ -69,7 +69,27 @@ final class iOSSettingsViewTests: XCTestCase {
             .environmentObject(playbackPreferences)
 
         XCTAssertNoThrow(try view.inspect().find(text: "Appearance"))
-        XCTAssertNoThrow(try view.inspect().find(iOSServerConnectionFields.self))
+        XCTAssertThrowsError(try view.inspect().find(iOSServerConnectionFields.self))
+    }
+
+    /// `Picker.select(value:)` mutates the `@State` selection via its
+    /// binding, but per this codebase's documented ViewInspector limitation
+    /// (see `TVMultiPlayerViewTests`, `TVServerConnectionFieldsTests`,
+    /// `iOSScrubBarViewTests`), that mutation doesn't propagate to a fresh
+    /// inspection without `ViewHosting`. Assert only that the group selector
+    /// exists and selecting the other group doesn't throw.
+    func testSettingsGroupPickerAllowsSelectingServerAndAdvanced() throws {
+        let (settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
+        let view = iOSSettingsView()
+            .environmentObject(settingsViewModel)
+            .environmentObject(serverDiscovery)
+            .environmentObject(authManager)
+            .environmentObject(themeManager)
+            .environmentObject(playbackPreferences)
+
+        XCTAssertNoThrow(
+            try view.inspect().find(ViewType.Picker.self).select(value: SettingsGroup.serverAndAdvanced)
+        )
     }
 
     func testShowsPlaybackSectionWithAutoSkipCommercialsToggle() throws {
@@ -102,6 +122,12 @@ final class iOSSettingsViewTests: XCTestCase {
         XCTAssertThrowsError(try view.inspect().find(text: "Logout"))
     }
 
+    /// Transcode Presets now lives in the Server & Advanced group, so it's
+    /// hidden in the default (General) render regardless of whether presets
+    /// are loaded - this no longer isolates the inner `!transcodePresets.isEmpty`
+    /// check (see the group-selector limitation noted on
+    /// `testSettingsGroupPickerAllowsSelectingServerAndAdvanced`), but it does
+    /// confirm the section stays scoped to its group.
     func testHidesTranscodePresetsSectionWhenEmpty() throws {
         let (settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
         XCTAssertTrue(settingsViewModel.transcodePresets.isEmpty)
@@ -138,6 +164,10 @@ final class iOSSettingsViewTests: XCTestCase {
         XCTAssertNoThrow(try view.inspect().find(button: "Logout"))
     }
 
+    /// See the comment on `testHidesTranscodePresetsSectionWhenEmpty`: this
+    /// verifies the same group-scoping holds once presets are loaded, not the
+    /// presence of the Transcode Presets content itself (unreachable from the
+    /// default General render without `ViewHosting`).
     func testShowsTranscodePresetsSectionWhenLoaded() async throws {
         let (settingsViewModel, serverDiscovery, authManager, themeManager, playbackPreferences) = makeEnvironmentObjects()
         let presetsBody = """
@@ -154,8 +184,6 @@ final class iOSSettingsViewTests: XCTestCase {
             .environmentObject(themeManager)
             .environmentObject(playbackPreferences)
 
-        XCTAssertNoThrow(try view.inspect().find(text: "Transcode Presets"))
-        XCTAssertNoThrow(try view.inspect().find(text: "Hardware"))
-        XCTAssertNoThrow(try view.inspect().find(text: "HW"))
+        XCTAssertThrowsError(try view.inspect().find(text: "Transcode Presets"))
     }
 }
