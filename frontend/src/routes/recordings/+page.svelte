@@ -105,12 +105,8 @@
 		recordingRules.filter((r) => serverFilter === 'all' || ((r.provider ?? r.Provider) ?? 'builtin') === serverFilter),
 	);
 
-	// HDHomeRun-native recordings live in HDHomeRun's own storage, not ours -
-	// this app has no way to delete them (see backend delete_recording, which
-	// only handles builtin recordings), so the delete action must not be
-	// offered for them.
-	function canDeleteRecording(recording: HDHomeRunRecording): boolean {
-		return (recording.provider ?? 'builtin') !== 'hdhomerun';
+	function canDeleteRecording(_recording: HDHomeRunRecording): boolean {
+		return true;
 	}
 
 	async function loadAll() {

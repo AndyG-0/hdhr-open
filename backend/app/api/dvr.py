@@ -213,11 +213,29 @@ async def get_recording_poster(recording_id: str):
 async def delete_recording(recording_id: str):
     if capture_pipeline.is_capture_active(recording_id):
         raise HTTPException(status_code=409, detail="Recording is still in progress")
+
     deleted = await retention.delete_local_recording(recording_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Recording not found")
-    dvr_streaming.invalidate_recording_cache(recording_id)
-    return {"status": "deleted"}
+    if deleted:
+        dvr_streaming.invalidate_recording_cache(recording_id)
+        return {"status": "deleted"}
+
+    # Not a builtin recording - check the official HDHomeRun DVR.
+    settings = await _get_hdhomerun_settings_safe()
+    if hdhomerun_client.is_dvr_configured(settings):
+        try:
+            official_recs = await hdhomerun_client.fetch_dvr_recordings(settings)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not reach official DVR: {exc}") from exc
+        match = next((r for r in official_recs if r.get("recording_id") == recording_id), None)
+        if match and match.get("cmd_url"):
+            try:
+                await hdhomerun_client.delete_dvr_recording(match["cmd_url"])
+            except hdhomerun_client.HDHomeRunError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            dvr_streaming.invalidate_recording_cache(recording_id)
+            return {"status": "deleted"}
+
+    raise HTTPException(status_code=404, detail="Recording not found")
 
 
 from app.api import dvr_rules, dvr_streaming  # noqa: E402
