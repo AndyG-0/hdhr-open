@@ -116,8 +116,58 @@ describe('recording-actions controller', () => {
 		expect(promoteWatch).toHaveBeenCalledWith('sess-999', {
 			title: 'Test Show',
 			episode_title: undefined,
+			end_ts: 2000,
 		});
 		expect(addHDHomeRunRecordingRule).not.toHaveBeenCalled();
+	});
+
+	it('promotes watch session with end_ts when recording a series', async () => {
+		const options = makeOptions({
+			getIsWatchSession: () => true,
+			getWatchSessionId: () => 'sess-999',
+		});
+		const controller = createRecordingActionsController(options);
+
+		await controller.handleRecordSeries();
+
+		expect(promoteWatch).toHaveBeenCalledWith('sess-999', {
+			title: 'Test Show',
+			episode_title: undefined,
+			end_ts: 2000,
+		});
+	});
+
+	it('adds end padding to the promoted watch session end_ts when chosen', async () => {
+		const options = makeOptions({
+			getIsWatchSession: () => true,
+			getWatchSessionId: () => 'sess-999',
+		});
+		const controller = createRecordingActionsController(options);
+
+		await controller.handleRecordEpisode({ endPadding: 300 });
+
+		expect(promoteWatch).toHaveBeenCalledWith('sess-999', {
+			title: 'Test Show',
+			episode_title: undefined,
+			end_ts: 2300,
+		});
+	});
+
+	it('falls back to an undefined end_ts when there is no airing data for the watch session', async () => {
+		const options = makeOptions({
+			getIsWatchSession: () => true,
+			getWatchSessionId: () => 'sess-999',
+			getEffectiveAiring: () => null,
+		});
+		const controller = createRecordingActionsController(options);
+
+		await controller.handleRecordEpisode();
+
+		expect(promoteWatch).toHaveBeenCalledWith('sess-999', {
+			title: 'NBC',
+			episode_title: undefined,
+			end_ts: undefined,
+		});
 	});
 
 	it('handleConfirmOptions routes to handleUpdateRule when currentRule exists', () => {

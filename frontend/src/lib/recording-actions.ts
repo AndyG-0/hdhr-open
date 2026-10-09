@@ -102,6 +102,10 @@ export function createRecordingActionsController(
 				await api.promoteWatch(options.getWatchSessionId()!, {
 					title: effectiveAiring?.title ?? channelName,
 					episode_title: effectiveAiring?.episode_title ?? undefined,
+					end_ts:
+						effectiveAiring?.end != null
+							? effectiveAiring.end + (effectiveOptions.endPadding ?? 0)
+							: undefined,
 				});
 				return;
 			}
@@ -154,6 +158,10 @@ export function createRecordingActionsController(
 				await api.promoteWatch(options.getWatchSessionId()!, {
 					title: effectiveAiring?.title ?? channelName,
 					episode_title: effectiveAiring?.episode_title ?? undefined,
+					end_ts:
+						effectiveAiring?.end != null
+							? effectiveAiring.end + (effectiveOptions.endPadding ?? 0)
+							: undefined,
 				});
 			}
 
