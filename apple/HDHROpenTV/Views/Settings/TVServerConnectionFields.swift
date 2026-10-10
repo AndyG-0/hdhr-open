@@ -22,6 +22,7 @@ public struct TVServerConnectionFields: View {
                     if isEditingServer {
                         TextField("http://192.168.1.10:8000", text: $serverURLInput)
                             .font(.subheadline.monospaced())
+                            .task(id: serverURLInput) { await attemptAutoConnect(for: serverURLInput) }
                     } else {
                         Text(serverDiscovery.serverURLString)
                             .font(.subheadline.monospaced())
@@ -40,13 +41,14 @@ public struct TVServerConnectionFields: View {
                         }
 
                         Button(action: {
-                            if let url = URL(string: serverURLInput) {
+                            if let url = settingsViewModel.parsedServerURL(from: serverURLInput) {
                                 Task { await environment.setServerURL(url) }
                             }
                             isEditingServer = false
                         }) {
                             Text("Save")
                         }
+                        .disabled(settingsViewModel.parsedServerURL(from: serverURLInput) == nil)
                     } else {
                         Button(action: {
                             serverURLInput = serverDiscovery.serverURLString
@@ -100,5 +102,22 @@ public struct TVServerConnectionFields: View {
                 .padding(.top, 8)
             }
         }
+    }
+
+    /// Debounced auto-connect, mirroring the iOS server-URL field: `.task(id:)`
+    /// cancels and restarts this whenever serverURLInput changes, so a pause
+    /// in typing is what actually triggers it. The debounce, validation, and
+    /// reachability check live in `SettingsViewModel.attemptAutoConnect`,
+    /// shared with iOS; this just re-checks that nothing changed out from
+    /// under it before committing.
+    private func attemptAutoConnect(for input: String) async {
+        guard isEditingServer else { return }
+        guard let url = await settingsViewModel.attemptAutoConnect(
+            for: input,
+            currentServerURLString: serverDiscovery.serverURLString
+        ) else { return }
+        guard input == serverURLInput else { return }
+        await environment.setServerURL(url)
+        isEditingServer = false
     }
 }

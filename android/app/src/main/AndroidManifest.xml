@@ -8,12 +8,14 @@
 
     <application
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/full_backup_content"
         android:icon="@android:drawable/ic_menu_slideshow"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@android:drawable/ic_menu_slideshow"
         android:supportsRtl="true"
-        android:theme="@style/Theme.HDHROpen"
-        android:usesCleartextTraffic="true">
+        android:theme="@style/Theme.HDHROpen">
         <meta-data
             android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
             android:value="org.hdhropen.app.cast.CastOptionsProvider" />

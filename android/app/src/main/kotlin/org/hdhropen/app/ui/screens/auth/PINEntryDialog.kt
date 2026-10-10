@@ -11,8 +11,8 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,10 +28,10 @@ import org.hdhropen.kit.viewmodels.AuthViewModel
 fun PINEntryDialog(
     authViewModel: AuthViewModel
 ) {
-    val selectedProfile by authViewModel.selectedProfile.collectAsState()
-    val pin by authViewModel.pin.collectAsState()
-    val error by authViewModel.error.collectAsState()
-    val isSubmitting by authViewModel.isSubmitting.collectAsState()
+    val selectedProfile by authViewModel.selectedProfile.collectAsStateWithLifecycle()
+    val pin by authViewModel.pin.collectAsStateWithLifecycle()
+    val error by authViewModel.error.collectAsStateWithLifecycle()
+    val isSubmitting by authViewModel.isSubmitting.collectAsStateWithLifecycle()
 
     Dialog(onDismissRequest = { authViewModel.dismissPinEntry() }) {
         Surface(

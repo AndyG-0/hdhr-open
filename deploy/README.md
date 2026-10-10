@@ -268,3 +268,10 @@ Instead of building with `uv`/`npm` and installing systemd units, use
 `docker compose up -d --build` as described in the main README — see there
 and in `docs/hardware-acceleration.md` for the containerized equivalent of
 the hwaccel steps above.
+
+Deploying behind a reverse proxy instead of exposing services directly on
+the LAN? See the `ports:` comments in `docker-compose.yml` and
+`docker-compose.prod.yml` for the supported `127.0.0.1:PORT:PORT` binding
+pattern, and the main README's "Network exposure" section for the full
+picture. The `PORT:PORT` default (bound to all interfaces) stays the
+default — this product's core self-hosting use case is LAN access.

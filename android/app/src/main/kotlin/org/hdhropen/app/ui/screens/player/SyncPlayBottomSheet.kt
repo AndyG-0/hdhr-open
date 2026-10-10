@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,11 +35,11 @@ fun SyncPlayBottomSheet(
     playerViewModel: PlayerViewModel,
     onDismiss: () -> Unit
 ) {
-    val room by playerViewModel.syncPlayRoom.collectAsState()
-    val participants by playerViewModel.syncPlayParticipants.collectAsState()
-    val isHost by playerViewModel.isSyncPlayHost.collectAsState()
-    val isConnected by playerViewModel.syncPlayConnected.collectAsState()
-    val mySessionId by playerViewModel.syncPlayClient.sessionId.collectAsState()
+    val room by playerViewModel.syncPlayRoom.collectAsStateWithLifecycle()
+    val participants by playerViewModel.syncPlayParticipants.collectAsStateWithLifecycle()
+    val isHost by playerViewModel.isSyncPlayHost.collectAsStateWithLifecycle()
+    val isConnected by playerViewModel.syncPlayConnected.collectAsStateWithLifecycle()
+    val mySessionId by playerViewModel.syncPlayClient.sessionId.collectAsStateWithLifecycle()
 
     var userName by remember { mutableStateOf("Android User") }
     var roomCodeInput by remember { mutableStateOf("") }

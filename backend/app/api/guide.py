@@ -252,6 +252,8 @@ async def update_channel_settings(
             await asyncio.to_thread(db.delete_sd_station_map, channel_id)
 
     updated_channel = await asyncio.to_thread(db.get_channel, channel_id)
+    if updated_channel is None:
+        raise HTTPException(status_code=404, detail=f"Channel '{channel_id}' not found")
     xm = await asyncio.to_thread(db.get_xmltv_channel_map, channel_id)
     sm = await asyncio.to_thread(db.get_sd_station_map, channel_id)
     return {

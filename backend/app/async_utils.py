@@ -9,10 +9,10 @@ from typing import Any
 # Fire-and-forget tasks (killing ffmpeg, draining stderr, poster backfills,
 # etc.) are tracked here purely so asyncio doesn't garbage-collect them
 # mid-flight.
-_background_tasks: set[asyncio.Task[None]] = set()
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
-def run_in_background(coro: Coroutine[Any, Any, None]) -> None:
+def run_in_background(coro: Coroutine[Any, Any, Any]) -> None:
     task = asyncio.create_task(coro)
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)

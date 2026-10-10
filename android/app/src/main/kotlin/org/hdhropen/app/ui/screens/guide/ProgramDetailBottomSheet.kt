@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,8 +40,8 @@ fun ProgramDetailBottomSheet(
     onTune: () -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val recordingRules by guideViewModel.recordingRules.collectAsState()
-    val favoriteChannels by guideViewModel.favoriteChannels.collectAsState()
+    val recordingRules by guideViewModel.recordingRules.collectAsStateWithLifecycle()
+    val favoriteChannels by guideViewModel.favoriteChannels.collectAsStateWithLifecycle()
     var showOptionsSheet by remember { mutableStateOf(false) }
 
     val isFav = favoriteChannels.contains(channel.channelNumber)

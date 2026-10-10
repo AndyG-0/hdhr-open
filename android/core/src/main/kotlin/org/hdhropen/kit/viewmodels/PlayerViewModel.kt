@@ -408,7 +408,7 @@ class PlayerViewModel(
                 val content = currentSyncPlayContent() ?: SyncPlayContent(type = "channel", id = "")
                 val resp = apiClient.createSyncPlayRoom(content = content, userName = userName)
                 val wsUrl = apiClient.syncPlayWsUrl(resp.room.roomCode, userName)
-                syncPlayClient.connect(wsUrl)
+                syncPlayClient.connect(wsUrl, apiClient.bearerToken)
                 onComplete?.invoke(Result.success(resp.room))
             } catch (e: Exception) {
                 Log.network.error("Failed to create SyncPlay room: ${e.localizedMessage}")
@@ -421,7 +421,7 @@ class PlayerViewModel(
         viewModelScope.launch {
             try {
                 val wsUrl = apiClient.syncPlayWsUrl(roomCode, userName)
-                syncPlayClient.connect(wsUrl)
+                syncPlayClient.connect(wsUrl, apiClient.bearerToken)
                 onComplete?.invoke(Result.success(Unit))
             } catch (e: Exception) {
                 Log.network.error("Failed to join SyncPlay room: ${e.localizedMessage}")

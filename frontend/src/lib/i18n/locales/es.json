@@ -28,8 +28,8 @@
 		"tabs": {
 			"your_settings": "Your Settings",
 			"household": "Household",
-			"guide_channels": "Guide & Channels",
-			"tuners_network": "Tuners & Network",
+			"guide_channels": "Guide",
+			"tuners_network": "Tuners",
 			"recording": "Recording",
 			"integrations": "Integrations",
 			"system": "System"
@@ -131,6 +131,7 @@
 			"tuner_terminate_modal_title": "¿Terminar uso del sintonizador {index}?",
 			"tuner_terminate_modal_confirm": "Terminar transmisión",
 			"tuner_terminate_modal_cancel": "Cancelar",
+			"tuner_terminate_modal_body": "¿Seguro que quieres finalizar esta transmisión de sintonizador activa?",
 			"guide_today": "Hoy",
 			"guide_tomorrow": "Mañana",
 			"jump_to_label": "Ir a",
@@ -330,7 +331,16 @@
 		"listen": "Escuchar audio",
 		"close_slot": "Cerrar transmisión",
 		"close_all": "Cerrar Multi-View",
-		"tuners_exhausted": "Sintonizadores físicos agotados. La reproducción puede fallar."
+		"tuners_exhausted": "Sintonizadores físicos agotados. La reproducción puede fallar.",
+		"tuners_all_in_use": "Los {count} sintonizadores están actualmente en uso.",
+		"active_recordings_breakdown": "{count} grabación: {details}",
+		"active_streams_breakdown": "{count} transmisión: {details}",
+		"tuners_currently_breakdown": "Actualmente: {details}.",
+		"tuners_watch_without_new": "Puedes ver {channels} sin usar otro sintonizador, o cerrar una transmisión activa.",
+		"tuners_close_feed": "Cierra una transmisión activa para liberar un sintonizador.",
+		"recording_on_channel": "Grabando en {channel}",
+		"unknown_channel": "Desconocido",
+		"live_tv_viewer": "Espectador de TV en vivo"
 	},
 	"syncplay": {
 		"title": "Fiesta de visualización SyncPlay",

@@ -2,6 +2,8 @@ package org.hdhropen.kit.networking
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +32,66 @@ class AuthManager(
     private val prefsName = "hdhr_open_auth_prefs"
 
     private val prefs: SharedPreferences? by lazy {
-        context?.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        context?.let { buildPrefs(it) }
+    }
+
+    private fun buildPrefs(context: Context): SharedPreferences? {
+        return try {
+            migrateLegacyPrefsIfNeeded(context) ?: createEncryptedPrefs(context)
+        } catch (e: Exception) {
+            // If this throws (e.g. a corrupted Keystore entry or an
+            // unexpected format we don't otherwise detect), fall back to no
+            // persisted storage rather than crashing the app - the session
+            // simply won't be restored/persisted this run, matching the
+            // pre-existing nullable `prefs` contract everywhere else in this
+            // class.
+            Log.auth.error("Failed to initialize encrypted auth prefs: ${e.localizedMessage}", e)
+            null
+        }
+    }
+
+    private fun createEncryptedPrefs(context: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            prefsName,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    // Pre-fix installs stored the bearer token/device id in a PLAIN
+    // (unencrypted) SharedPreferences file at `prefsName`. EncryptedSharedPreferences
+    // uses that same file name, but encrypts both key names (AES256_SIV) and
+    // values (AES256_GCM) - so simply wrapping the existing file does not
+    // throw, it just silently fails to find the old plaintext entries (their
+    // key names don't match the encrypted key names it looks up), which
+    // would otherwise look exactly like "never logged in" and quietly log
+    // existing users out. Detect that case up front by checking the legacy
+    // plain file for our known keys, recover the values, delete the
+    // plaintext file, and seed a freshly created encrypted store with them -
+    // so upgrading preserves the session. Returns null (do the normal
+    // encrypted-create path) when there's nothing to migrate, including on
+    // a fresh install or an already-migrated device.
+    private fun migrateLegacyPrefsIfNeeded(context: Context): SharedPreferences? {
+        val legacyPrefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+        if (!legacyPrefs.contains(tokenKey) && !legacyPrefs.contains(deviceIdKey)) return null
+
+        val recoveredToken = legacyPrefs.getString(tokenKey, null)
+        val recoveredDeviceId = legacyPrefs.getString(deviceIdKey, null)
+
+        context.deleteSharedPreferences(prefsName)
+
+        Log.auth.info("Migrating auth prefs from plaintext to encrypted storage")
+        val encryptedPrefs = createEncryptedPrefs(context)
+        encryptedPrefs.edit().apply {
+            recoveredToken?.let { putString(tokenKey, it) }
+            recoveredDeviceId?.let { putString(deviceIdKey, it) }
+        }.apply()
+        return encryptedPrefs
     }
 
     val isAuthenticated: Boolean

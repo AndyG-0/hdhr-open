@@ -805,7 +805,7 @@
 						<p>{tunerToTerminate.warning.message}</p>
 					</div>
 				{:else}
-					<p>Are you sure you want to terminate this active tuner stream?</p>
+					<p>{$_('hdhomerun.detail.tuner_terminate_modal_body')}</p>
 				{/if}
 			</div>
 			<div class="tuner-modal-actions">

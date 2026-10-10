@@ -14,6 +14,15 @@ interface MpegtsPlayerOptions {
 // remains the DOM-binding seam that calls into this.
 export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 	let player: ReturnType<typeof Mpegts.createPlayer> | undefined;
+	// Guards against a create-player race: createPlayerAt() does an async
+	// `import('mpegts.js')` before it can construct/assign a player, so two
+	// calls in quick succession (e.g. a fast channel switch) can have their
+	// imports resolve out of order. Each call captures the generation at the
+	// moment it starts; when its import resolves, it only proceeds if it's
+	// still the most recent call - otherwise it destroys the player it just
+	// built (rather than assigning it) and bails, leaving the real latest
+	// call's player in place.
+	let generation = 0;
 
 	// mpegts.js reports a failed stream request as a bare "network error" and
 	// throws the response body away, so the backend's carefully built 502
@@ -35,11 +44,19 @@ export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 		}
 	}
 
+	function destroyPlayerInstance(instance: ReturnType<typeof Mpegts.createPlayer>) {
+		instance.pause();
+		instance.unload();
+		instance.detachMediaElement();
+		instance.destroy();
+	}
+
 	function teardownPlayer() {
-		player?.pause();
-		player?.unload();
-		player?.detachMediaElement();
-		player?.destroy();
+		// Invalidate any in-flight createPlayerAt() call too, so its import
+		// doesn't resolve later and silently resurrect a player after an
+		// explicit teardown.
+		generation++;
+		if (player) destroyPlayerInstance(player);
 		player = undefined;
 	}
 
@@ -70,13 +87,26 @@ export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 	function createPlayerAt(node: HTMLVideoElement, url: string) {
 		options.setErrorMessage(null);
 		options.setErrorDetail(null);
+		// Bump synchronously (before the async import below starts) so each
+		// call gets a distinct generation the instant it's invoked, not once
+		// the import resolves - that's what lets a later call's generation
+		// bump happen-before an earlier call's post-import check.
+		const myGeneration = ++generation;
 		// mpegts.js's UMD bundle references `window` at import time, so a
 		// static import would crash SvelteKit's server-side render of this
 		// page (Node has no `window`). Deferring to a dynamic import here
 		// means it only ever loads client-side, once this action runs.
 		import('mpegts.js').then(({ default: mpegts }) => {
 			if (options.getDestroyed()) return;
-			player = mpegts.createPlayer(
+			// A newer createPlayerAt()/teardownPlayer() call has started since
+			// this one began (e.g. a fast channel switch firing two calls in
+			// quick succession) - proceeding would race whatever that newer
+			// call has done to `player`. Build the instance so we have
+			// something to clean up (construction itself is cheap and
+			// synchronous - it's attach/load/play that actually engage the
+			// network and DOM), destroy it immediately, and bail instead of
+			// assigning it over the latest call's player.
+			const newPlayer = mpegts.createPlayer(
 				{ type: 'mse', isLive: true, url, withCredentials: true },
 				{
 					// A small jitter cushion so a brief network hiccup drains the
@@ -96,6 +126,11 @@ export function createMpegtsPlayer(options: MpegtsPlayerOptions) {
 					liveBufferLatencyChasing: false,
 				},
 			);
+			if (myGeneration !== generation) {
+				destroyPlayerInstance(newPlayer);
+				return;
+			}
+			player = newPlayer;
 			player.on(mpegts.Events.ERROR, (errorType: string) => {
 				options.setErrorMessage(options.genericHint());
 				if (errorType !== mpegts.ErrorTypes.NETWORK_ERROR) return;

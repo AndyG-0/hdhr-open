@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,9 +32,9 @@ fun ServerSetupDialog(
     onSaveURL: (String) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val currentURL by serverDiscovery.serverURLString.collectAsState()
-    val discoveredServers by serverDiscovery.discoveredServers.collectAsState()
-    val isSearching by serverDiscovery.isSearching.collectAsState()
+    val currentURL by serverDiscovery.serverURLString.collectAsStateWithLifecycle()
+    val discoveredServers by serverDiscovery.discoveredServers.collectAsStateWithLifecycle()
+    val isSearching by serverDiscovery.isSearching.collectAsStateWithLifecycle()
 
     var inputURL by remember { mutableStateOf(currentURL) }
     var testResult by remember { mutableStateOf<Boolean?>(null) }

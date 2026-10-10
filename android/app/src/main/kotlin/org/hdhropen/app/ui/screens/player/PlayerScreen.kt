@@ -21,12 +21,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -78,42 +78,42 @@ fun PlayerScreen(
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     val playerEngine = playerViewModel.playerEngine
-    val state by playerEngine.state.collectAsState()
-    val currentTime by playerEngine.currentTime.collectAsState()
-    val duration by playerEngine.duration.collectAsState()
-    val isLive by playerEngine.isLive.collectAsState()
-    val isSeekable by playerEngine.isSeekable.collectAsState()
-    val availableAudioTracks by playerEngine.availableAudioTracks.collectAsState()
-    val currentAudioTrack by playerEngine.currentAudioTrack.collectAsState()
-    val videoSpecs by playerEngine.videoSpecs.collectAsState()
-    val transcodeInfo by playerEngine.transcodeInfo.collectAsState()
-    val observedBitrateBps by playerEngine.observedBitrateBps.collectAsState()
-    val playbackMode by playerViewModel.playbackMode.collectAsState()
-    val isCasting by playerEngine.isCasting.collectAsState()
-    val commercialSegments by playerEngine.commercialSegments.collectAsState()
-    val activeCommercialSegment by playerViewModel.activeCommercialSegment.collectAsState()
-    val autoSkipCommercialsEnabled by playerViewModel.autoSkipCommercialsEnabled.collectAsState()
-    val autoSkipCommercialPulse by playerViewModel.autoSkipCommercialPulse.collectAsState()
+    val state by playerEngine.state.collectAsStateWithLifecycle()
+    val currentTime by playerEngine.currentTime.collectAsStateWithLifecycle()
+    val duration by playerEngine.duration.collectAsStateWithLifecycle()
+    val isLive by playerEngine.isLive.collectAsStateWithLifecycle()
+    val isSeekable by playerEngine.isSeekable.collectAsStateWithLifecycle()
+    val availableAudioTracks by playerEngine.availableAudioTracks.collectAsStateWithLifecycle()
+    val currentAudioTrack by playerEngine.currentAudioTrack.collectAsStateWithLifecycle()
+    val videoSpecs by playerEngine.videoSpecs.collectAsStateWithLifecycle()
+    val transcodeInfo by playerEngine.transcodeInfo.collectAsStateWithLifecycle()
+    val observedBitrateBps by playerEngine.observedBitrateBps.collectAsStateWithLifecycle()
+    val playbackMode by playerViewModel.playbackMode.collectAsStateWithLifecycle()
+    val isCasting by playerEngine.isCasting.collectAsStateWithLifecycle()
+    val commercialSegments by playerEngine.commercialSegments.collectAsStateWithLifecycle()
+    val activeCommercialSegment by playerViewModel.activeCommercialSegment.collectAsStateWithLifecycle()
+    val autoSkipCommercialsEnabled by playerViewModel.autoSkipCommercialsEnabled.collectAsStateWithLifecycle()
+    val autoSkipCommercialPulse by playerViewModel.autoSkipCommercialPulse.collectAsStateWithLifecycle()
 
     val captionController = playerViewModel.captionController
-    val activeCaptionText by captionController.activeCueText.collectAsState()
-    val isCaptionsEnabled by captionController.isEnabled.collectAsState()
+    val activeCaptionText by captionController.activeCueText.collectAsStateWithLifecycle()
+    val isCaptionsEnabled by captionController.isEnabled.collectAsStateWithLifecycle()
 
-    val thumbnailCues by playerViewModel.thumbnailCues.collectAsState()
-    val isWatchSession by playerViewModel.isWatchSession.collectAsState()
-    val isPromoted by playerViewModel.isPromoted.collectAsState()
-    val isPromoting by playerViewModel.isPromoting.collectAsState()
-    val isSwitchingAudioTrack by playerViewModel.isSwitchingAudioTrack.collectAsState()
-    val quality by playerViewModel.quality.collectAsState()
-    val isSwitchingQuality by playerViewModel.isSwitchingQuality.collectAsState()
-    val transientError by playerViewModel.transientError.collectAsState()
-    val fallbackNotice by playerViewModel.fallbackNotice.collectAsState()
+    val thumbnailCues by playerViewModel.thumbnailCues.collectAsStateWithLifecycle()
+    val isWatchSession by playerViewModel.isWatchSession.collectAsStateWithLifecycle()
+    val isPromoted by playerViewModel.isPromoted.collectAsStateWithLifecycle()
+    val isPromoting by playerViewModel.isPromoting.collectAsStateWithLifecycle()
+    val isSwitchingAudioTrack by playerViewModel.isSwitchingAudioTrack.collectAsStateWithLifecycle()
+    val quality by playerViewModel.quality.collectAsStateWithLifecycle()
+    val isSwitchingQuality by playerViewModel.isSwitchingQuality.collectAsStateWithLifecycle()
+    val transientError by playerViewModel.transientError.collectAsStateWithLifecycle()
+    val fallbackNotice by playerViewModel.fallbackNotice.collectAsStateWithLifecycle()
 
-    val activeChannel by playerViewModel.activeChannel.collectAsState()
-    val activeAiring by playerViewModel.activeAiring.collectAsState()
-    val channels by guideViewModel.channels.collectAsState()
-    val recordingRules by guideViewModel.recordingRules.collectAsState()
-    val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
+    val activeChannel by playerViewModel.activeChannel.collectAsStateWithLifecycle()
+    val activeAiring by playerViewModel.activeAiring.collectAsStateWithLifecycle()
+    val channels by guideViewModel.channels.collectAsStateWithLifecycle()
+    val recordingRules by guideViewModel.recordingRules.collectAsStateWithLifecycle()
+    val dvrInfo by recordingsViewModel.dvrInfo.collectAsStateWithLifecycle()
     val existingRule = remember(recordingRules, activeChannel, activeAiring) {
         guideViewModel.findRule(activeChannel?.channelNumber, activeAiring)
     }
@@ -168,8 +168,8 @@ fun PlayerScreen(
         }
     }
 
-    val syncPlayRoom by playerViewModel.syncPlayRoom.collectAsState()
-    val syncPlayParticipants by playerViewModel.syncPlayParticipants.collectAsState()
+    val syncPlayRoom by playerViewModel.syncPlayRoom.collectAsStateWithLifecycle()
+    val syncPlayParticipants by playerViewModel.syncPlayParticipants.collectAsStateWithLifecycle()
 
     var showControls by remember { mutableStateOf(true) }
     var showPlaybackInfo by remember { mutableStateOf(false) }

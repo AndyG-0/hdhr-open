@@ -1,14 +1,23 @@
 package org.hdhropen.kit.utilities
 
 import android.util.Log as AndroidLog
+import org.hdhropen.kit.BuildConfig
 
 class TaggedLogger(private val tag: String) {
+    // Verbose/debug-level logs are gated out of release builds - they're
+    // developer-oriented noise (and can carry more detail than warning/error
+    // messages do), while warning/error stay unconditional in every build so
+    // real failures are always visible.
     fun debug(message: String) {
-        AndroidLog.d(tag, message)
+        if (BuildConfig.DEBUG) {
+            AndroidLog.d(tag, message)
+        }
     }
 
     fun info(message: String) {
-        AndroidLog.i(tag, message)
+        if (BuildConfig.DEBUG) {
+            AndroidLog.i(tag, message)
+        }
     }
 
     fun warning(message: String) {

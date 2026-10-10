@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This app talks to a user-configured HDHomeRun Open server on the local
+  network, entered as an arbitrary host/IP at runtime - there's no
+  build-time-known domain to pin, and Android's Network Security Config has
+  no primitive to scope cleartext permission to "private/LAN IP ranges"
+  dynamically (no IP-range or "is-private-address" matcher exists for
+  <domain-config>). So cleartext is allowed everywhere, same as the
+  android:usesCleartextTraffic="true" this file supersedes - this is not a
+  behavior change, just making the decision explicit and auditable in one
+  place instead of a bare manifest boolean.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

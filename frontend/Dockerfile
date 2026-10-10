@@ -1,11 +1,11 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -28,7 +28,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/build ./build
 
-# node:20-alpine already ships an unprivileged "node" user (uid 1000) —
+# node:22-alpine already ships an unprivileged "node" user (uid 1000) —
 # use it instead of running the server as root.
 RUN chown -R node:node /app
 USER node

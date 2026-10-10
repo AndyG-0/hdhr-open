@@ -18,8 +18,8 @@ jobs:
       android: ${{ steps.filter.outputs.android }}
       apple: ${{ steps.filter.outputs.apple }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         with:
           filters: |
@@ -42,14 +42,16 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
         with:
           enable-cache: true
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run mypy
       - run: uv run pytest
+      - name: Run backend SCA gate
+        run: uv run python scripts/sca_gate.py
 
   frontend:
     needs: changes
@@ -59,8 +61,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -70,6 +72,8 @@ jobs:
       - run: npm run check
       - run: npm run test
       - run: npm run build
+      - name: Run frontend SCA gate
+        run: npm run sca
 
   android:
     needs: changes
@@ -79,8 +83,8 @@ jobs:
       run:
         working-directory: android
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "17"
@@ -88,7 +92,7 @@ jobs:
       - run: ./check.sh
       - name: Upload Test and Lint Reports on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-reports
           path: |
@@ -100,7 +104,7 @@ jobs:
     if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: brew install swiftlint swiftformat
       - run: bash apple/scripts/lint.sh
 
@@ -109,21 +113,21 @@ jobs:
     if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: apple/HDHROpenKit/.build
           key: apple-kit-spm-${{ runner.os }}-${{ hashFiles('apple/HDHROpenKit/Package.resolved') }}
           restore-keys: |
             apple-kit-spm-${{ runner.os }}-
       - run: bash apple/scripts/test-kit.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: apple-kit-coverage
           path: apple/.build/results/kit_coverage.json
       - name: Upload Kit Test Reports on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: apple-kit-reports
           path: apple/.build/results/
@@ -133,21 +137,21 @@ jobs:
     if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: apple/.build/DerivedData-ios
           key: apple-ios-derived-${{ runner.os }}-${{ hashFiles('apple/HDHROpen.xcodeproj/project.pbxproj', 'apple/HDHROpen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             apple-ios-derived-${{ runner.os }}-
       - run: bash apple/scripts/test-app.sh ios
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: apple-ios-coverage
           path: apple/.build/results/ios_coverage.json
       - name: Upload iOS Test Reports on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: apple-ios-reports
           path: apple/.build/results/ios_test_results.xcresult
@@ -157,21 +161,21 @@ jobs:
     if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: apple/.build/DerivedData-tv
           key: apple-tv-derived-${{ runner.os }}-${{ hashFiles('apple/HDHROpen.xcodeproj/project.pbxproj', 'apple/HDHROpen.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             apple-tv-derived-${{ runner.os }}-
       - run: bash apple/scripts/test-app.sh tv
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: apple-tv-coverage
           path: apple/.build/results/tv_coverage.json
       - name: Upload TV Test Reports on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: apple-tv-reports
           path: apple/.build/results/tv_test_results.xcresult
@@ -181,8 +185,8 @@ jobs:
     if: needs.changes.outputs.apple == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: apple-*-coverage
           path: apple/.build/results

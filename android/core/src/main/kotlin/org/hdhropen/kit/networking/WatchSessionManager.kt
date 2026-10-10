@@ -10,9 +10,16 @@ import org.hdhropen.kit.utilities.Log
 
 class WatchSessionManager(
     private val apiClient: APIClient,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob()),
+    coroutineScope: CoroutineScope? = null,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+    // Only a scope WE created (the no-arg-default case, used by
+    // AppEnvironment's app-lifetime instance) is ours to cancel - a scope a
+    // caller passed in explicitly (e.g. a ViewModel's `viewModelScope`, or a
+    // test's `TestScope`) is owned by that caller and must outlive calls to
+    // cancel() here.
+    private val ownsCoroutineScope = coroutineScope == null
+    private val coroutineScope: CoroutineScope = coroutineScope ?: CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val _activeSessionId = MutableStateFlow<String?>(null)
     val activeSessionId: StateFlow<String?> = _activeSessionId.asStateFlow()
 
@@ -89,5 +96,18 @@ class WatchSessionManager(
         _activeSessionId.value = null
         _activeRecordingId.value = null
         _isPromoted.value = false
+    }
+
+    /**
+     * Cancels this manager's owned [coroutineScope] (heartbeat/stop-watch
+     * jobs included). Only cancels the scope if this instance created the
+     * default one itself - a scope passed in by the caller (e.g. a
+     * ViewModel's `viewModelScope`) is owned by that caller and must not be
+     * cancelled here.
+     */
+    fun cancel() {
+        if (ownsCoroutineScope) {
+            coroutineScope.cancel()
+        }
     }
 }

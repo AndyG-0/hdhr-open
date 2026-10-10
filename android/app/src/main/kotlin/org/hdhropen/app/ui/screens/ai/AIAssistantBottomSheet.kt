@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,9 +49,9 @@ fun AIAssistantBottomSheet(
     viewModel: AIAssistantViewModel,
     onDismiss: () -> Unit
 ) {
-    val turns by viewModel.turns.collectAsState()
-    val isSending by viewModel.isSending.collectAsState()
-    val errorText by viewModel.errorText.collectAsState()
+    val turns by viewModel.turns.collectAsStateWithLifecycle()
+    val isSending by viewModel.isSending.collectAsStateWithLifecycle()
+    val errorText by viewModel.errorText.collectAsStateWithLifecycle()
     var inputText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 

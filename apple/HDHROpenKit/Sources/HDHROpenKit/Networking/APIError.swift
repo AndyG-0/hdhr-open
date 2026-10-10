@@ -11,6 +11,7 @@ public enum APIError: LocalizedError, Sendable {
     case noActiveWatchSession
     case lockedOut(String)
     case crossDeviceSyncActive
+    case keychainError(String)
 
     public var errorDescription: String? {
         switch self {
@@ -34,6 +35,8 @@ public enum APIError: LocalizedError, Sendable {
             msg
         case .crossDeviceSyncActive:
             "SyncPlay and SharePlay can't run at the same time. Leave the current session first."
+        case let .keychainError(msg):
+            msg
         }
     }
 }

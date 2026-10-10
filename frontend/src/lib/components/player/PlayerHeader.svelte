@@ -211,7 +211,13 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		min-width: 0;
+		/* Floored to the back button's own width (not 0): min-width: 0 here
+		   let the flex algorithm squeeze this section away entirely on narrow
+		   screens, so the back button got overlapped by .right-section. This
+		   explicit floor protects the back button while .title-group (which
+		   has its own min-width: 0 + overflow: hidden) still shrinks and
+		   ellipsis-truncates normally within whatever space remains. */
+		min-width: 3.5rem;
 		flex: 1;
 	}
 
@@ -220,6 +226,14 @@
 		align-items: center;
 		gap: 0.5rem;
 		flex-shrink: 0;
+	}
+
+	@media (max-width: 28.75rem) {
+		.right-section {
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			row-gap: 0.25rem;
+		}
 	}
 
 	.header-btn {

@@ -51,7 +51,9 @@ public final class AuthManager: ObservableObject {
     public func registerDeviceIfNeeded() async -> Bool {
         do {
             let result = try await apiClient.registerDevice()
-            saveKeychainString(key: deviceIdKey, value: result.id)
+            if !saveKeychainString(key: deviceIdKey, value: result.id) {
+                Log.auth.warning("Device ID registered but could not be persisted to Keychain; will re-register on next launch.")
+            }
             await apiClient.setDeviceId(result.id)
             return true
         } catch {
@@ -87,7 +89,9 @@ public final class AuthManager: ObservableObject {
         do {
             let loggedInUser = try await apiClient.login(userId: user.id, pin: pin, tokenName: deviceName)
             if let token = loggedInUser.token {
-                saveKeychainString(key: tokenKey, value: token)
+                guard saveKeychainString(key: tokenKey, value: token) else {
+                    throw APIError.keychainError("Logged in, but failed to securely save your credentials. Please try again.")
+                }
                 await apiClient.setBearerToken(token)
             }
             currentUser = loggedInUser
@@ -98,7 +102,9 @@ public final class AuthManager: ObservableObject {
             if registered {
                 let loggedInUser = try await apiClient.login(userId: user.id, pin: pin, tokenName: deviceName)
                 if let token = loggedInUser.token {
-                    saveKeychainString(key: tokenKey, value: token)
+                    guard saveKeychainString(key: tokenKey, value: token) else {
+                        throw APIError.keychainError("Logged in, but failed to securely save your credentials. Please try again.")
+                    }
                     await apiClient.setBearerToken(token)
                 }
                 currentUser = loggedInUser
@@ -126,16 +132,23 @@ public final class AuthManager: ObservableObject {
 
     // MARK: - Keychain Helpers
 
-    private func saveKeychainString(key: String, value: String) {
-        guard let data = value.data(using: .utf8) else { return }
+    @discardableResult
+    private func saveKeychainString(key: String, value: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
         clearKeychain(key: key)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
-        SecItemAdd(query as CFDictionary, nil)
+        let status = SecItemAdd(query as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            Log.auth.error("Keychain save failed for key \(key, privacy: .public) with status \(status)")
+            authError = "Failed to securely save credentials (Keychain error \(status))."
+            return false
+        }
+        return true
     }
 
     private func loadKeychainString(key: String) -> String? {
@@ -147,7 +160,12 @@ public final class AuthManager: ObservableObject {
         ]
         var dataTypeRef: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &dataTypeRef)
-        guard status == errSecSuccess, let data = dataTypeRef as? Data else { return nil }
+        guard status == errSecSuccess, let data = dataTypeRef as? Data else {
+            if status != errSecSuccess, status != errSecItemNotFound {
+                Log.auth.error("Keychain load failed for key \(key, privacy: .public) with status \(status)")
+            }
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 
@@ -156,6 +174,9 @@ public final class AuthManager: ObservableObject {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess, status != errSecItemNotFound {
+            Log.auth.error("Keychain delete failed for key \(key, privacy: .public) with status \(status)")
+        }
     }
 }

@@ -383,7 +383,10 @@ class APIClient(
         request(APIEndpoints.syncPlayRoom(code))
 
     fun syncPlayWsUrl(code: String, userName: String? = null): String {
-        val path = APIEndpoints.syncPlayWs(code, bearerToken, userName)
+        // Token is sent as an `Authorization` header on the WebSocket
+        // handshake instead (see SyncPlayClient.connect) - never embedded in
+        // the URL, which would otherwise leak into logs/history/proxies.
+        val path = APIEndpoints.syncPlayWs(code, null, userName)
         val base = baseURL.removeSuffix("/")
         val wsBase = if (base.startsWith("https://")) {
             "wss://" + base.removePrefix("https://")

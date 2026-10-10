@@ -194,13 +194,13 @@ class DVREngine:
                         logger.error("Failed to start capture process for recording %s", recording_id)
                     return capture
 
-                capture, created = await capture_pipeline.get_or_start_capture(ch_num, _create_capture)
-                if capture is None:
+                started_capture, created = await capture_pipeline.get_or_start_capture(ch_num, _create_capture)
+                if started_capture is None:
                     continue
 
                 if not created:
                     attached = await promote_existing_capture_for_schedule(
-                        capture,
+                        started_capture,
                         scheduled_id=sched["id"],
                         rule_id=sched.get("rule_id"),
                         title=sched["title"],

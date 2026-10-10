@@ -183,6 +183,7 @@ class CapturePipeline:
             settings
         )
         if using_tuner_transcode:
+            assert profile is not None
             raw_url = hdhomerun_client.tuner_transcode_url(settings, channel_number, profile)
         else:
             raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
@@ -572,11 +573,13 @@ class CapturePipeline:
             capture = await start_fn()
             return capture, capture is not None
 
-    def is_capture_active(self, recording_id: str) -> bool:
+    def is_capture_active(self, recording_id: str | None) -> bool:
         """Lock-free check for the tail-follow pump's hot loop: is this
         capture's writer still running? (A dict lookup is atomic under the
-        GIL, so no lock is needed for a single membership check.)"""
-        return recording_id in self._active_captures
+        GIL, so no lock is needed for a single membership check.) `None`
+        (a capture that was never resolved to a recording id) is simply
+        never active."""
+        return recording_id is not None and recording_id in self._active_captures
 
     async def wait_for_data(
         self,

@@ -87,6 +87,8 @@ async def create_household_user(
         role=payload.role,
     )
     user = await asyncio.to_thread(get_user, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
     return _admin_user_shape(user)
 
 
@@ -131,6 +133,8 @@ async def update_household_user(
         await asyncio.to_thread(update_user, user_id, **fields)
 
     updated = await asyncio.to_thread(get_user, user_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
     return _admin_user_shape(updated)
 
 

@@ -28,8 +28,8 @@
 		"tabs": {
 			"your_settings": "Your Settings",
 			"household": "Household",
-			"guide_channels": "Guide & Channels",
-			"tuners_network": "Tuners & Network",
+			"guide_channels": "Guide",
+			"tuners_network": "Tuners",
 			"recording": "Recording",
 			"integrations": "Integrations",
 			"system": "System"
@@ -131,6 +131,7 @@
 			"tuner_terminate_modal_title": "Tuner {index}-Nutzung beenden?",
 			"tuner_terminate_modal_confirm": "Stream beenden",
 			"tuner_terminate_modal_cancel": "Abbrechen",
+			"tuner_terminate_modal_body": "Möchtest du diesen aktiven Tuner-Stream wirklich beenden?",
 			"guide_today": "Heute",
 			"guide_tomorrow": "Morgen",
 			"jump_to_label": "Springen zu",
@@ -330,7 +331,16 @@
 		"listen": "Ton aktivieren",
 		"close_slot": "Feed schließen",
 		"close_all": "Multi-View schließen",
-		"tuners_exhausted": "Physische Tuner ausgelastet. Wiedergabe kann fehlschlagen."
+		"tuners_exhausted": "Physische Tuner ausgelastet. Wiedergabe kann fehlschlagen.",
+		"tuners_all_in_use": "Alle {count} Tuner sind derzeit belegt.",
+		"active_recordings_breakdown": "{count} Aufnahme: {details}",
+		"active_streams_breakdown": "{count} Stream: {details}",
+		"tuners_currently_breakdown": "Derzeit: {details}.",
+		"tuners_watch_without_new": "Du kannst {channels} ansehen, ohne einen weiteren Tuner zu belegen, oder einen aktiven Feed schließen.",
+		"tuners_close_feed": "Schließe einen aktiven Feed, um einen Tuner freizugeben.",
+		"recording_on_channel": "Aufnahme auf {channel}",
+		"unknown_channel": "Unbekannt",
+		"live_tv_viewer": "Live-TV-Zuschauer"
 	},
 	"syncplay": {
 		"title": "SyncPlay Watch-Party",

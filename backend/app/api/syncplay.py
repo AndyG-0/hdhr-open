@@ -288,22 +288,35 @@ hub = SyncPlayHub()
 
 
 async def _resolve_ws_identity(websocket: WebSocket, token: str | None = None) -> tuple[str, str, str | None] | None:
-    """Resolves (user_id, display_name, avatar) for an authenticated caller from WebSocket
-    cookies or a token query parameter, or None if neither resolves to a real user.
+    """Resolves (user_id, display_name, avatar) for an authenticated caller from an
+    `Authorization: Bearer <token>` header, a WebSocket `token` query parameter, or
+    cookies - or None if none of those resolves to a real user.
 
     Router-level `dependencies` (used for the REST routes in this module) do not apply to
     `@router.websocket(...)` routes, so this WebSocket endpoint must authenticate explicitly.
     """
-    # 1. Bearer / Query Token
-    if token:
-        token_hash = hash_token(token)
+    # 1. Authorization header - native clients are moving to this instead of the `token`
+    # query param, since a query param can leak into proxy/access logs. Checked first so a
+    # client sending both is unambiguously honored by the header.
+    header_token: str | None = None
+    auth_header = websocket.headers.get("authorization")
+    if auth_header:
+        scheme, _, value = auth_header.partition(" ")
+        if scheme.lower() == "bearer" and value:
+            header_token = value
+
+    # 2. Bearer / Query Token (backward compat for clients still sending it via URL)
+    for candidate in (header_token, token):
+        if not candidate:
+            continue
+        token_hash = hash_token(candidate)
         token_row = await asyncio.to_thread(get_auth_token_by_hash, token_hash)
         if token_row:
             user = await asyncio.to_thread(get_user, token_row["user_id"])
             if user:
                 return user["id"], user.get("name", "Viewer"), user.get("avatar")
 
-    # 2. Session cookie
+    # 3. Session cookie
     session_id = websocket.cookies.get(SESSION_COOKIE_NAME)
     if session_id:
         session = await asyncio.to_thread(get_session, session_id)

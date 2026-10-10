@@ -376,10 +376,10 @@ public actor APIClient {
     }
 
     public func syncPlayWsUrl(roomCode: String, userName: String? = nil) -> URL? {
-        // Note: the resulting URL carries the bearer token in its query string
-        // (see APIEndpoints.syncPlayWs) - deliberately not logging the URL
-        // itself here, only that construction failed and why.
-        let path = APIEndpoints.syncPlayWs(roomCode: roomCode, userName: userName, token: bearerToken)
+        // The bearer token is no longer embedded in the URL's query string;
+        // it is sent as an `Authorization: Bearer` header on the WebSocket
+        // handshake instead (see SyncPlayClient.connect).
+        let path = APIEndpoints.syncPlayWs(roomCode: roomCode, userName: userName, token: nil)
         guard let httpUrl = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
             Log.network.error("syncPlayWsUrl: failed to construct base URL for room \(roomCode, privacy: .public)")
             return nil

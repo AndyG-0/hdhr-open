@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,14 +48,14 @@ fun SettingsScreen(
     onUpdateServerURL: (String) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val currentUser by authManager.currentUser.collectAsState()
-    val currentServerURL by serverDiscovery.serverURLString.collectAsState()
-    val transcodePresets by settingsViewModel.transcodePresets.collectAsState()
-    val hwAccelDiagnostics by settingsViewModel.hwAccelDiagnostics.collectAsState()
-    val directPlayEnabled by playbackPreferences.directPlayEnabled.collectAsState()
-    val autoSkipCommercialsEnabled by playbackPreferences.autoSkipCommercialsEnabled.collectAsState()
-    val qualityPreference by playbackPreferences.qualityPreference.collectAsState()
-    val themeMode by themePreferences.themeMode.collectAsState()
+    val currentUser by authManager.currentUser.collectAsStateWithLifecycle()
+    val currentServerURL by serverDiscovery.serverURLString.collectAsStateWithLifecycle()
+    val transcodePresets by settingsViewModel.transcodePresets.collectAsStateWithLifecycle()
+    val hwAccelDiagnostics by settingsViewModel.hwAccelDiagnostics.collectAsStateWithLifecycle()
+    val directPlayEnabled by playbackPreferences.directPlayEnabled.collectAsStateWithLifecycle()
+    val autoSkipCommercialsEnabled by playbackPreferences.autoSkipCommercialsEnabled.collectAsStateWithLifecycle()
+    val qualityPreference by playbackPreferences.qualityPreference.collectAsStateWithLifecycle()
+    val themeMode by themePreferences.themeMode.collectAsStateWithLifecycle()
 
     var showServerSetupDialog by remember { mutableStateOf(false) }
     var selectedGroup by remember { mutableStateOf(SettingsGroup.GENERAL) }

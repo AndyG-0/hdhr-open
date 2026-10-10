@@ -419,7 +419,7 @@ def build_ffmpeg_args(
     *,
     seek_seconds: float | None = None,
     audio_index: int | None = None,
-    quality: Literal["high", "medium", "low", "minimal"] | None = None,
+    quality: str | None = None,
     remux: bool = False,
     output_format: Literal["mpegts", "hls"] = "mpegts",
     hls_playlist_path: Path | None = None,

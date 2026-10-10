@@ -720,12 +720,16 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(url?.path, "/api/syncplay/ws/ABCD")
     }
 
-    func testSyncPlayWsUrlIncludesBearerTokenInQuery() async throws {
+    func testSyncPlayWsUrlOmitsBearerTokenFromQuery() async throws {
+        // The bearer token is sent as an `Authorization: Bearer` WebSocket
+        // handshake header (see SyncPlayClient.connect) rather than embedded
+        // in the URL, so it must never show up in the query string here.
         let client = try APIClient(baseURL: XCTUnwrap(URL(string: "https://example.org")), session: MockURLProtocol.makeSession())
         await client.setBearerToken("tok-77")
 
         let url = await client.syncPlayWsUrl(roomCode: "ABCD")
 
-        XCTAssertTrue(url?.query?.contains("token=tok-77") ?? false)
+        XCTAssertFalse(url?.query?.contains("tok-77") ?? false)
+        XCTAssertFalse(url?.query?.contains("token=") ?? false)
     }
 }

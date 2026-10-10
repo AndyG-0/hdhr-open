@@ -28,8 +28,8 @@
 		"tabs": {
 			"your_settings": "Your Settings",
 			"household": "Household",
-			"guide_channels": "Guide & Channels",
-			"tuners_network": "Tuners & Network",
+			"guide_channels": "Guide",
+			"tuners_network": "Tuners",
 			"recording": "Recording",
 			"integrations": "Integrations",
 			"system": "System"
@@ -131,6 +131,7 @@
 			"tuner_terminate_modal_title": "Terminate Tuner {index} Usage?",
 			"tuner_terminate_modal_confirm": "Terminate Stream",
 			"tuner_terminate_modal_cancel": "Cancel",
+			"tuner_terminate_modal_body": "Are you sure you want to terminate this active tuner stream?",
 			"guide_today": "Today",
 			"guide_tomorrow": "Tomorrow",
 			"jump_to_label": "Jump to",
@@ -330,7 +331,16 @@
 		"listen": "Listen to Audio",
 		"close_slot": "Close Feed",
 		"close_all": "Close Multi-View",
-		"tuners_exhausted": "Physical tuners exhausted. Playback may fail or conflict with active recordings."
+		"tuners_exhausted": "Physical tuners exhausted. Playback may fail or conflict with active recordings.",
+		"tuners_all_in_use": "All {count} tuners are currently in use.",
+		"active_recordings_breakdown": "{count} recording: {details}",
+		"active_streams_breakdown": "{count} streaming: {details}",
+		"tuners_currently_breakdown": "Currently: {details}.",
+		"tuners_watch_without_new": "You can watch {channels} without consuming another tuner, or close an active feed.",
+		"tuners_close_feed": "Close an active feed to free up a tuner.",
+		"recording_on_channel": "Recording on {channel}",
+		"unknown_channel": "Unknown",
+		"live_tv_viewer": "Live TV Viewer"
 	},
 	"syncplay": {
 		"title": "SyncPlay Watch Party",

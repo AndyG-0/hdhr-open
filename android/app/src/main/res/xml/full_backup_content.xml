@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pre-Android 12 (API < 31) full-backup rules - the fullBackupContent
+  equivalent of data_extraction_rules.xml above. Excludes the auth-prefs
+  SharedPreferences file (AuthManager.kt's `prefsName`,
+  "hdhr_open_auth_prefs") from Auto Backup for Apps.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="hdhr_open_auth_prefs.xml" />
+</full-backup-content>

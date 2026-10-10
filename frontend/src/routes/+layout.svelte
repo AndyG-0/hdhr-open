@@ -14,9 +14,12 @@
 	import { api } from '$lib/api';
 	import { aiDrawerOpen, toggleAIDrawer } from '$lib/stores/ai-drawer';
 	import { loadOnceWhen } from '$lib/load-once.svelte';
-	import AIAssistantDrawer from '$lib/components/ai/AIAssistantDrawer.svelte';
-	import HDHomeRunPlayer from '$lib/components/HDHomeRunPlayer.svelte';
-	import MultiViewPlayer from '$lib/components/player/multiview/MultiViewPlayer.svelte';
+	// These three are heavy (HDHomeRunPlayer especially - mpegts.js plus all
+	// the player chrome) and only ever render behind the `{#if ...}` guards
+	// below, so they're loaded with a dynamic import gated on those same
+	// conditions instead of a static import up here, which would otherwise
+	// force them into every route's initial bundle. Mirrors how
+	// mpegts-player.ts itself defers `import('mpegts.js')`.
 	import { playback, keepPlayingOnNavigate, stopPlayback } from '$lib/stores/playback';
 	import { multiview, closeAll } from '$lib/stores/multiview';
 
@@ -146,49 +149,55 @@
 		</div>
 
 		{#if $playback.media && page.url.pathname !== '/player'}
-			<HDHomeRunPlayer
-				src={$playback.media.url}
-				title={$playback.media.title}
-				playUrl={$playback.media.playUrl}
-				provider={$playback.media.provider}
-				recordingId={$playback.media.recordingId}
-				watchSessionId={$playback.media.watchSessionId}
-				startTimestamp={$playback.media.startTimestamp}
-				recordEndTimestamp={$playback.media.recordEndTimestamp}
-				seekable={$playback.media.seekable}
-				isWatchSession={$playback.media.isWatchSession}
-				channel={$playback.media.channel}
-				airing={$playback.media.airing}
-				channels={$playback.context?.channels ?? []}
-				favoriteChannels={$playback.context?.favoriteChannels ?? new Set()}
-				recordingRules={$playback.context?.recordingRules ?? []}
-				pendingRuleIds={$playback.context?.pendingRuleIds ?? new Set()}
-				officialDvrActive={$playback.context?.officialDvrActive ?? false}
-				recordingLoading={$playback.context?.recordingLoading ?? null}
-				onRecordEpisode={$playback.context?.onRecordEpisode}
-				onRecordSeries={$playback.context?.onRecordSeries}
-				onUpdateRule={$playback.context?.onUpdateRule}
-				onCancelRule={$playback.context?.onCancelRule}
-				onToggleFavorite={$playback.context?.onToggleFavorite}
-				onChannelChange={$playback.context?.onChannelChange}
-				onToggleMultiView={$playback.context?.onToggleMultiView}
-				allowPopout={displayMode === 'full'}
-				displayMode={displayMode}
-				onExpand={() => goto($playback.originPath ?? '/')}
-				onClose={stopPlayback}
-			/>
+			{#await import('$lib/components/HDHomeRunPlayer.svelte') then { default: HDHomeRunPlayer }}
+				<HDHomeRunPlayer
+					src={$playback.media.url}
+					title={$playback.media.title}
+					playUrl={$playback.media.playUrl}
+					provider={$playback.media.provider}
+					recordingId={$playback.media.recordingId}
+					watchSessionId={$playback.media.watchSessionId}
+					startTimestamp={$playback.media.startTimestamp}
+					recordEndTimestamp={$playback.media.recordEndTimestamp}
+					seekable={$playback.media.seekable}
+					isWatchSession={$playback.media.isWatchSession}
+					channel={$playback.media.channel}
+					airing={$playback.media.airing}
+					channels={$playback.context?.channels ?? []}
+					favoriteChannels={$playback.context?.favoriteChannels ?? new Set()}
+					recordingRules={$playback.context?.recordingRules ?? []}
+					pendingRuleIds={$playback.context?.pendingRuleIds ?? new Set()}
+					officialDvrActive={$playback.context?.officialDvrActive ?? false}
+					recordingLoading={$playback.context?.recordingLoading ?? null}
+					onRecordEpisode={$playback.context?.onRecordEpisode}
+					onRecordSeries={$playback.context?.onRecordSeries}
+					onUpdateRule={$playback.context?.onUpdateRule}
+					onCancelRule={$playback.context?.onCancelRule}
+					onToggleFavorite={$playback.context?.onToggleFavorite}
+					onChannelChange={$playback.context?.onChannelChange}
+					onToggleMultiView={$playback.context?.onToggleMultiView}
+					allowPopout={displayMode === 'full'}
+					displayMode={displayMode}
+					onExpand={() => goto($playback.originPath ?? '/')}
+					onClose={stopPlayback}
+				/>
+			{/await}
 		{/if}
 
 		{#if $multiview.active && page.url.pathname !== '/player'}
-			<MultiViewPlayer
-				channels={$playback.context?.channels ?? []}
-				favoriteChannels={$playback.context?.favoriteChannels ?? new Set()}
-				onClose={closeAll}
-			/>
+			{#await import('$lib/components/player/multiview/MultiViewPlayer.svelte') then { default: MultiViewPlayer }}
+				<MultiViewPlayer
+					channels={$playback.context?.channels ?? []}
+					favoriteChannels={$playback.context?.favoriteChannels ?? new Set()}
+					onClose={closeAll}
+				/>
+			{/await}
 		{/if}
 
 		{#if $user && page.url.pathname !== '/player'}
-			<AIAssistantDrawer />
+			{#await import('$lib/components/ai/AIAssistantDrawer.svelte') then { default: AIAssistantDrawer }}
+				<AIAssistantDrawer />
+			{/await}
 		{/if}
 	{/if}
 {/if}

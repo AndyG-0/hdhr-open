@@ -56,7 +56,7 @@ def register_scheduled_job(
     job_id: str,
     name: str,
     description: str,
-    func: Callable[[], Awaitable[None]],
+    func: Callable[[], Awaitable[Any]],
     trigger: str,
     **trigger_kwargs: Any,
 ) -> None:
@@ -77,7 +77,7 @@ def register_event_job(*, job_id: str, name: str, description: str) -> None:
     _REGISTRY[job_id] = JobDefinition(id=job_id, name=name, description=description, trigger="event")
 
 
-def run_tracked_in_background(job_id: str, coro: Awaitable[None]) -> None:
+def run_tracked_in_background(job_id: str, coro: Awaitable[Any]) -> None:
     """Fire-and-forget `coro`, like `run_in_background`, but recording a
     `job_runs` row for it - for event-driven jobs (e.g. per-recording
     caption extraction) that aren't on an interval trigger."""

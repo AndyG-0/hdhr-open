@@ -33,6 +33,7 @@
 <style>
 	.tabs {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.25rem;
 		border-bottom: 1px solid var(--color-border);
 		margin-bottom: 1.5rem;

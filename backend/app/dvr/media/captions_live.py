@@ -436,6 +436,9 @@ async def _run_live_caption_process_once(
     assert process.stdin is not None
     assert process.stdout is not None
     assert process.stderr is not None
+    stdin = process.stdin
+    stdout = process.stdout
+    stderr = process.stderr
 
     try:
         current_size = file_path.stat().st_size
@@ -450,9 +453,9 @@ async def _run_live_caption_process_once(
 
     pump_stop_event = asyncio.Event()
     pump_task = asyncio.create_task(
-        pump_tail_follow(file_path, process.stdin, pump_stop_event, is_source_alive, start_offset_bytes=0)
+        pump_tail_follow(file_path, stdin, pump_stop_event, is_source_alive, start_offset_bytes=0)
     )
-    drain_task = asyncio.create_task(_drain_stderr_logging(process.stderr))
+    drain_task = asyncio.create_task(_drain_stderr_logging(stderr))
 
     stalled = False
     cue_stalled = False
@@ -513,7 +516,7 @@ async def _run_live_caption_process_once(
                     return
                 read_timeout = min(_LIVE_CAPTION_STDOUT_STALL_SECONDS, cue_budget_remaining)
                 try:
-                    chunk = await asyncio.wait_for(process.stdout.read(4096), timeout=read_timeout)
+                    chunk = await asyncio.wait_for(stdout.read(4096), timeout=read_timeout)
                 except TimeoutError:
                     if time.monotonic() - last_cue_monotonic >= _LIVE_CAPTION_CUE_SILENCE_SECONDS:
                         cue_stalled = True
@@ -557,7 +560,7 @@ async def _run_live_caption_process_once(
                             f"{lag:.1f}s" if lag is not None else "n/a",
                             cue[2][:60],
                         )
-                        if capture_start_ts is not None:
+                        if lag is not None:
                             _record_lag_sample(lag)
         except asyncio.CancelledError:
             raise
@@ -571,7 +574,7 @@ async def _run_live_caption_process_once(
         with contextlib.suppress(Exception):
             await pump_task
         with contextlib.suppress(Exception):
-            process.stdin.close()
+            stdin.close()
 
     try:
         done, _pending = await asyncio.wait({pump_task, reader_task}, return_when=asyncio.FIRST_COMPLETED)
