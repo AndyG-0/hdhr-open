@@ -28,8 +28,8 @@
 		"tabs": {
 			"your_settings": "Your Settings",
 			"household": "Household",
-			"guide_channels": "Guide & Channels",
-			"tuners_network": "Tuners & Network",
+			"guide_channels": "Guide",
+			"tuners_network": "Tuners",
 			"recording": "Recording",
 			"integrations": "Integrations",
 			"system": "System"

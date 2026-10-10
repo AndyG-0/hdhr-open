@@ -170,7 +170,7 @@ describe('settings +page.svelte — admin sections', () => {
 			settings: { tuner_host: 'hdhomerun.local', tuner_port: 80, dvr_host: '', dvr_port: 50000 },
 		});
 		render(Page);
-		await selectTab('Tuners & Network');
+		await selectTab('Tuners');
 
 		await waitFor(() => expect(listNetworkIntegrations).toHaveBeenCalled());
 		expect(await screen.findByPlaceholderText('hdhomerun.local')).toHaveValue('hdhomerun.local');
@@ -191,7 +191,7 @@ describe('settings +page.svelte — admin sections', () => {
 			settings: { url: 'http://example.com/guide.xml' },
 		});
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		await waitFor(() => expect(listNetworkIntegrations).toHaveBeenCalled());
 		expect(await screen.findByDisplayValue('http://example.com/guide.xml')).toBeInTheDocument();
@@ -233,7 +233,7 @@ describe('settings +page.svelte — admin sections', () => {
 		});
 
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		await waitFor(() => expect(getXmltvStats).toHaveBeenCalled());
 		expect(await screen.findByText('Feed Statistics')).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe('settings +page.svelte — admin sections', () => {
 		reloadXmltvGuide.mockRejectedValue(new Error('Feed timeout'));
 
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		await waitFor(() => expect(listNetworkIntegrations).toHaveBeenCalled());
 		const reloadBtn = await screen.findByRole('button', { name: 'Reload Feed' });
@@ -296,7 +296,7 @@ describe('settings +page.svelte — admin sections', () => {
 			xmltv_display_name: 'NBC 4 HD',
 		});
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		await screen.findByText('WNBC');
 		expect(screen.getByDisplayValue('wnbc.us')).toBeInTheDocument();
@@ -320,7 +320,7 @@ describe('settings +page.svelte — admin sections', () => {
 		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
 		refreshGuide.mockResolvedValue({ status: 'ok', message: 'Started' });
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		const refreshButton = await screen.findByRole('button', { name: 'Refresh Guide' });
 		await fireEvent.click(refreshButton);
@@ -351,7 +351,7 @@ describe('settings +page.svelte — admin sections', () => {
 			settings: { username: 'testuser', has_password: true },
 		});
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		expect(await screen.findByRole('heading', { name: 'Schedules Direct' })).toBeInTheDocument();
 		const usernameInput = screen.getByPlaceholderText('username');
@@ -372,7 +372,7 @@ describe('settings +page.svelte — admin sections', () => {
 			guide_provider_priority: 'schedules_direct,xmltv,hdhomerun_cloud',
 		});
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		expect(await screen.findByText('Default Guide Source Priority')).toBeInTheDocument();
 
@@ -400,7 +400,7 @@ describe('settings +page.svelte — admin sections', () => {
 			dvr_server_priority: 'hdhomerun,builtin',
 		});
 		render(Page);
-		await selectTab('Tuners & Network');
+		await selectTab('Recording');
 
 		expect(await screen.findByText('Default Recording Server Priority')).toBeInTheDocument();
 
@@ -451,7 +451,7 @@ describe('settings +page.svelte — admin sections', () => {
 			sd_lineup_id: 'USA-OTA-90210',
 		});
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		await screen.findByText('KCBS');
 		expect(screen.getByDisplayValue('1001')).toBeInTheDocument();
@@ -526,8 +526,8 @@ describe('settings +page.svelte — tab ordering', () => {
 		expect(tabs.map((t) => t.textContent)).toEqual([
 			'Your Settings',
 			'Household',
-			'Guide & Channels',
-			'Tuners & Network',
+			'Guide',
+			'Tuners',
 			'Recording',
 			'Integrations',
 			'System',
@@ -542,10 +542,10 @@ describe('settings +page.svelte — tab ordering', () => {
 		expect(tabs.map((t) => t.textContent)).toEqual(['Your Settings']);
 	});
 
-	it('renders Guide & Channels sections in XMLTV, then Channel Lineup order', async () => {
+	it('renders Guide tab sections in XMLTV, then Channel Lineup order', async () => {
 		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
 		render(Page);
-		await selectTab('Guide & Channels');
+		await selectTab('Guide');
 
 		const xmltvHeading = await screen.findByRole('heading', { name: 'XMLTV Guide' });
 		const channelLineupHeading = await screen.findByRole('heading', { level: 3, name: 'Channel Lineup & Guide Mapping' });

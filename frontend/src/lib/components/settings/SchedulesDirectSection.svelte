@@ -261,6 +261,7 @@
 
 	.sd-search-row {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.5rem;
 		align-items: center;
 	}

@@ -272,6 +272,15 @@
 			<HDHomeRunNetworkSection initialSettings={hdhomerunNetworkSettings} />
 
 			<PlaybackSection initialSettings={hdhomerunNetworkSettings} />
+		</div>
+
+		<div class="settings-group" role="tabpanel" id="panel-recording" hidden={activeTab !== 'recording'}>
+			<SportsExtensionSection
+				initialEnabled={settings?.sports_extension_enabled ?? null}
+				initialMaxMinutes={settings?.sports_extension_max_minutes ?? null}
+			/>
+
+			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
 
 			<PriorityList
 				heading={$_('network_settings.dvr_priority_heading')}
@@ -292,15 +301,6 @@
 			/>
 		</div>
 
-		<div class="settings-group" role="tabpanel" id="panel-recording" hidden={activeTab !== 'recording'}>
-			<SportsExtensionSection
-				initialEnabled={settings?.sports_extension_enabled ?? null}
-				initialMaxMinutes={settings?.sports_extension_max_minutes ?? null}
-			/>
-
-			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
-		</div>
-
 		<div class="settings-group" role="tabpanel" id="panel-integrations" hidden={activeTab !== 'integrations'}>
 			<TmdbSection initialHasApiKey={tmdbInitialHasApiKey} />
 
@@ -315,6 +315,8 @@
 
 <style>
 	.settings-page {
+		box-sizing: border-box;
+		width: 100%;
 		padding: 2rem;
 		min-height: 100vh;
 		max-width: 90rem;
@@ -359,6 +361,7 @@
 
 	:global(.test-row) {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.75rem;
 	}
@@ -401,6 +404,11 @@
 		gap: 0.25rem;
 		font-size: 0.9rem;
 		color: var(--color-text-muted);
+	}
+
+	:global(label select),
+	:global(label input) {
+		max-width: 100%;
 	}
 
 	:global(input),
@@ -486,6 +494,7 @@
 	:global(.hint) {
 		color: var(--color-text-muted);
 		margin: 0.25rem 0 0;
+		overflow-wrap: break-word;
 	}
 
 	:global(.hint.error) {
