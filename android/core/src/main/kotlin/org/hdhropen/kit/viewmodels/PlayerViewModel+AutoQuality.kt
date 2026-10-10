@@ -1,6 +1,7 @@
 package org.hdhropen.kit.viewmodels
 
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -86,10 +87,12 @@ private fun bestTierForSpeed(avgMbps: Double, ladder: List<AutoTier>, downgradeM
 
 // Called once a session's loadMedia() has actually been issued - Direct
 // play has no HLS session to adjust, so it's never started there.
+@UnstableApi
 internal fun PlayerViewModel.maybeStartAutoQualityPolling() {
     if (_quality.value == QualityPreference.AUTO) startAutoQualityPolling()
 }
 
+@UnstableApi
 internal fun PlayerViewModel.resetAutoQualitySamples() {
     speedSamplesMbps.clear()
     bufferedAheadSamples.clear()
@@ -101,12 +104,14 @@ internal fun PlayerViewModel.resetAutoQualitySamples() {
 // refreshes the per-session quality pick from the persisted default so a
 // prior session's manual override doesn't leak into unrelated content. Not
 // private: cross-file.
+@UnstableApi
 internal fun PlayerViewModel.initializeQualityForNewSession() {
     stopAutoQualityPolling()
     _quality.value = playbackPreferences.qualityPreference.value
     autoEffectiveTier = if (_quality.value == QualityPreference.AUTO) AutoTier.HIGH else _quality.value.toAutoTier()
 }
 
+@UnstableApi
 private fun PlayerViewModel.isBufferDraining(): Boolean {
     if (bufferedAheadSamples.size < BUFFER_TREND_SAMPLE_COUNT) return false
     val newest = bufferedAheadSamples.last()
@@ -114,6 +119,7 @@ private fun PlayerViewModel.isBufferDraining(): Boolean {
     return newest < BUFFER_SAFE_FLOOR_SECONDS && (oldest - newest) >= BUFFER_DRAIN_DROP_SECONDS
 }
 
+@UnstableApi
 internal fun PlayerViewModel.startAutoQualityPolling() {
     if (_playbackMode.value == PlaybackMode.Direct) return
     if (autoQualityPollJob?.isActive == true) return
@@ -127,6 +133,7 @@ internal fun PlayerViewModel.startAutoQualityPolling() {
     }
 }
 
+@UnstableApi
 internal fun PlayerViewModel.stopAutoQualityPolling() {
     autoQualityPollJob?.cancel()
     autoQualityPollJob = null
@@ -136,6 +143,7 @@ internal fun PlayerViewModel.stopAutoQualityPolling() {
 // the necessary gate for any throughput-triggered downgrade: measured
 // speed alone only picks *which* tier to land on once (1) or (2) from
 // the shared design has already justified a downgrade.
+@UnstableApi
 internal fun PlayerViewModel.sampleAutoQualityTick() {
     playerEngine.bufferedAheadSeconds()?.let { bufferedAhead ->
         bufferedAheadSamples.add(bufferedAhead)
@@ -180,12 +188,14 @@ internal fun PlayerViewModel.sampleAutoQualityTick() {
     applyAutoAdjustment(nextUp)
 }
 
+@UnstableApi
 internal fun PlayerViewModel.applyAutoDowngradeOneTier() {
     val ladder = effectiveAutoTierOrder(playerEngine.videoSpecs.value?.height)
     val target = stepDown(autoEffectiveTier, ladder) ?: return
     applyAutoAdjustment(target)
 }
 
+@UnstableApi
 private fun PlayerViewModel.applyAutoAdjustment(target: AutoTier) {
     autoEffectiveTier = target
     resetAutoQualitySamples()

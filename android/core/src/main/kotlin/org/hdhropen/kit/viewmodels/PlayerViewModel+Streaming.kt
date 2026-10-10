@@ -1,6 +1,7 @@
 package org.hdhropen.kit.viewmodels
 
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -23,6 +24,7 @@ private const val CAPTION_POLL_INTERVAL_MS = 1_500L
 // functions touch remain stored properties on PlayerViewModel itself
 // (extension functions can't add stored properties).
 
+@UnstableApi
 internal fun PlayerViewModel.startHLSHeartbeat(sessionId: String) {
     hlsHeartbeatJob?.cancel()
     hlsHeartbeatJob = viewModelScope.launch(Dispatchers.IO) {
@@ -39,11 +41,13 @@ internal fun PlayerViewModel.startHLSHeartbeat(sessionId: String) {
     }
 }
 
+@UnstableApi
 internal fun PlayerViewModel.stopHLSHeartbeat() {
     hlsHeartbeatJob?.cancel()
     hlsHeartbeatJob = null
 }
 
+@UnstableApi
 fun PlayerViewModel.playChannel(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry? = null) {
     viewModelScope.launch {
         closePlayer()
@@ -167,6 +171,7 @@ fun PlayerViewModel.playChannel(channel: HDHomeRunChannel, airing: HDHomeRunGuid
     }
 }
 
+@UnstableApi
 fun PlayerViewModel.playRecording(recording: HDHomeRunRecording) {
     viewModelScope.launch {
         closePlayer()
@@ -226,6 +231,7 @@ fun PlayerViewModel.playRecording(recording: HDHomeRunRecording) {
     }
 }
 
+@UnstableApi
 private fun PlayerViewModel.setPlaybackError(e: Throwable) {
     val parsed = PlaybackErrorMapper.mapApiError(e)
     playerEngine.setFailed(
@@ -236,6 +242,7 @@ private fun PlayerViewModel.setPlaybackError(e: Throwable) {
     )
 }
 
+@UnstableApi
 fun PlayerViewModel.selectAudioTrack(track: HDHomeRunRecordingAudioInfo) {
     // Audio track selection is baked into the HLS packaging itself
     // (backend maps a specific source audio stream via ffmpeg's `-map`
@@ -324,6 +331,7 @@ fun PlayerViewModel.selectAudioTrack(track: HDHomeRunRecordingAudioInfo) {
 // preserving the current audio track selection across the swap. Not
 // private: called from PlayerViewModel.kt's selectQuality() and
 // PlayerViewModel+AutoQuality.kt's applyAutoAdjustment().
+@UnstableApi
 internal fun PlayerViewModel.switchToQuality(backendValue: String?) {
     if (_isSwitchingQuality.value) return
     viewModelScope.launch {
@@ -399,9 +407,11 @@ internal fun PlayerViewModel.switchToQuality(backendValue: String?) {
     }
 }
 
+@UnstableApi
 private fun PlayerViewModel.hlsAuthHeaders(): Map<String, String> =
     apiClient.bearerToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
 
+@UnstableApi
 private fun PlayerViewModel.loadRecordingMetadata(recording: HDHomeRunRecording) {
     val recId = recording.recordingId ?: return
     val playUrl = recording.playUrl ?: return
@@ -456,6 +466,7 @@ private fun PlayerViewModel.loadRecordingMetadata(recording: HDHomeRunRecording)
     }
 }
 
+@UnstableApi
 private suspend fun PlayerViewModel.fetchCaptionsOnce(recording: HDHomeRunRecording) {
     val recId = recording.recordingId ?: return
     val playUrl = recording.playUrl ?: return
@@ -479,6 +490,7 @@ private suspend fun PlayerViewModel.fetchCaptionsOnce(recording: HDHomeRunRecord
 
 // Called from PlayerViewModel.kt's seek() when the target position falls
 // outside the current HLS session's seekable range. Not private: cross-file.
+@UnstableApi
 internal fun PlayerViewModel.seekRecordingViaServer(recording: HDHomeRunRecording, playUrl: String, targetSeconds: Double) {
     serverSeekJob?.cancel()
 
@@ -553,6 +565,7 @@ internal fun PlayerViewModel.seekRecordingViaServer(recording: HDHomeRunRecordin
 }
 
 // Called from PlayerViewModel.kt's seek(). Not private: cross-file.
+@UnstableApi
 internal fun PlayerViewModel.resyncCaptionsAfterSeek() {
     val recording = _activeRecording.value ?: return
     val resynced = liveCaptionAligner.resyncCaptionsAfterSeek(recording, playerEngine.currentTime.value)
@@ -561,6 +574,7 @@ internal fun PlayerViewModel.resyncCaptionsAfterSeek() {
     }
 }
 
+@UnstableApi
 private fun PlayerViewModel.startCaptionPolling(recording: HDHomeRunRecording) {
     if (!recording.isInProgress) return
     captionPollJob?.cancel()
@@ -586,6 +600,7 @@ private fun PlayerViewModel.startCaptionPolling(recording: HDHomeRunRecording) {
 }
 
 // Called from PlayerViewModel.kt's closePlayer(). Not private: cross-file.
+@UnstableApi
 internal fun PlayerViewModel.stopCaptionPolling() {
     captionPollJob?.cancel()
     captionPollJob = null
