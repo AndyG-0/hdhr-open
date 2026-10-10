@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     # when it is "always"/"never" — see resolve_comskip_mode's callers.
     comskip_mode: str = "all"
 
+    # Household-wide on/off switch for the Discovery tab (see
+    # app.dvr.builtin.discovery) - recommends upcoming guide airings based on
+    # the household's recording history, with a non-personalized fallback
+    # when there's no history yet. Off by default since it's a new,
+    # opinionated feature outside this app's original guide/playback/
+    # recording scope.
+    discovery_enabled: str = "false"
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origin.split(",") if origin.strip()]
@@ -115,6 +123,7 @@ APP_SETTINGS_KEYS = (
     "sports_extension_enabled",
     "sports_extension_max_minutes",
     "comskip_mode",
+    "discovery_enabled",
 )
 
 # The subset of APP_SETTINGS_KEYS that hold credentials/tokens rather than
@@ -185,3 +194,9 @@ def resolve_comskip_mode(raw_value: str | None = None) -> str:
         raw_value = effective_settings().get("comskip_mode", "all")
     value = str(raw_value).strip().lower()
     return value if value in ("all", "none", "per_rule") else "all"
+
+
+def resolve_discovery_enabled(raw_value: str | None = None) -> bool:
+    if raw_value is None:
+        raw_value = effective_settings().get("discovery_enabled", "false")
+    return str(raw_value).strip().lower() in ("true", "1", "yes", "on")

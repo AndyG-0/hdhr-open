@@ -10,6 +10,7 @@ public final class AppEnvironment: ObservableObject {
 
     public let guideViewModel: GuideViewModel
     public let recordingsViewModel: RecordingsViewModel
+    public let discoveryViewModel: DiscoveryViewModel
     public let tunerViewModel: TunerViewModel
     public let settingsViewModel: SettingsViewModel
     public let authViewModel: AuthViewModel
@@ -32,6 +33,7 @@ public final class AppEnvironment: ObservableObject {
 
         guideViewModel = GuideViewModel(apiClient: client, watchSessionManager: watch)
         recordingsViewModel = RecordingsViewModel(apiClient: client)
+        discoveryViewModel = DiscoveryViewModel(apiClient: client)
         tunerViewModel = TunerViewModel(apiClient: client)
         settingsViewModel = SettingsViewModel(apiClient: client, serverDiscovery: discovery)
         authViewModel = AuthViewModel(authManager: auth)
@@ -49,9 +51,10 @@ public final class AppEnvironment: ObservableObject {
 
         async let guide: Void = guideViewModel.loadData()
         async let recordings: Void = recordingsViewModel.loadData()
+        async let discovery: Void = discoveryViewModel.loadData()
         async let tuners: Void = tunerViewModel.loadData()
         async let settings: Void = settingsViewModel.loadData()
         async let profiles: Void = authManager.fetchProfiles()
-        _ = await (guide, recordings, tuners, settings, profiles)
+        _ = await (guide, recordings, discovery, tuners, settings, profiles)
     }
 }

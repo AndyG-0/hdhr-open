@@ -17,6 +17,7 @@
 	import TimezoneSection from '$lib/components/settings/TimezoneSection.svelte';
 	import SportsExtensionSection from '$lib/components/settings/SportsExtensionSection.svelte';
 	import ComskipSection from '$lib/components/settings/ComskipSection.svelte';
+	import DiscoverySection from '$lib/components/settings/DiscoverySection.svelte';
 	import HDHomeRunNetworkSection from '$lib/components/settings/HDHomeRunNetworkSection.svelte';
 	import PlaybackSection from '$lib/components/settings/PlaybackSection.svelte';
 	import XmltvFeedSection from '$lib/components/settings/XmltvFeedSection.svelte';
@@ -281,6 +282,8 @@
 			/>
 
 			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
+
+			<DiscoverySection initialEnabled={settings?.discovery_enabled ?? null} />
 
 			<PriorityList
 				heading={$_('network_settings.dvr_priority_heading')}

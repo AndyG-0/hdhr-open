@@ -6,6 +6,7 @@ public struct RootTVView: View {
     @EnvironmentObject private var authViewModel: AuthViewModel
     @EnvironmentObject private var playerViewModel: PlayerViewModel
     @EnvironmentObject private var multiPlayerViewModel: MultiPlayerViewModel
+    @EnvironmentObject private var discoveryViewModel: DiscoveryViewModel
 
     @State private var selectedTab = 0
 
@@ -57,6 +58,23 @@ public struct RootTVView: View {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .tag(3)
+
+            if discoveryViewModel.enabled {
+                TVDiscoveryView()
+                    .tabItem {
+                        Label("Discovery", systemImage: "sparkles")
+                    }
+                    .tag(4)
+            }
+        }
+        .task {
+            // Primes `enabled` for a fresh login from the profile picker -
+            // a restored session is already primed by HDHROpenTVApp's own
+            // `.task` before this TabView ever mounts. There's no
+            // `onChange(of: selectedTab)` handler on tvOS to re-trigger
+            // this per-tab, so TVDiscoveryView's own `.task` covers
+            // reloading its item list on every appearance.
+            await discoveryViewModel.loadData()
         }
     }
 }

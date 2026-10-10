@@ -5,7 +5,12 @@
 		"nav_guide": "Guide",
 		"nav_recordings": "Recordings",
 		"nav_settings": "Settings",
-		"nav_ask_ai": "Ask AI"
+		"nav_ask_ai": "Ask AI",
+		"nav_discovery": "Discovery"
+	},
+	"discovery": {
+		"fallback_banner": "New & Notable — record a few shows to get picks tailored to you.",
+		"empty": "No recommendations right now. Check back after the guide updates."
 	},
 	"settings": {
 		"language": {

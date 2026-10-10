@@ -49,6 +49,25 @@
 		},
 	);
 
+	// Discovery's enabled flag is read from GET /api/discovery itself (not
+	// /api/settings, which is admin-only) so any household member's nav can
+	// be gated without an admin-only request.
+	let discoveryEnabled = $state(false);
+
+	loadOnceWhen(
+		() => Boolean($user),
+		() => {
+			api
+				.getDiscovery()
+				.then((result) => {
+					discoveryEnabled = result.enabled;
+				})
+				.catch(() => {
+					discoveryEnabled = false;
+				});
+		},
+	);
+
 	onMount(async () => {
 		await waitLocale();
 		i18nReady = true;
@@ -135,6 +154,9 @@
 					<a href="/" class:active={page.url.pathname === '/'}>{$_('layout.nav_guide')}</a>
 					<a href="/recordings" class:active={page.url.pathname === '/recordings'}>{$_('layout.nav_recordings')}</a>
 					<a href="/settings" class:active={page.url.pathname === '/settings'}>{$_('layout.nav_settings')}</a>
+					{#if discoveryEnabled}
+						<a href="/discovery" class:active={page.url.pathname === '/discovery'}>{$_('layout.nav_discovery')}</a>
+					{/if}
 					{#if aiConfigured}
 						<button class="app-nav-button" class:active={$aiDrawerOpen} onclick={toggleAIDrawer}>
 							{$_('layout.nav_ask_ai')}

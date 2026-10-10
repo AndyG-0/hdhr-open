@@ -54,6 +54,7 @@ private struct ThemedRootView: View {
             .environmentObject(environment)
             .environmentObject(environment.guideViewModel)
             .environmentObject(environment.recordingsViewModel)
+            .environmentObject(environment.discoveryViewModel)
             .environmentObject(environment.playerViewModel)
             .environmentObject(environment.multiPlayerViewModel)
             .environmentObject(environment.tunerViewModel)
@@ -67,7 +68,14 @@ private struct ThemedRootView: View {
             .task {
                 environment.serverDiscovery.startDiscovery()
                 await environment.authManager.restoreSession()
-                if !environment.authManager.isAuthenticated {
+                if environment.authManager.isAuthenticated {
+                    // Primes `discoveryViewModel.enabled` so RootiOSView can
+                    // decide whether to show the Discovery tab at all - a
+                    // restored session never mounts the TabView's own
+                    // first-appearance `.task`, which only covers a fresh
+                    // login from the profile picker.
+                    await environment.discoveryViewModel.loadData()
+                } else {
                     await environment.authManager.fetchProfiles()
                 }
             }

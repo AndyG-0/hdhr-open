@@ -12,6 +12,17 @@ export interface AppSettings {
 	sports_extension_enabled: string;
 	sports_extension_max_minutes: string;
 	comskip_mode: string;
+	discovery_enabled: string;
+}
+
+// GET /api/discovery — see backend/app/api/discovery.py and
+// app/dvr/builtin/discovery.py. `enabled` lets any household member (not
+// just admins, who are the only ones who can read /api/settings) decide
+// whether to show the Discovery nav link/tab.
+export interface DiscoveryResponse {
+	enabled: boolean;
+	has_profile: boolean;
+	items: HDHomeRunGuideEntry[];
 }
 
 // A Google Cast receiver device fetches this playlist directly over HTTP
@@ -931,6 +942,7 @@ export const api = {
 		return getJSON<HDHomeRunFullGuideChannel[]>(`/api/guide${query ? `?${query}` : ''}`);
 	},
 	getHDHomeRunChannels: () => getJSON<HDHomeRunChannelsResponse>('/api/guide/channels'),
+	getDiscovery: () => getJSON<DiscoveryResponse>('/api/discovery'),
 	getDvrInfo: () => getJSON<HDHomeRunDvrInfo>('/api/dvr/info'),
 	listRecordings: (params?: { search?: string; limit?: number; offset?: number }) => {
 		const query = new URLSearchParams();

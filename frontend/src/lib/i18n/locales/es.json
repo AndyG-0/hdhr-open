@@ -5,7 +5,12 @@
 		"nav_guide": "Guía",
 		"nav_recordings": "Grabaciones",
 		"nav_settings": "Ajustes",
-		"nav_ask_ai": "Preguntar a la IA"
+		"nav_ask_ai": "Preguntar a la IA",
+		"nav_discovery": "Descubrir"
+	},
+	"discovery": {
+		"fallback_banner": "Novedades y destacados — grava algunos programas para recibir recomendaciones personalizadas.",
+		"empty": "No hay recomendaciones por ahora. Vuelve a comprobarlo después de que se actualice la guía."
 	},
 	"settings": {
 		"language": {

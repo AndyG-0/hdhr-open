@@ -25,18 +25,19 @@ final class RootTVViewTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeEnvironmentObjects() -> (AuthManager, AuthViewModel, PlayerViewModel, MultiPlayerViewModel) {
+    private func makeEnvironmentObjects() -> (AuthManager, AuthViewModel, PlayerViewModel, MultiPlayerViewModel, DiscoveryViewModel) {
         let apiClient = APIClient(baseURL: URL(string: "http://localhost:8000")!, session: MockURLProtocol.makeSession())
         let authManager = AuthManager(apiClient: apiClient)
         let authViewModel = AuthViewModel(authManager: authManager)
         let watchSessionManager = WatchSessionManager(apiClient: apiClient)
         let playerViewModel = PlayerViewModel(apiClient: apiClient, watchSessionManager: watchSessionManager)
         let multiPlayerViewModel = MultiPlayerViewModel(apiClient: apiClient, watchSessionManager: watchSessionManager)
-        return (authManager, authViewModel, playerViewModel, multiPlayerViewModel)
+        let discoveryViewModel = DiscoveryViewModel(apiClient: apiClient)
+        return (authManager, authViewModel, playerViewModel, multiPlayerViewModel, discoveryViewModel)
     }
 
     func testShowsProfilePickerWhenUnauthenticated() throws {
-        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel) = makeEnvironmentObjects()
+        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel, discoveryViewModel) = makeEnvironmentObjects()
         XCTAssertFalse(authManager.isAuthenticated)
 
         let view = RootTVView()
@@ -44,12 +45,13 @@ final class RootTVViewTests: XCTestCase {
             .environmentObject(authViewModel)
             .environmentObject(playerViewModel)
             .environmentObject(multiPlayerViewModel)
+            .environmentObject(discoveryViewModel)
 
         XCTAssertNoThrow(try view.inspect().find(TVProfilePickerView.self))
     }
 
     func testHidesPlayerAndPINPromptWhenUnauthenticatedWithNoActiveSession() throws {
-        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel) = makeEnvironmentObjects()
+        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel, discoveryViewModel) = makeEnvironmentObjects()
         XCTAssertNil(playerViewModel.activeChannel)
         XCTAssertNil(playerViewModel.activeRecording)
         XCTAssertFalse(authViewModel.isPINPromptVisible)
@@ -59,13 +61,14 @@ final class RootTVViewTests: XCTestCase {
             .environmentObject(authViewModel)
             .environmentObject(playerViewModel)
             .environmentObject(multiPlayerViewModel)
+            .environmentObject(discoveryViewModel)
 
         XCTAssertThrowsError(try view.inspect().find(TVPlayerView.self))
         XCTAssertThrowsError(try view.inspect().find(TVPINEntryView.self))
     }
 
     func testShowsTabViewAndHidesProfilePickerWhenAuthenticated() async throws {
-        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel) = makeEnvironmentObjects()
+        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel, discoveryViewModel) = makeEnvironmentObjects()
         MockURLProtocol.handlers["/api/devices/register"] = (
             Data("{\"id\":\"dev-1\",\"name\":\"Test Device\",\"is_new\":true}".utf8), 200
         )
@@ -80,13 +83,14 @@ final class RootTVViewTests: XCTestCase {
             .environmentObject(authViewModel)
             .environmentObject(playerViewModel)
             .environmentObject(multiPlayerViewModel)
+            .environmentObject(discoveryViewModel)
 
         XCTAssertNoThrow(try view.inspect().find(ViewType.TabView.self))
         XCTAssertThrowsError(try view.inspect().find(TVProfilePickerView.self))
     }
 
     func testShowsTVMultiPlayerViewWhenMultiViewActive() async throws {
-        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel) = makeEnvironmentObjects()
+        let (authManager, authViewModel, playerViewModel, multiPlayerViewModel, discoveryViewModel) = makeEnvironmentObjects()
         MockURLProtocol.handlers["/api/devices/register"] = (
             Data("{\"id\":\"dev-1\",\"name\":\"Test Device\",\"is_new\":true}".utf8), 200
         )
@@ -110,7 +114,19 @@ final class RootTVViewTests: XCTestCase {
             .environmentObject(authViewModel)
             .environmentObject(playerViewModel)
             .environmentObject(multiPlayerViewModel)
+            .environmentObject(discoveryViewModel)
 
         XCTAssertNoThrow(try view.inspect().find(TVMultiPlayerView.self))
     }
+
+    // NOTE: ViewInspector's `TabView` content extraction (`ViewType.TabView.
+    // children`, in its own TabView.swift) throws for *any* child whose
+    // `.tag()` doesn't match the TabView's current `selection` binding value
+    // - not just for a genuinely-missing tab. Since `selectedTab` defaults to
+    // 0 (Live Guide) and is a private `@State` with no seam to drive it to 4
+    // without the heavier `ViewHosting`/`inspect(after:)` pattern (unused
+    // elsewhere in this suite), there's no reliable static-inspection way to
+    // assert the Discovery tab's content renders. The `if discoveryViewModel.
+    // enabled { ... }` gate itself is a plain SwiftUI conditional, so it is
+    // covered by code review rather than a dedicated UI test here.
 }

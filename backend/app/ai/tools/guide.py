@@ -5,7 +5,7 @@ Built directly on `db.list_channels`/`db.list_guide_programs`/
 `db.resolve_guide_programs` and `tuner_allocator`, deliberately *not* on
 `app.api.guide`'s `get_channels()` — that route does a live, exception-
 raising tuner HTTP call (404s when no tuner is configured), and a tool must
-never raise. `_row_to_airing` is imported from `app.api.guide` since it's
+never raise. `row_to_airing` is imported from `app.api.guide` since it's
 stable, private shaping logic already used by three other guide/dvr call
 sites — duplicating it here would be worse than the minor layering smell.
 """
@@ -18,7 +18,7 @@ import time
 from typing import Any
 
 from app.ai.tools.registry import ToolDefinition, register
-from app.api.guide import _row_to_airing
+from app.api.guide import row_to_airing
 from app.config import resolve_guide_provider_priority
 from app.dvr.builtin.tuner_allocator import tuner_allocator
 from app.storage import db
@@ -87,7 +87,7 @@ async def search_guide(query: str, limit: int = _DEFAULT_SEARCH_LIMIT) -> dict[s
             if not hit and len(tokens) > 1:
                 hit = any(token in haystack for token in tokens if len(token) >= _MIN_FALLBACK_TOKEN_LENGTH)
             if hit:
-                matches.append(_row_to_airing(row, channel["channel_number"]))
+                matches.append(row_to_airing(row, channel["channel_number"]))
 
     matches.sort(key=lambda a: a["start"])
     return {"results": matches[: max(1, limit)], "total_matches": len(matches)}
@@ -109,9 +109,9 @@ async def get_now_playing(channel_number: str | None = None) -> dict[str, Any]:
         current = next_up = None
         for row in rows:
             if row["start_ts"] <= now < row["end_ts"]:
-                current = _row_to_airing(row, channel["channel_number"])
+                current = row_to_airing(row, channel["channel_number"])
             elif row["start_ts"] > now and next_up is None:
-                next_up = _row_to_airing(row, channel["channel_number"])
+                next_up = row_to_airing(row, channel["channel_number"])
         results.append(
             {
                 "channel_number": channel["channel_number"],
@@ -136,7 +136,7 @@ async def get_program_details(channel_number: str, start: float) -> dict[str, An
     resolved = db.resolve_guide_programs([channel], rows, priority)
     for row in resolved.get(channel["id"], []):
         if abs(row["start_ts"] - start) < 60:
-            return _row_to_airing(row, channel_number)
+            return row_to_airing(row, channel_number)
     return {"error": "No airing found on that channel at that time"}
 
 

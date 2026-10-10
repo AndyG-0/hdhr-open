@@ -13,6 +13,7 @@ from app import hls_streaming, jobs
 from app.api import admin as admin_api
 from app.api import admin_jobs as admin_jobs_api
 from app.api import ai as ai_api
+from app.api import discovery as discovery_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
 from app.api import hls as hls_api
@@ -151,6 +152,7 @@ app.include_router(streaming_api.router)
 app.include_router(guide_api.router)
 app.include_router(hls_api.router)
 app.include_router(dvr_api.router)
+app.include_router(discovery_api.router)
 app.include_router(network_settings_api.router)
 app.include_router(settings_api.router)
 app.include_router(users_api.router)

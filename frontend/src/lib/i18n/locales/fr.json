@@ -5,7 +5,12 @@
 		"nav_guide": "Guide",
 		"nav_recordings": "Enregistrements",
 		"nav_settings": "Réglages",
-		"nav_ask_ai": "Demander à l'IA"
+		"nav_ask_ai": "Demander à l'IA",
+		"nav_discovery": "Découverte"
+	},
+	"discovery": {
+		"fallback_banner": "Nouveautés et incontournables — enregistrez quelques émissions pour obtenir des suggestions personnalisées.",
+		"empty": "Aucune suggestion pour le moment. Revenez après la mise à jour du guide."
 	},
 	"settings": {
 		"language": {
