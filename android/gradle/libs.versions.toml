@@ -19,7 +19,7 @@ securityCrypto = "1.1.0-alpha06"
 junit = "4.13.2"
 junitVersion = "1.2.1"
 espressoCore = "3.6.1"
-mockk = "1.13.11"
+mockk = "1.14.11"
 robolectric = "4.12.2"
 detekt = "1.23.6"
 
