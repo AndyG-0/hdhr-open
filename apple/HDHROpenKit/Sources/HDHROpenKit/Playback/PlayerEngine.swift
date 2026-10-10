@@ -27,10 +27,10 @@ public final class PlayerEngine: NSObject, ObservableObject {
     @Published public private(set) var availableAudioTracks: [HDHomeRunRecordingAudioInfo] = []
     @Published public private(set) var videoSpecs: HDHomeRunRecordingVideoInfo?
     @Published public private(set) var transcodeInfo: HDHomeRunTranscodeInfo?
-    // `internal(set)` (not `private(set)`) so `@testable import` test code can
-    // inject a fake value to drive `PlayerViewModel.sampleAutoQualityTick()`'s
-    // throughput branches, mirroring `StreamSessionCoordinator.activeHLSSessionId`'s
-    // existing pattern for the same reason.
+    /// `internal(set)` (not `private(set)`) so `@testable import` test code can
+    /// inject a fake value to drive `PlayerViewModel.sampleAutoQualityTick()`'s
+    /// throughput branches, mirroring `StreamSessionCoordinator.activeHLSSessionId`'s
+    /// existing pattern for the same reason.
     @Published public internal(set) var observedBitrate: Double?
     /// Timestamp of the most recent stall - an `AVPlayerItem.playbackStalledNotification`
     /// after playback has already started once since the last `loadMedia()`

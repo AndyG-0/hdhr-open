@@ -25,7 +25,7 @@ public final class RecordingsViewModel: ObservableObject {
     /// 300ms debounce. Setting it (e.g. from `.searchable(text:)`) cancels any
     /// pending reload and schedules a new one, so only the last-settled value
     /// in a burst of keystrokes actually reaches the server.
-    @Published public var searchQuery: String = "" {
+    @Published public var searchQuery = "" {
         didSet {
             guard searchQuery != oldValue else { return }
             searchDebounceTask?.cancel()

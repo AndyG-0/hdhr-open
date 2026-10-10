@@ -83,7 +83,12 @@ public final class ChannelStreamNegotiator {
             if let watchRec = try await watchSessionManager.startSession(channelNumber: channel.channelNumber),
                let playUrl = watchRec.playUrl
             {
-                let hlsSession = try await apiClient.createRecordingHLSSession(url: playUrl, recordingId: watchRec.recordingId, provider: watchRec.provider, quality: quality)
+                let hlsSession = try await apiClient.createRecordingHLSSession(
+                    url: playUrl,
+                    recordingId: watchRec.recordingId,
+                    provider: watchRec.provider,
+                    quality: quality
+                )
                 if let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) {
                     Log.player
                         .info("Watch session HLS: sessionId=\(hlsSession.sessionId, privacy: .public) url=\(playlistURL.absoluteString, privacy: .public)")
@@ -131,7 +136,12 @@ public final class ChannelStreamNegotiator {
             throw StreamNegotiationError.noPlayableURL
         }
         let baseURL = await apiClient.baseURL
-        let hlsSession = try await apiClient.createRecordingHLSSession(url: playUrl, recordingId: recording.recordingId, provider: recording.provider, quality: quality)
+        let hlsSession = try await apiClient.createRecordingHLSSession(
+            url: playUrl,
+            recordingId: recording.recordingId,
+            provider: recording.provider,
+            quality: quality
+        )
         guard let playlistURL = StreamURLBuilder.hlsPlaylistURL(baseURL: baseURL, sessionId: hlsSession.sessionId) else {
             throw StreamNegotiationError.streamURLCreationFailed
         }

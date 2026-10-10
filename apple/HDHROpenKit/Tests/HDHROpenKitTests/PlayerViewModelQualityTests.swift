@@ -137,7 +137,9 @@ final class PlayerViewModelQualityTests: XCTestCase {
 
         for _ in 0..<3 {
             vm.speedSamplesMbps.append(2.0)
-            if vm.speedSamplesMbps.count > 24 { vm.speedSamplesMbps.removeFirst() }
+            if vm.speedSamplesMbps.count > 24 {
+                vm.speedSamplesMbps.removeFirst()
+            }
             await vm.sampleAutoQualityTick()
         }
 
@@ -188,7 +190,9 @@ final class PlayerViewModelQualityTests: XCTestCase {
 
         for _ in 0..<3 {
             vm.speedSamplesMbps.append(2.0)
-            if vm.speedSamplesMbps.count > 24 { vm.speedSamplesMbps.removeFirst() }
+            if vm.speedSamplesMbps.count > 24 {
+                vm.speedSamplesMbps.removeFirst()
+            }
             await vm.sampleAutoQualityTick()
         }
 

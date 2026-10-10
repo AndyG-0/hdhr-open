@@ -541,7 +541,11 @@ public final class PlayerViewModel: ObservableObject {
                 )
                 sessionId = hlsSession.sessionId
             } else if let channel = activeChannel {
-                let rec = try await apiClient.createChannelHLSSession(channelNumber: channel.channelNumber, audioIndex: previousTrack?.index, quality: backendValue)
+                let rec = try await apiClient.createChannelHLSSession(
+                    channelNumber: channel.channelNumber,
+                    audioIndex: previousTrack?.index,
+                    quality: backendValue
+                )
                 guard let recSessionId = rec.sessionId else {
                     Log.player.error("Quality switch failed: no session id for channel HLS.")
                     return
