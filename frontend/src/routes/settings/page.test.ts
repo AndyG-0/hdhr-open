@@ -87,6 +87,10 @@ vi.mock('$lib/api', () => ({
 import Page from './+page.svelte';
 import { user } from '$lib/stores/user';
 
+async function selectTab(name: string) {
+	await fireEvent.click(screen.getByRole('tab', { name }));
+}
+
 const BASE_SETTINGS = {
 	timezone: 'UTC',
 	guide_provider_priority: 'xmltv,schedules_direct,hdhomerun_cloud',
@@ -117,11 +121,13 @@ describe('settings +page.svelte — admin sections', () => {
 		expect(screen.queryByText('Household members')).not.toBeInTheDocument();
 		expect(screen.queryByText('Timezone')).not.toBeInTheDocument();
 		expect(screen.queryByText('HDHomeRun')).not.toBeInTheDocument();
+		expect(screen.queryByRole('tab', { name: 'Household' })).not.toBeInTheDocument();
 	});
 
 	it('loads and saves the timezone for an admin', async () => {
 		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
 		render(Page);
+		await selectTab('Household');
 
 		await screen.findByText('Timezone');
 		await waitFor(() => expect(settings).toHaveBeenCalled());
@@ -139,6 +145,7 @@ describe('settings +page.svelte — admin sections', () => {
 			{ id: 'u2', name: 'Bob', avatar: null, has_pin: false, role: 'member', created_at: '2026-01-01' },
 		]);
 		render(Page);
+		await selectTab('Household');
 
 		await screen.findByText('Bob');
 		await fireEvent.click(screen.getByRole('button', { name: 'Promote to admin' }));
@@ -163,6 +170,7 @@ describe('settings +page.svelte — admin sections', () => {
 			settings: { tuner_host: 'hdhomerun.local', tuner_port: 80, dvr_host: '', dvr_port: 50000 },
 		});
 		render(Page);
+		await selectTab('Tuners & Network');
 
 		await waitFor(() => expect(listNetworkIntegrations).toHaveBeenCalled());
 		expect(await screen.findByPlaceholderText('hdhomerun.local')).toHaveValue('hdhomerun.local');
@@ -183,11 +191,12 @@ describe('settings +page.svelte — admin sections', () => {
 			settings: { url: 'http://example.com/guide.xml' },
 		});
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		await waitFor(() => expect(listNetworkIntegrations).toHaveBeenCalled());
 		expect(await screen.findByDisplayValue('http://example.com/guide.xml')).toBeInTheDocument();
 
-		await fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[1]);
+		await fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0]);
 		await waitFor(() =>
 			expect(updateNetworkIntegration).toHaveBeenCalledWith('xmltv', { url: 'http://example.com/guide.xml' }),
 		);
@@ -224,6 +233,7 @@ describe('settings +page.svelte — admin sections', () => {
 		});
 
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		await waitFor(() => expect(getXmltvStats).toHaveBeenCalled());
 		expect(await screen.findByText('Feed Statistics')).toBeInTheDocument();
@@ -249,6 +259,7 @@ describe('settings +page.svelte — admin sections', () => {
 		reloadXmltvGuide.mockRejectedValue(new Error('Feed timeout'));
 
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		await waitFor(() => expect(listNetworkIntegrations).toHaveBeenCalled());
 		const reloadBtn = await screen.findByRole('button', { name: 'Reload Feed' });
@@ -285,6 +296,7 @@ describe('settings +page.svelte — admin sections', () => {
 			xmltv_display_name: 'NBC 4 HD',
 		});
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		await screen.findByText('WNBC');
 		expect(screen.getByDisplayValue('wnbc.us')).toBeInTheDocument();
@@ -308,6 +320,7 @@ describe('settings +page.svelte — admin sections', () => {
 		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
 		refreshGuide.mockResolvedValue({ status: 'ok', message: 'Started' });
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		const refreshButton = await screen.findByRole('button', { name: 'Refresh Guide' });
 		await fireEvent.click(refreshButton);
@@ -338,6 +351,7 @@ describe('settings +page.svelte — admin sections', () => {
 			settings: { username: 'testuser', has_password: true },
 		});
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		expect(await screen.findByRole('heading', { name: 'Schedules Direct' })).toBeInTheDocument();
 		const usernameInput = screen.getByPlaceholderText('username');
@@ -358,6 +372,7 @@ describe('settings +page.svelte — admin sections', () => {
 			guide_provider_priority: 'schedules_direct,xmltv,hdhomerun_cloud',
 		});
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		expect(await screen.findByText('Default Guide Source Priority')).toBeInTheDocument();
 
@@ -385,6 +400,7 @@ describe('settings +page.svelte — admin sections', () => {
 			dvr_server_priority: 'hdhomerun,builtin',
 		});
 		render(Page);
+		await selectTab('Tuners & Network');
 
 		expect(await screen.findByText('Default Recording Server Priority')).toBeInTheDocument();
 
@@ -435,6 +451,7 @@ describe('settings +page.svelte — admin sections', () => {
 			sd_lineup_id: 'USA-OTA-90210',
 		});
 		render(Page);
+		await selectTab('Guide & Channels');
 
 		await screen.findByText('KCBS');
 		expect(screen.getByDisplayValue('1001')).toBeInTheDocument();
@@ -500,20 +517,41 @@ describe('settings +page.svelte — appearance section', () => {
 	});
 });
 
-describe('settings +page.svelte — section ordering', () => {
-	it('renders Your settings at the top, Admin settings in the middle, and Channel Lineup at the bottom for admin', async () => {
+describe('settings +page.svelte — tab ordering', () => {
+	it('renders tabs in the expected order for an admin', async () => {
 		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
 		render(Page);
 
-		const yourSettingsHeading = await screen.findByRole('heading', { level: 2, name: 'Your settings' });
-		const adminSettingsHeading = await screen.findByRole('heading', { level: 2, name: 'Admin settings' });
+		const tabs = await screen.findAllByRole('tab');
+		expect(tabs.map((t) => t.textContent)).toEqual([
+			'Your Settings',
+			'Household',
+			'Guide & Channels',
+			'Tuners & Network',
+			'Recording',
+			'Integrations',
+			'System',
+		]);
+	});
+
+	it('renders only the Your Settings tab for a non-admin member', async () => {
+		user.set({ id: 'u1', name: 'Member', avatar: null, role: 'member' });
+		render(Page);
+
+		const tabs = await screen.findAllByRole('tab');
+		expect(tabs.map((t) => t.textContent)).toEqual(['Your Settings']);
+	});
+
+	it('renders Guide & Channels sections in XMLTV, then Channel Lineup order', async () => {
+		user.set({ id: 'admin1', name: 'Admin', avatar: null, role: 'admin' });
+		render(Page);
+		await selectTab('Guide & Channels');
+
+		const xmltvHeading = await screen.findByRole('heading', { name: 'XMLTV Guide' });
 		const channelLineupHeading = await screen.findByRole('heading', { level: 3, name: 'Channel Lineup & Guide Mapping' });
 
 		expect(
-			yourSettingsHeading.compareDocumentPosition(adminSettingsHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
-		).toBeTruthy();
-		expect(
-			adminSettingsHeading.compareDocumentPosition(channelLineupHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+			xmltvHeading.compareDocumentPosition(channelLineupHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 	});
 });

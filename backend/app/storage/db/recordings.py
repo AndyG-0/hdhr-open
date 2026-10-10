@@ -7,7 +7,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from app.storage.cache import cache
 from app.storage.db.connection import _connect, _upsert, _validate_update_columns
+
+_RECORDINGS_CACHE_PREFIX = "dvr_recordings:"
 
 _RECORDING_UPDATABLE_COLUMNS = frozenset(
     {
@@ -161,6 +164,7 @@ def mark_in_progress_scheduled_recordings_interrupted() -> None:
 def create_recording(recording: dict[str, Any]) -> None:
     with _connect() as conn:
         _upsert(conn, "recordings", recording, ("id",))
+    cache.delete_prefix(_RECORDINGS_CACHE_PREFIX)
 
 
 def update_recording(recording_id: str, **fields: Any) -> None:
@@ -170,6 +174,47 @@ def update_recording(recording_id: str, **fields: Any) -> None:
     columns = ", ".join(f"{key} = ?" for key in fields)
     with _connect() as conn:
         conn.execute(f"UPDATE recordings SET {columns} WHERE id = ?", (*fields.values(), recording_id))
+    # Watch-session heartbeats update only this field on every tick (see
+    # app/dvr/builtin/watch.py), and it never affects search/listing output,
+    # so invalidating on it would thrash the cache for anyone else browsing
+    # recordings while a recording is being actively watched.
+    if set(fields.keys()) != {"last_heartbeat_at"}:
+        cache.delete_prefix(_RECORDINGS_CACHE_PREFIX)
+
+
+def _escape_like(term: str) -> str:
+    """Escape SQLite LIKE wildcards so a literal '%'/'_' in user input can't
+    act as one; paired with `ESCAPE '\\'` in the calling query.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_recordings(
+    *, search: str | None = None, limit: int | None = None, offset: int = 0
+) -> list[dict[str, Any]]:
+    """Like `list_recordings()`, optionally filtered by a case-insensitive
+    substring match against title/episode_title/synopsis/category/channel
+    name, with true SQL-level LIMIT/OFFSET pagination.
+    """
+    query = "SELECT * FROM recordings"
+    params: list[Any] = []
+    if search:
+        pattern = f"%{_escape_like(search)}%"
+        query += (
+            " WHERE title LIKE ? ESCAPE '\\'"
+            " OR episode_title LIKE ? ESCAPE '\\'"
+            " OR synopsis LIKE ? ESCAPE '\\'"
+            " OR category LIKE ? ESCAPE '\\'"
+            " OR channel_name_snapshot LIKE ? ESCAPE '\\'"
+        )
+        params.extend([pattern] * 5)
+    query += " ORDER BY start_ts DESC"
+    if limit is not None:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+    with _connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
 
 
 def list_recordings() -> list[dict[str, Any]]:
@@ -220,6 +265,7 @@ def get_comskip_override_for_recording(recording_id: str) -> str:
 def delete_recording(recording_id: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM recordings WHERE id = ?", (recording_id,))
+    cache.delete_prefix(_RECORDINGS_CACHE_PREFIX)
 
 
 def get_hdhomerun_comskip_status(recording_id: str) -> dict[str, Any] | None:

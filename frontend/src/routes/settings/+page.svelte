@@ -6,6 +6,7 @@
 	import { get } from 'svelte/store';
 	import { SaveState } from '$lib/save-state.svelte';
 	import { loadOnceWhen } from '$lib/load-once.svelte';
+	import Tabs from '$lib/components/Tabs.svelte';
 	import PriorityList from '$lib/components/settings/PriorityList.svelte';
 	import TmdbSection from '$lib/components/settings/TmdbSection.svelte';
 	import AISettingsSection from '$lib/components/settings/AISettingsSection.svelte';
@@ -25,6 +26,22 @@
 
 	let settings = $state<AppSettings | null>(null);
 	let error = $state<string | null>(null);
+
+	let activeTab = $state('your-settings');
+
+	let tabs = $derived(
+		$user?.role === 'admin'
+			? [
+					{ id: 'your-settings', label: $_('settings.tabs.your_settings') },
+					{ id: 'household', label: $_('settings.tabs.household') },
+					{ id: 'guide-channels', label: $_('settings.tabs.guide_channels') },
+					{ id: 'tuners-network', label: $_('settings.tabs.tuners_network') },
+					{ id: 'recording', label: $_('settings.tabs.recording') },
+					{ id: 'integrations', label: $_('settings.tabs.integrations') },
+					{ id: 'system', label: $_('settings.tabs.system') },
+				]
+			: [{ id: 'your-settings', label: $_('settings.tabs.your_settings') }],
+	);
 
 	// /api/settings is admin-only — load it lazily once $user is known to be
 	// an admin, so a member never fires a request that's guaranteed to 403.
@@ -195,10 +212,9 @@
 <div class="settings-page">
 	<h1>{$_('settings.page.title')}</h1>
 
-	<div class="settings-group">
-		<h2 class="group-title">{$_('settings.your_settings.title')}</h2>
-		<p class="group-subtitle">{$_('settings.your_settings.subtitle')}</p>
+	<Tabs {tabs} activeId={activeTab} onSelect={(id) => (activeTab = id)} />
 
+	<div class="settings-group" role="tabpanel" id="panel-your-settings" hidden={activeTab !== 'your-settings'}>
 		<ProfileSection />
 
 		<LanguageSection />
@@ -207,10 +223,7 @@
 	</div>
 
 	{#if $user?.role === 'admin'}
-		<div class="settings-group">
-			<h2 class="group-title">Admin settings</h2>
-			<p class="group-subtitle">Shared across the whole household — visible only to admins.</p>
-
+		<div class="settings-group" role="tabpanel" id="panel-household" hidden={activeTab !== 'household'}>
 			<HouseholdMembersSection />
 
 			{#if !settings}
@@ -218,9 +231,9 @@
 			{:else}
 				<TimezoneSection initialTimezone={settings.timezone} />
 			{/if}
+		</div>
 
-			<HDHomeRunNetworkSection initialSettings={hdhomerunNetworkSettings} />
-
+		<div class="settings-group" role="tabpanel" id="panel-guide-channels" hidden={activeTab !== 'guide-channels'}>
 			<XmltvFeedSection initialUrl={xmltvInitialUrl} onFeedChannelsChanged={(fc) => (xmltvFeedChannels = fc)} />
 
 			<SchedulesDirectSection
@@ -228,10 +241,6 @@
 				initialHasPassword={sdInitialHasPassword}
 				onStationsChanged={(st) => (sdStations = st)}
 			/>
-
-			<TmdbSection initialHasApiKey={tmdbInitialHasApiKey} />
-
-			<AISettingsSection initialSettings={aiInitialSettings} />
 
 			<PriorityList
 				heading={$_('network_settings.guide_priority_heading')}
@@ -251,6 +260,19 @@
 				onSave={saveGuidePriority}
 			/>
 
+			<ChannelLineupSection
+				{xmltvFeedChannels}
+				{sdStations}
+				onFeedChannelsChanged={(fc) => (xmltvFeedChannels = fc)}
+				onStationsChanged={(st) => (sdStations = st)}
+			/>
+		</div>
+
+		<div class="settings-group" role="tabpanel" id="panel-tuners-network" hidden={activeTab !== 'tuners-network'}>
+			<HDHomeRunNetworkSection initialSettings={hdhomerunNetworkSettings} />
+
+			<PlaybackSection initialSettings={hdhomerunNetworkSettings} />
+
 			<PriorityList
 				heading={$_('network_settings.dvr_priority_heading')}
 				hint={$_('network_settings.dvr_priority_hint')}
@@ -268,24 +290,25 @@
 				savingLabel={$_('network_settings.dvr_priority_saving')}
 				onSave={saveDvrPriority}
 			/>
+		</div>
 
-			<PlaybackSection initialSettings={hdhomerunNetworkSettings} />
-
+		<div class="settings-group" role="tabpanel" id="panel-recording" hidden={activeTab !== 'recording'}>
 			<SportsExtensionSection
 				initialEnabled={settings?.sports_extension_enabled ?? null}
 				initialMaxMinutes={settings?.sports_extension_max_minutes ?? null}
 			/>
 
 			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
+		</div>
 
+		<div class="settings-group" role="tabpanel" id="panel-integrations" hidden={activeTab !== 'integrations'}>
+			<TmdbSection initialHasApiKey={tmdbInitialHasApiKey} />
+
+			<AISettingsSection initialSettings={aiInitialSettings} />
+		</div>
+
+		<div class="settings-group" role="tabpanel" id="panel-system" hidden={activeTab !== 'system'}>
 			<JobsSection />
-
-			<ChannelLineupSection
-				{xmltvFeedChannels}
-				{sdStations}
-				onFeedChannelsChanged={(fc) => (xmltvFeedChannels = fc)}
-				onStationsChanged={(st) => (sdStations = st)}
-			/>
 		</div>
 	{/if}
 </div>
@@ -366,22 +389,6 @@
 		column-width: 22rem;
 		column-gap: 1.25rem;
 		margin-bottom: 2rem;
-	}
-
-	.group-title,
-	.group-subtitle {
-		column-span: all;
-	}
-
-	.group-title {
-		margin: 0 0 0.25rem;
-		font-size: 1.2rem;
-	}
-
-	.group-subtitle {
-		margin: 0 0 1rem;
-		color: var(--color-text-muted);
-		font-size: 0.85rem;
 	}
 
 	:global(.channel-lineup-section) {

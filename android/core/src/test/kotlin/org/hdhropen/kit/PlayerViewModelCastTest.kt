@@ -16,6 +16,7 @@ import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.CaptionController
 import org.hdhropen.kit.playback.PlayerEngine
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playChannel
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -66,7 +67,7 @@ class PlayerViewModelCastTest {
         every { apiClient.baseURL } returns "http://localhost:8000"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("4.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("4.1", forCast = true) } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("4.1", forCast = true, audioIndex = any(), quality = any()) } returns HDHomeRunRecording(
             sessionId = "sess-cast",
             playlistUrl = "/api/hls/sess-cast/tok-abc/playlist.m3u8",
             title = "Channel 4.1"
@@ -79,7 +80,7 @@ class PlayerViewModelCastTest {
 
         vm.playChannel(channel)
 
-        coVerify { apiClient.createChannelHLSSession("4.1", forCast = true) }
+        coVerify { apiClient.createChannelHLSSession("4.1", forCast = true, audioIndex = any(), quality = any()) }
     }
 
     @Test
@@ -88,7 +89,7 @@ class PlayerViewModelCastTest {
         every { apiClient.baseURL } returns "http://localhost:8000"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("4.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("4.1", forCast = false) } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("4.1", forCast = false, audioIndex = any(), quality = any()) } returns HDHomeRunRecording(
             sessionId = "sess-native",
             playlistUrl = "/api/hls/sess-native/playlist.m3u8",
             title = "Channel 4.1"
@@ -99,6 +100,6 @@ class PlayerViewModelCastTest {
 
         vm.playChannel(channel)
 
-        coVerify { apiClient.createChannelHLSSession("4.1", forCast = false) }
+        coVerify { apiClient.createChannelHLSSession("4.1", forCast = false, audioIndex = any(), quality = any()) }
     }
 }

@@ -112,6 +112,7 @@
 
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
 	const CAPTION_POLL_INTERVAL_MS = 500;
+	const MIN_SEEKABLE_SECONDS_FOR_START_OVER = 5;
 
 	let overlayEl = $state<HTMLDivElement | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
@@ -147,6 +148,14 @@
 	// half of auto quality adjustment - see sampleThroughput(). Most recent
 	// last; trimmed to UPGRADE_WINDOW_SAMPLES.
 	let speedSamplesMbps: number[] = [];
+	// Recent buffered-ahead samples (seconds between the playhead and the end
+	// of the buffered range), sampled alongside speedSamplesMbps. This is the
+	// actual "is the network keeping up with real time" ground truth -
+	// measured throughput alone can't tell a network-constrained stream apart
+	// from a live source that simply doesn't need much bitrate (its bytes
+	// arrive at the encoder's real-time pace either way) - see
+	// isBufferDraining() for how it gates a downgrade.
+	let bufferedAheadSamples: number[] = [];
 	// Last sample, kept as its own $state purely for the Playback Info
 	// overlay - speedSamplesMbps itself isn't reactive (mutated in place by
 	// sampleThroughput's polling interval, not through Svelte's reactivity).
@@ -968,12 +977,58 @@
 	// it was never trying to hit, and gets downgraded regardless of the
 	// network's real condition.
 	const BASELINE_NEAR_TARGET_RATIO = 0.8;
+	// Measured throughput alone is not a reliable "the network is struggling"
+	// signal: for a live, real-time-paced stream, bytes arrive at roughly the
+	// content's own encode rate (ffmpeg only ever has as many bytes to send as
+	// it has already encoded), which for perfectly ordinary OTA/cable content
+	// often sits well under a tier's assumed target even on an abundant-
+	// bandwidth LAN. The only direct, content-agnostic evidence that playback
+	// is actually losing ground to real time is the buffer ahead of the
+	// playhead shrinking over time - a stable or growing buffer proves the
+	// network is keeping up regardless of what the raw byte-rate looks like.
+	// So a throughput-based downgrade additionally requires this to be true;
+	// it's the fix for auto-downgrade firing on fine, fast connections.
+	const BUFFER_TREND_SAMPLE_COUNT = 4; // ~20s @ 5s - short so a real drain is still caught quickly
+	const BUFFER_SAFE_FLOOR_SECONDS = 10; // a buffer this large or bigger is never "draining", whatever its trend
+	const BUFFER_DRAIN_DROP_SECONDS = 3; // net drop required across the window to count as a genuine drain
+
+	// Seconds between the playhead and the end of whatever buffered range
+	// currently contains it - 0 if the playhead isn't inside any buffered
+	// range at all (e.g. right after a seek/reload, before the first segment
+	// lands). Wrapped defensively since `buffered` can throw in some embed/
+	// test environments; falling back to a large sentinel means "unknown"
+	// never gets misread as "draining".
+	function getBufferedAheadSeconds(video: HTMLVideoElement): number {
+		try {
+			const t = video.currentTime;
+			const ranges = video.buffered;
+			for (let i = 0; i < ranges.length; i++) {
+				if (t >= ranges.start(i) && t <= ranges.end(i)) return ranges.end(i) - t;
+			}
+			return 0;
+		} catch {
+			return Number.POSITIVE_INFINITY;
+		}
+	}
+
+	// True only once there's a full trend window AND the buffer is both
+	// small and has genuinely shrunk across it - a brief wobble in an
+	// otherwise large buffer isn't evidence of anything. This is the actual
+	// gate on a throughput-based downgrade (see sampleThroughput) - measured
+	// byte-rate alone only decides *which* tier to land on once this is true.
+	function isBufferDraining(): boolean {
+		if (bufferedAheadSamples.length < BUFFER_TREND_SAMPLE_COUNT) return false;
+		const oldest = bufferedAheadSamples[0];
+		const newest = bufferedAheadSamples[bufferedAheadSamples.length - 1];
+		return newest < BUFFER_SAFE_FLOOR_SECONDS && oldest - newest >= BUFFER_DRAIN_DROP_SECONDS;
+	}
 
 	function applyAutoDowngrade(reason: 'stalling' | 'throughput', target?: AutoTier) {
 		const next = target ?? stepDown(autoEffectiveTier, effectiveAutoTierOrder(videoInfo?.height ?? null));
 		if (!next) return;
 		stallTimestamps = [];
 		speedSamplesMbps = [];
+		bufferedAheadSamples = [];
 		autoEffectiveTier = next;
 		lastQualityAdjustment = { direction: 'down', tier: next, reason, at: Date.now() };
 		reloadAtCurrentQuality();
@@ -995,6 +1050,11 @@
 	// single samples, since speed naturally spikes/dips segment-to-segment.
 	function sampleThroughput() {
 		if (quality !== 'auto') return;
+		if (videoElement) {
+			bufferedAheadSamples = [...bufferedAheadSamples, getBufferedAheadSeconds(videoElement)].slice(
+				-BUFFER_TREND_SAMPLE_COUNT,
+			);
+		}
 		const speedKBs = mpegtsPlayer.getStatisticsInfo()?.speed;
 		if (typeof speedKBs !== 'number' || !Number.isFinite(speedKBs) || speedKBs <= 0) return;
 		const speedMbps = (speedKBs * 8) / 1000;
@@ -1011,29 +1071,35 @@
 			const tierTarget = TIER_TARGET_MBPS[autoEffectiveTier];
 			const baselineNearTarget = baselineAvg >= tierTarget * BASELINE_NEAR_TARGET_RATIO;
 
-			if (baselineNearTarget) {
-				// This stream has genuinely been running near its tier's target
-				// bitrate, so a shortfall against that target is a trustworthy
-				// signal - keep today's behavior, including the multi-step jump
-				// for a severely degraded connection.
-				if (recentAvg < tierTarget * DOWNGRADE_MARGIN) {
-					const target = bestTierForSpeed(recentAvg, ladder);
-					if (ladder.indexOf(target) < ladder.indexOf(autoEffectiveTier)) {
+			// Throughput looking low is necessary but not sufficient - it's
+			// also what a perfectly healthy LAN reads as for ordinary content,
+			// since live bytes arrive at the encoder's pace either way. Only
+			// act on it once the buffer itself shows real, sustained drain.
+			if (isBufferDraining()) {
+				if (baselineNearTarget) {
+					// This stream has genuinely been running near its tier's target
+					// bitrate, so a shortfall against that target is a trustworthy
+					// signal - keep today's behavior, including the multi-step jump
+					// for a severely degraded connection.
+					if (recentAvg < tierTarget * DOWNGRADE_MARGIN) {
+						const target = bestTierForSpeed(recentAvg, ladder);
+						if (ladder.indexOf(target) < ladder.indexOf(autoEffectiveTier)) {
+							applyAutoDowngrade('throughput', target);
+							return;
+						}
+					}
+				} else if (recentAvg < baselineAvg * BASELINE_DROP_RATIO) {
+					// The baseline never got near the target in the first place
+					// (e.g. a low-resolution/low-complexity source that simply
+					// doesn't need much bitrate) - the absolute target means
+					// nothing here, so fall back to a relative drop from this
+					// stream's own baseline, and only step down one tier since
+					// there's no absolute anchor to justify a bigger jump.
+					const target = stepDown(autoEffectiveTier, ladder);
+					if (target) {
 						applyAutoDowngrade('throughput', target);
 						return;
 					}
-				}
-			} else if (recentAvg < baselineAvg * BASELINE_DROP_RATIO) {
-				// The baseline never got near the target in the first place
-				// (e.g. a low-resolution/low-complexity source that simply
-				// doesn't need much bitrate) - the absolute target means
-				// nothing here, so fall back to a relative drop from this
-				// stream's own baseline, and only step down one tier since
-				// there's no absolute anchor to justify a bigger jump.
-				const target = stepDown(autoEffectiveTier, ladder);
-				if (target) {
-					applyAutoDowngrade('throughput', target);
-					return;
 				}
 			}
 		}
@@ -1347,7 +1413,9 @@
 				captionController.pollLiveCaptions();
 				startPolling();
 				startCaptionPolling();
-				showStartOverHint();
+				if ((duration ?? 0) >= MIN_SEEKABLE_SECONDS_FOR_START_OVER) {
+					showStartOverHint();
+				}
 			} else {
 				baseOffsetSeconds = 0;
 				mpegtsPlayer.createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
@@ -2147,7 +2215,7 @@
 
 	.start-over-overlay {
 		position: absolute;
-		top: 1.25rem;
+		top: 5rem;
 		left: 1.25rem;
 		z-index: 106;
 		display: flex;

@@ -22,6 +22,7 @@ import org.hdhropen.kit.playback.PlayerEngine
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
+import org.hdhropen.kit.viewmodels.selectAudioTrack
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -272,23 +273,34 @@ class PlayerScreenTest {
         holder.availableAudioTracksFlow.value = listOf(track1, track2)
         holder.currentAudioTrackFlow.value = track1
 
-        composeTestRule.setContent {
-            HDHROpenTheme {
-                PlayerScreen(
-                    playerViewModel = holder.playerVm,
-                    guideViewModel = holder.guideVm,
-                    recordingsViewModel = holder.recordingsVm,
-                    onDismiss = {}
-                )
-            }
-        }
-        composeTestRule.mainClock.advanceTimeByFrame()
+        // selectAudioTrack is a top-level extension function (compiled as a static call
+        // against the PlayerViewModel+Streaming.kt facade class), not a true virtual member,
+        // so spyk() can't proxy it. mockkStatic installs interception on that facade class so
+        // every{}/verify{} work instead of mockk trying to run the real body during verification.
+        mockkStatic("org.hdhropen.kit.viewmodels.PlayerViewModel_StreamingKt")
+        try {
+            every { holder.playerVm.selectAudioTrack(any()) } just Runs
 
-        // Click audio track button to open menu
-        composeTestRule.onNodeWithContentDescription("Audio Tracks").performClick()
-        composeTestRule.mainClock.advanceTimeByFrame()
-        composeTestRule.onNodeWithText(track2.displayLabel).performClick()
-        verify { holder.playerVm.selectAudioTrack(track2) }
+            composeTestRule.setContent {
+                HDHROpenTheme {
+                    PlayerScreen(
+                        playerViewModel = holder.playerVm,
+                        guideViewModel = holder.guideVm,
+                        recordingsViewModel = holder.recordingsVm,
+                        onDismiss = {}
+                    )
+                }
+            }
+            composeTestRule.mainClock.advanceTimeByFrame()
+
+            // Click audio track button to open menu
+            composeTestRule.onNodeWithContentDescription("Audio Tracks").performClick()
+            composeTestRule.mainClock.advanceTimeByFrame()
+            composeTestRule.onNodeWithText(track2.displayLabel).performClick()
+            verify { holder.playerVm.selectAudioTrack(track2) }
+        } finally {
+            unmockkStatic("org.hdhropen.kit.viewmodels.PlayerViewModel_StreamingKt")
+        }
     }
 
     @Test

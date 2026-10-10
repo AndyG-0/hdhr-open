@@ -91,6 +91,17 @@ class PlayerEngine(
     private val _observedBitrateBps = MutableStateFlow<Long?>(null)
     val observedBitrateBps: StateFlow<Long?> = _observedBitrateBps.asStateFlow()
 
+    // Timestamp (epoch ms) of the most recent stall - a STATE_BUFFERING
+    // transition after playback has already started once since the last
+    // loadMedia() (mirrors the web player's `currentTime > 0` guard on
+    // `waiting` events, so the initial pre-roll buffering never counts as a
+    // stall). PlayerViewModel's auto-quality poll collects this to drive its
+    // own rolling stall-window count, the same policy as
+    // recordStallAndMaybeDowngrade() in HDHomeRunPlayer.svelte.
+    private val _stallPulse = MutableStateFlow(0L)
+    val stallPulse: StateFlow<Long> = _stallPulse.asStateFlow()
+    private var hasStartedPlaybackSinceLoad = false
+
     private val _isCasting = MutableStateFlow(false)
     val isCasting: StateFlow<Boolean> = _isCasting.asStateFlow()
 
@@ -191,8 +202,10 @@ class PlayerEngine(
                 }
                 Player.STATE_BUFFERING -> {
                     _state.value = PlaybackState.Buffering
+                    if (hasStartedPlaybackSinceLoad) _stallPulse.value = System.currentTimeMillis()
                 }
                 Player.STATE_READY -> {
+                    hasStartedPlaybackSinceLoad = true
                     val dur = activePlayer?.duration ?: 0L
                     if (dur > 0 && dur != androidx.media3.common.C.TIME_UNSET) {
                         val durSec = timeOffset + (dur / 1000.0)
@@ -456,8 +469,24 @@ class PlayerEngine(
         activePlayer?.setPlaybackSpeed(speed)
     }
 
+    // Seconds between the live playhead and the end of what ExoPlayer has
+    // already buffered - the same ground-truth "is real time being kept up
+    // with" signal as getBufferedAheadSeconds() in HDHomeRunPlayer.svelte,
+    // just read directly from ExoPlayer's own tracked positions instead of
+    // DOM TimeRanges. Null while casting (CastPlayer doesn't expose this) or
+    // before ExoPlayer has a position yet - never misread as "draining".
+    fun bufferedAheadSeconds(): Double? {
+        if (_isCasting.value) return null
+        val player = exoPlayer ?: return null
+        val bufferedMs = player.bufferedPosition
+        val positionMs = player.currentPosition
+        if (bufferedMs == androidx.media3.common.C.TIME_UNSET || positionMs == androidx.media3.common.C.TIME_UNSET) return null
+        return ((bufferedMs - positionMs).coerceAtLeast(0L)) / 1000.0
+    }
+
     fun reset() {
         stopTimeTracking()
+        hasStartedPlaybackSinceLoad = false
         exoPlayer?.stop()
         exoPlayer?.clearMediaItems()
         castPlayer?.stop()

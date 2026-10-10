@@ -14,6 +14,7 @@ public struct TVPlayerSettingsOverlay: View {
     private enum SettingsFocus: Hashable {
         case close
         case track(Int)
+        case quality(VideoQuality)
         case airplay
     }
 
@@ -70,6 +71,35 @@ public struct TVPlayerSettingsOverlay: View {
                             }
                             .focused($focusedElement, equals: .track(track.index))
                         }
+                    }
+                }
+
+                // Video Quality
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Video Quality")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+
+                    ForEach(VideoQuality.allCases, id: \.self) { quality in
+                        let isSelected = playerViewModel.quality == quality
+                        Button(action: {
+                            Task { await playerViewModel.selectQuality(quality) }
+                        }) {
+                            HStack {
+                                Text(quality.label)
+                                    .font(.body)
+                                Spacer()
+                                if isSelected {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(isSelected ? Theme.accentSubtle : Theme.appSurfaceVariant)
+                            .cornerRadius(8)
+                        }
+                        .focused($focusedElement, equals: .quality(quality))
                     }
                 }
 

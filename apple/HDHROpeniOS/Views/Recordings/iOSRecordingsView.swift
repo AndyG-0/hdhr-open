@@ -134,6 +134,7 @@ public struct iOSRecordingsView: View {
         .refreshable {
             await recordingsViewModel.loadData()
         }
+        .searchable(text: $recordingsViewModel.searchQuery, prompt: "Search recordings")
         .navigationTitle("DVR Library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

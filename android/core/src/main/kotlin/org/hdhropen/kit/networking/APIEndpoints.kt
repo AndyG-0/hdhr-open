@@ -8,7 +8,11 @@ object APIEndpoints {
     fun refreshGuide(): String = "/api/guide/refresh"
 
     fun dvrInfo(): String = "/api/dvr/info"
-    fun recordings(): String = "/api/dvr/recordings"
+    fun recordings(search: String? = null): String {
+        val query = mutableListOf<String>()
+        if (!search.isNullOrBlank()) query.add("search=${URLEncoder.encode(search, "UTF-8")}")
+        return if (query.isNotEmpty()) "/api/dvr/recordings?${query.joinToString("&")}" else "/api/dvr/recordings"
+    }
     fun deleteRecording(id: String): String = "/api/dvr/recordings/$id"
 
     fun recordingDetail(
@@ -59,10 +63,16 @@ object APIEndpoints {
     fun updateRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
     fun deleteRecordingRule(id: String): String = "/api/dvr/recording-rules/$id"
 
-    fun hlsChannelSession(channelNumber: String, forCast: Boolean = false, audioIndex: Int? = null): String {
+    fun hlsChannelSession(
+        channelNumber: String,
+        forCast: Boolean = false,
+        audioIndex: Int? = null,
+        quality: String? = null
+    ): String {
         val params = mutableListOf<String>()
         if (forCast) params.add("for_cast=true")
         if (audioIndex != null) params.add("audio_index=$audioIndex")
+        if (quality != null) params.add("quality=$quality")
         val query = if (params.isNotEmpty()) "?${params.joinToString("&")}" else ""
         return "/api/streaming/hls/$channelNumber$query"
     }

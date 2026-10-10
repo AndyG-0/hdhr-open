@@ -35,7 +35,9 @@ const {
 	hdhomerunRecordingStreamUrl: vi.fn((playUrl: string) => `https://example.com/recording-stream?url=${playUrl}`),
 	hdhomerunPlaybackUrl: vi.fn((url: string) => `https://example.com/proxy?src=${url}`),
 	hdhomerunPlaylistUrl: vi.fn((ch: string) => `https://example.com/playlist/${ch}`),
-	hdhomerunRecordingCaptionsUrl: vi.fn((opts: { recordingId: string }) => `https://example.com/captions/${opts.recordingId}.vtt`),
+	hdhomerunRecordingCaptionsUrl: vi.fn(
+		(opts: { recordingId: string }) => `https://example.com/captions/${opts.recordingId}.vtt`,
+	),
 	hdhomerunRecordingDetail: vi.fn().mockResolvedValue({
 		is_in_progress: false,
 		duration_seconds: 120,
@@ -44,8 +46,12 @@ const {
 		has_captions: false,
 		transcode: null,
 	}),
-	hdhomerunRecordingThumbnailVttUrl: vi.fn((opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.vtt`),
-	hdhomerunRecordingThumbnailSpriteUrl: vi.fn((opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.jpg`),
+	hdhomerunRecordingThumbnailVttUrl: vi.fn(
+		(opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.vtt`,
+	),
+	hdhomerunRecordingThumbnailSpriteUrl: vi.fn(
+		(opts: { recordingId: string }) => `https://example.com/thumbs/${opts.recordingId}.jpg`,
+	),
 }));
 
 vi.mock('mpegts.js', () => ({
@@ -829,5 +835,113 @@ describe('recordings +page.svelte', () => {
 
 		await vi.waitFor(() => expect(screen.queryByText('Delete failed')).not.toBeInTheDocument());
 	});
-});
 
+	it('debounces the search input and refetches recordings with the search term, resetting pagination', async () => {
+		listRecordings.mockImplementation(async (params: { search?: string } = {}) => {
+			if (params.search === 'matched') {
+				return [
+					{
+						recording_id: 'rec-matched',
+						title: 'Matched Show',
+						start: nowSeconds() - 1800,
+						record_end: nowSeconds() - 900,
+						provider: 'builtin',
+					},
+				];
+			}
+			return [
+				{
+					recording_id: 'rec-done',
+					title: 'Finished Show',
+					start: nowSeconds() - 7200,
+					record_end: nowSeconds() - 3600,
+					provider: 'builtin',
+				},
+			];
+		});
+
+		render(PlayerHostHarness, { props: { page: Page } });
+		expect(await screen.findByText('Finished Show')).toBeInTheDocument();
+
+		const searchInput = screen.getByPlaceholderText('Search recordings...');
+		await fireEvent.input(searchInput, { target: { value: 'matched' } });
+
+		// Not yet debounced - the un-matched result should still be showing.
+		expect(screen.getByText('Finished Show')).toBeInTheDocument();
+
+		await vi.waitFor(
+			() => expect(listRecordings).toHaveBeenCalledWith(expect.objectContaining({ search: 'matched', offset: 0 })),
+			{ timeout: 1000 },
+		);
+		expect(await screen.findByText('Matched Show')).toBeInTheDocument();
+		expect(screen.queryByText('Finished Show')).not.toBeInTheDocument();
+	});
+
+	it('carries the active search term into the next infinite-scroll page fetch', async () => {
+		// jsdom's IntersectionObserver is stubbed as a no-op (vitest-setup.ts) -
+		// swap in a variant that fires immediately, and exposes the callback so
+		// the test can simulate a second scroll-into-view after the search page
+		// has loaded.
+		const fireIntersectionBox: Array<() => void> = [];
+		class ImmediateIntersectionObserver {
+			#callback: (entries: Array<{ isIntersecting: boolean }>) => void;
+			constructor(callback: (entries: Array<{ isIntersecting: boolean }>) => void) {
+				this.#callback = callback;
+				fireIntersectionBox[0] = () => callback([{ isIntersecting: true }]);
+			}
+			observe() {
+				this.#callback([{ isIntersecting: true }]);
+			}
+			unobserve() {}
+			disconnect() {}
+		}
+		const originalIO = globalThis.IntersectionObserver;
+		globalThis.IntersectionObserver = ImmediateIntersectionObserver as unknown as typeof IntersectionObserver;
+
+		try {
+			const firstPage = Array.from({ length: 30 }, (_, i) => ({
+				recording_id: `rec-${i}`,
+				title: `Show ${i}`,
+				start: nowSeconds() - 7200,
+				record_end: nowSeconds() - 3600,
+				provider: 'builtin',
+			}));
+			listRecordings.mockImplementation(async (params: { search?: string; offset?: number } = {}) => {
+				if (params.search === 'show' && (params.offset ?? 0) > 0) {
+					return [
+						{
+							recording_id: 'rec-page-2',
+							title: 'Second Page Show',
+							start: nowSeconds() - 1800,
+							record_end: nowSeconds() - 900,
+							provider: 'builtin',
+						},
+					];
+				}
+				if (params.search === 'show') return firstPage;
+				return [];
+			});
+
+			render(PlayerHostHarness, { props: { page: Page } });
+
+			const searchInput = await screen.findByPlaceholderText('Search recordings...');
+			await fireEvent.input(searchInput, { target: { value: 'show' } });
+
+			await vi.waitFor(
+				() => expect(listRecordings).toHaveBeenCalledWith(expect.objectContaining({ search: 'show', offset: 0 })),
+				{ timeout: 1000 },
+			);
+			expect(await screen.findByText('Show 0')).toBeInTheDocument();
+
+			fireIntersectionBox[0]?.();
+
+			await vi.waitFor(
+				() => expect(listRecordings).toHaveBeenCalledWith(expect.objectContaining({ search: 'show', offset: 30 })),
+				{ timeout: 1000 },
+			);
+			expect(await screen.findByText('Second Page Show')).toBeInTheDocument();
+		} finally {
+			globalThis.IntersectionObserver = originalIO;
+		}
+	});
+});

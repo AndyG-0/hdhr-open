@@ -22,6 +22,7 @@ import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playChannel
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)

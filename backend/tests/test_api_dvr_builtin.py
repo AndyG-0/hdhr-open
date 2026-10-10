@@ -87,6 +87,124 @@ def test_list_recordings_builtin(client, tmp_db):
     assert rec["category"] == "Game Show"
 
 
+def test_list_recordings_search_filters_by_title(client, tmp_db):
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_a",
+            "title": "Jeopardy!",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 3600,
+            "end_ts": now - 1800,
+            "file_path": "/tmp/rec_a.ts",
+            "status": "completed",
+        }
+    )
+    db.create_recording(
+        {
+            "id": "rec_b",
+            "title": "Wheel of Fortune",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 7200,
+            "end_ts": now - 5400,
+            "file_path": "/tmp/rec_b.ts",
+            "status": "completed",
+        }
+    )
+
+    response = client.get("/api/dvr/recordings", params={"search": "jeopardy"})
+    assert response.status_code == 200
+    body = response.json()
+    assert [r["recording_id"] for r in body] == ["rec_a"]
+
+
+def test_list_recordings_search_merges_with_official_dvr(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_a",
+            "title": "Jeopardy!",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 3600,
+            "end_ts": now - 1800,
+            "file_path": "/tmp/rec_a.ts",
+            "status": "completed",
+        }
+    )
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+    official_recs = [
+        {"recording_id": "off_1", "title": "Jeopardy Masters", "start": now - 9000, "provider": "hdhomerun"},
+        {"recording_id": "off_2", "title": "Unrelated Show", "start": now - 10000, "provider": "hdhomerun"},
+    ]
+    monkeypatch.setattr(hdhomerun_client, "fetch_dvr_recordings", AsyncMock(return_value=official_recs))
+
+    response = client.get("/api/dvr/recordings", params={"search": "jeopardy"})
+    assert response.status_code == 200
+    body = response.json()
+    assert {r["recording_id"] for r in body} == {"rec_a", "off_1"}
+
+
+def test_list_recordings_is_cached_between_requests(client, tmp_db, monkeypatch):
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_a",
+            "title": "Jeopardy!",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 3600,
+            "end_ts": now - 1800,
+            "file_path": "/tmp/rec_a.ts",
+            "status": "completed",
+        }
+    )
+    search_spy = MagicMock(wraps=db.search_recordings)
+    monkeypatch.setattr(db, "search_recordings", search_spy)
+
+    first = client.get("/api/dvr/recordings")
+    second = client.get("/api/dvr/recordings")
+    assert first.json() == second.json()
+    assert search_spy.call_count == 1
+
+
+def test_list_recordings_cache_invalidated_on_write(client, tmp_db):
+    now = time.time()
+    db.create_recording(
+        {
+            "id": "rec_a",
+            "title": "Jeopardy!",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 3600,
+            "end_ts": now - 1800,
+            "file_path": "/tmp/rec_a.ts",
+            "status": "completed",
+        }
+    )
+    first = client.get("/api/dvr/recordings")
+    assert len(first.json()) == 1
+
+    db.create_recording(
+        {
+            "id": "rec_b",
+            "title": "Wheel of Fortune",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": now - 7200,
+            "end_ts": now - 5400,
+            "file_path": "/tmp/rec_b.ts",
+            "status": "completed",
+        }
+    )
+    second = client.get("/api/dvr/recordings")
+    assert len(second.json()) == 2
+
+
 def test_get_recording_poster_fallback_and_generation(client, tmp_db, tmp_path, monkeypatch):
     dummy_ts = tmp_path / "test_rec.ts"
     dummy_ts.write_bytes(b"x" * 1000)

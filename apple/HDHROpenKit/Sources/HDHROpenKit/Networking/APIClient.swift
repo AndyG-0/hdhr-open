@@ -162,8 +162,8 @@ public actor APIClient {
         try await request(path: APIEndpoints.dvrInfo())
     }
 
-    public func listRecordings() async throws -> [HDHomeRunRecording] {
-        try await request(path: APIEndpoints.recordings())
+    public func listRecordings(search: String? = nil) async throws -> [HDHomeRunRecording] {
+        try await request(path: APIEndpoints.recordings(search: search))
     }
 
     public func deleteRecording(id: String) async throws {
@@ -220,8 +220,8 @@ public actor APIClient {
 
     // MARK: - HLS Packaging APIs
 
-    public func createChannelHLSSession(channelNumber: String, audioIndex: Int? = nil) async throws -> HDHomeRunRecording {
-        try await request(path: APIEndpoints.hlsChannelSession(channelNumber: channelNumber, audioIndex: audioIndex), method: "POST")
+    public func createChannelHLSSession(channelNumber: String, audioIndex: Int? = nil, quality: String? = nil) async throws -> HDHomeRunRecording {
+        try await request(path: APIEndpoints.hlsChannelSession(channelNumber: channelNumber, audioIndex: audioIndex, quality: quality), method: "POST")
     }
 
     public func createRecordingHLSSession(
@@ -229,7 +229,8 @@ public actor APIClient {
         recordingId: String? = nil,
         start: Double? = nil,
         audioIndex: Int? = nil,
-        provider: String? = nil
+        provider: String? = nil,
+        quality: String? = nil
     ) async throws -> HLSSessionResponse {
         struct RecordingStreamHLSBody: Encodable {
             let url: String
@@ -237,6 +238,7 @@ public actor APIClient {
             let start: Double?
             let audioIndex: Int?
             let provider: String?
+            let quality: String?
 
             enum CodingKeys: String, CodingKey {
                 case url
@@ -244,12 +246,13 @@ public actor APIClient {
                 case start
                 case audioIndex = "audio_index"
                 case provider
+                case quality
             }
         }
         return try await request(
             path: APIEndpoints.hlsRecordingSession(),
             method: "POST",
-            body: RecordingStreamHLSBody(url: url, recordingId: recordingId, start: start, audioIndex: audioIndex, provider: provider)
+            body: RecordingStreamHLSBody(url: url, recordingId: recordingId, start: start, audioIndex: audioIndex, provider: provider, quality: quality)
         )
     }
 

@@ -1,6 +1,22 @@
 import HDHROpenKit
 import SwiftUI
 
+enum SettingsGroup: String, CaseIterable, Identifiable {
+    case general
+    case serverAndAdvanced
+
+    var id: String {
+        rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .general: "General"
+        case .serverAndAdvanced: "Server & Advanced"
+        }
+    }
+}
+
 public struct TVSettingsView: View {
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @EnvironmentObject private var serverDiscovery: ServerDiscovery
@@ -10,6 +26,10 @@ public struct TVSettingsView: View {
 
     @FocusState private var focusedPresetId: String?
     @FocusState private var focusedThemeMode: ThemeMode?
+    @FocusState private var focusedVideoQuality: VideoQuality?
+    @FocusState private var focusedSettingsGroup: SettingsGroup?
+
+    @State private var selectedGroup: SettingsGroup = .general
 
     public init() {}
 
@@ -27,21 +47,17 @@ public struct TVSettingsView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 36) {
-                        // Appearance Section
+                        // Settings Group Selector
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("Appearance")
-                                .font(.title3.bold())
-                                .foregroundColor(.secondary)
-
                             HStack(spacing: 16) {
                                 Spacer()
 
-                                ForEach(ThemeMode.allCases, id: \.self) { mode in
-                                    let isActive = themeManager.mode == mode
-                                    let isFocused = focusedThemeMode == mode
+                                ForEach(SettingsGroup.allCases) { group in
+                                    let isActive = selectedGroup == group
+                                    let isFocused = focusedSettingsGroup == group
 
-                                    Button(action: { themeManager.mode = mode }) {
-                                        Text(mode.label)
+                                    Button(action: { selectedGroup = group }) {
+                                        Text(group.label)
                                             .font(.headline)
                                             .foregroundColor(isActive ? .white : Theme.textPrimary)
                                             .padding(.horizontal, 24)
@@ -56,7 +72,7 @@ public struct TVSettingsView: View {
                                             .animation(.easeInOut(duration: 0.15), value: isFocused)
                                     }
                                     .buttonStyle(.plain)
-                                    .focused($focusedThemeMode, equals: mode)
+                                    .focused($focusedSettingsGroup, equals: group)
                                 }
                             }
                             .padding(24)
@@ -65,119 +81,191 @@ public struct TVSettingsView: View {
                         }
                         .focusSection()
 
-                        // Playback Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Playback")
-                                .font(.title3.bold())
-                                .foregroundColor(.secondary)
-
-                            Toggle("Auto-skip commercials", isOn: $playbackPreferences.autoSkipCommercialsEnabled)
-                                .padding(24)
-                                .background(Theme.appSurface)
-                                .cornerRadius(16)
-                        }
-                        .focusSection()
-
-                        // Profile Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Current Profile")
-                                .font(.title3.bold())
-                                .foregroundColor(.secondary)
-
-                            HStack(spacing: 20) {
-                                if let user = authManager.currentUser {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(user.name)
-                                            .font(.title2.bold())
-                                            .foregroundColor(Theme.textPrimary)
-                                        Text("Role: \(user.role.rawValue.capitalized)")
-                                            .font(.subheadline)
-                                            .foregroundColor(Theme.textSecondary)
-                                    }
-
-                                    Spacer()
-
-                                    Button(role: .destructive, action: {
-                                        Task { await authManager.logout() }
-                                    }) {
-                                        Label("Switch Profile / Logout", systemImage: "person.crop.circle.badge.xmark")
-                                    }
-                                }
-                            }
-                            .padding(24)
-                            .background(Theme.appSurface)
-                            .cornerRadius(16)
-                        }
-                        .focusSection()
-
-                        // Server Connection Section
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Server Connection")
-                                .font(.title3.bold())
-                                .foregroundColor(.secondary)
-
-                            TVServerConnectionFields()
-                                .padding(24)
-                                .background(Theme.appSurface)
-                                .cornerRadius(16)
-                        }
-                        .focusSection()
-
-                        // Hardware Acceleration Info
-                        if !settingsViewModel.transcodePresets.isEmpty {
+                        if selectedGroup == .general {
+                            // Appearance Section
                             VStack(alignment: .leading, spacing: 16) {
-                                Text("Transcoder Presets")
+                                Text("Appearance")
                                     .font(.title3.bold())
                                     .foregroundColor(.secondary)
 
-                                LazyVStack(spacing: 12) {
-                                    ForEach(settingsViewModel.transcodePresets) { preset in
-                                        let isActive = preset.id == settingsViewModel.currentPresetId
-                                        let isFocused = focusedPresetId == preset.id
+                                HStack(spacing: 16) {
+                                    Spacer()
 
-                                        Button(action: {
-                                            Task { await settingsViewModel.selectPreset(preset.id) }
-                                        }) {
-                                            HStack {
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    HStack {
-                                                        Text(preset.label)
-                                                            .font(.headline)
-                                                        if preset.hardware {
-                                                            Text("HW")
-                                                                .font(.caption.bold())
-                                                                .padding(.horizontal, 4)
-                                                                .background(Color.green.opacity(0.6))
-                                                                .cornerRadius(3)
-                                                        }
-                                                    }
-                                                    Text(preset.description)
-                                                        .font(.caption)
-                                                        .foregroundColor(.secondary)
-                                                }
-                                                Spacer()
-                                                if isActive {
-                                                    Image(systemName: "checkmark.circle.fill")
-                                                        .foregroundColor(.blue)
-                                                }
-                                            }
-                                            .padding(16)
-                                            .background(isActive ? Theme.accentSubtle : Theme.appSurface)
-                                            .cornerRadius(12)
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
-                                            )
-                                            .scaleEffect(isFocused ? 1.05 : 1.0)
-                                            .animation(.easeInOut(duration: 0.15), value: isFocused)
+                                    ForEach(ThemeMode.allCases, id: \.self) { mode in
+                                        let isActive = themeManager.mode == mode
+                                        let isFocused = focusedThemeMode == mode
+
+                                        Button(action: { themeManager.mode = mode }) {
+                                            Text(mode.label)
+                                                .font(.headline)
+                                                .foregroundColor(isActive ? .white : Theme.textPrimary)
+                                                .padding(.horizontal, 24)
+                                                .padding(.vertical, 12)
+                                                .background(isActive ? Color.blue : Theme.appSurfaceVariant)
+                                                .cornerRadius(12)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
+                                                )
+                                                .scaleEffect(isFocused ? 1.05 : 1.0)
+                                                .animation(.easeInOut(duration: 0.15), value: isFocused)
                                         }
                                         .buttonStyle(.plain)
-                                        .focused($focusedPresetId, equals: preset.id)
-                                        .disabled(settingsViewModel.isSavingPreset)
+                                        .focused($focusedThemeMode, equals: mode)
                                     }
                                 }
+                                .padding(24)
+                                .background(Theme.appSurface)
+                                .cornerRadius(16)
                             }
                             .focusSection()
+
+                            // Playback Section
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Playback")
+                                    .font(.title3.bold())
+                                    .foregroundColor(.secondary)
+
+                                Toggle("Auto-skip commercials", isOn: $playbackPreferences.autoSkipCommercialsEnabled)
+                                    .padding(24)
+                                    .background(Theme.appSurface)
+                                    .cornerRadius(16)
+
+                                HStack(spacing: 16) {
+                                    Spacer()
+
+                                    ForEach(VideoQuality.allCases, id: \.self) { quality in
+                                        let isActive = playbackPreferences.videoQuality == quality
+                                        let isFocused = focusedVideoQuality == quality
+
+                                        Button(action: { playbackPreferences.videoQuality = quality }) {
+                                            Text(quality.label)
+                                                .font(.headline)
+                                                .foregroundColor(isActive ? .white : Theme.textPrimary)
+                                                .padding(.horizontal, 24)
+                                                .padding(.vertical, 12)
+                                                .background(isActive ? Color.blue : Theme.appSurfaceVariant)
+                                                .cornerRadius(12)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
+                                                )
+                                                .scaleEffect(isFocused ? 1.05 : 1.0)
+                                                .animation(.easeInOut(duration: 0.15), value: isFocused)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .focused($focusedVideoQuality, equals: quality)
+                                    }
+                                }
+                                .padding(24)
+                                .background(Theme.appSurface)
+                                .cornerRadius(16)
+                            }
+                            .focusSection()
+
+                            // Profile Section
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Current Profile")
+                                    .font(.title3.bold())
+                                    .foregroundColor(.secondary)
+
+                                HStack(spacing: 20) {
+                                    if let user = authManager.currentUser {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(user.name)
+                                                .font(.title2.bold())
+                                                .foregroundColor(Theme.textPrimary)
+                                            Text("Role: \(user.role.rawValue.capitalized)")
+                                                .font(.subheadline)
+                                                .foregroundColor(Theme.textSecondary)
+                                        }
+
+                                        Spacer()
+
+                                        Button(role: .destructive, action: {
+                                            Task { await authManager.logout() }
+                                        }) {
+                                            Label("Switch Profile / Logout", systemImage: "person.crop.circle.badge.xmark")
+                                        }
+                                    }
+                                }
+                                .padding(24)
+                                .background(Theme.appSurface)
+                                .cornerRadius(16)
+                            }
+                            .focusSection()
+                        }
+
+                        if selectedGroup == .serverAndAdvanced {
+                            // Server Connection Section
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text("Server Connection")
+                                    .font(.title3.bold())
+                                    .foregroundColor(.secondary)
+
+                                TVServerConnectionFields()
+                                    .padding(24)
+                                    .background(Theme.appSurface)
+                                    .cornerRadius(16)
+                            }
+                            .focusSection()
+
+                            // Hardware Acceleration Info
+                            if !settingsViewModel.transcodePresets.isEmpty {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    Text("Transcoder Presets")
+                                        .font(.title3.bold())
+                                        .foregroundColor(.secondary)
+
+                                    LazyVStack(spacing: 12) {
+                                        ForEach(settingsViewModel.transcodePresets) { preset in
+                                            let isActive = preset.id == settingsViewModel.currentPresetId
+                                            let isFocused = focusedPresetId == preset.id
+
+                                            Button(action: {
+                                                Task { await settingsViewModel.selectPreset(preset.id) }
+                                            }) {
+                                                HStack {
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        HStack {
+                                                            Text(preset.label)
+                                                                .font(.headline)
+                                                            if preset.hardware {
+                                                                Text("HW")
+                                                                    .font(.caption.bold())
+                                                                    .padding(.horizontal, 4)
+                                                                    .background(Color.green.opacity(0.6))
+                                                                    .cornerRadius(3)
+                                                            }
+                                                        }
+                                                        Text(preset.description)
+                                                            .font(.caption)
+                                                            .foregroundColor(.secondary)
+                                                    }
+                                                    Spacer()
+                                                    if isActive {
+                                                        Image(systemName: "checkmark.circle.fill")
+                                                            .foregroundColor(.blue)
+                                                    }
+                                                }
+                                                .padding(16)
+                                                .background(isActive ? Theme.accentSubtle : Theme.appSurface)
+                                                .cornerRadius(12)
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 12)
+                                                        .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 4)
+                                                )
+                                                .scaleEffect(isFocused ? 1.05 : 1.0)
+                                                .animation(.easeInOut(duration: 0.15), value: isFocused)
+                                            }
+                                            .buttonStyle(.plain)
+                                            .focused($focusedPresetId, equals: preset.id)
+                                            .disabled(settingsViewModel.isSavingPreset)
+                                        }
+                                    }
+                                }
+                                .focusSection()
+                            }
                         }
                     }
                     .padding(.horizontal, 48)

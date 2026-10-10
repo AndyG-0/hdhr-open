@@ -42,7 +42,9 @@ import org.hdhropen.app.ui.screens.guide.RecordingOptionsBottomSheet
 import org.hdhropen.kit.playback.LoadingQuips
 import org.hdhropen.kit.playback.PlaybackState
 import org.hdhropen.kit.viewmodels.GuideViewModel
+import org.hdhropen.kit.viewmodels.PlaybackMode
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.selectAudioTrack
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 fun enterPictureInPictureMode(activity: Activity, params: PictureInPictureParams): Boolean {
@@ -102,6 +104,8 @@ fun PlayerScreen(
     val isPromoted by playerViewModel.isPromoted.collectAsState()
     val isPromoting by playerViewModel.isPromoting.collectAsState()
     val isSwitchingAudioTrack by playerViewModel.isSwitchingAudioTrack.collectAsState()
+    val quality by playerViewModel.quality.collectAsState()
+    val isSwitchingQuality by playerViewModel.isSwitchingQuality.collectAsState()
     val transientError by playerViewModel.transientError.collectAsState()
     val fallbackNotice by playerViewModel.fallbackNotice.collectAsState()
 
@@ -314,6 +318,9 @@ fun PlayerScreen(
                     availableAudioTracks = availableAudioTracks,
                     currentAudioTrack = currentAudioTrack,
                     isSwitchingAudioTrack = isSwitchingAudioTrack,
+                    showQualityPicker = playbackMode != null && playbackMode != PlaybackMode.Direct,
+                    quality = quality,
+                    isSwitchingQuality = isSwitchingQuality,
                     commercialSegments = commercialSegments,
                     activeCommercialSegment = activeCommercialSegment,
                     autoSkipCommercialsEnabled = autoSkipCommercialsEnabled,
@@ -344,6 +351,7 @@ fun PlayerScreen(
                     },
                     onOpenRecordingOptions = { showRecordingOptionsSheet = true },
                     onSelectAudioTrack = { track -> playerViewModel.selectAudioTrack(track) },
+                    onSelectQuality = { preference -> playerViewModel.selectQuality(preference) },
                     modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
                 )
             }

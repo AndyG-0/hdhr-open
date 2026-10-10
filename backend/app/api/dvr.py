@@ -29,6 +29,7 @@ from app.dvr.builtin.capture import capture_pipeline
 from app.dvr.media import thumbnails
 from app.integrations import hdhomerun_client
 from app.storage import db
+from app.storage.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -136,16 +137,44 @@ def _format_builtin_recording(r: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_RECORDINGS_CACHE_PREFIX = "dvr_recordings:"
+_RECORDINGS_CACHE_TTL_SECONDS = 60
+
+_SEARCH_FIELDS = ("title", "episode_title", "synopsis", "category", "channel_name")
+
+
+def _matches_search(rec: dict[str, Any], query: str) -> bool:
+    needle = query.lower()
+    return any(needle in str(rec.get(field) or "").lower() for field in _SEARCH_FIELDS)
+
+
 @router.get("/recordings")
 async def list_recordings(
+    search: str | None = Query(default=None, max_length=200),
     limit: int | None = Query(default=None, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
+    cache_key = f"{_RECORDINGS_CACHE_PREFIX}{(search or '').lower()}:{limit}:{offset}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     settings = await _get_hdhomerun_settings_safe()
+    official_dvr_configured = hdhomerun_client.is_dvr_configured(settings)
     results: list[dict[str, Any]] = []
 
     # 1. Builtin DVR recordings from SQLite
-    builtin_rows = await asyncio.to_thread(db.list_recordings)
+    if official_dvr_configured and limit is not None:
+        # The official-DVR source below is fetched whole over HTTP and
+        # filtered in Python regardless, so the builtin side only needs to
+        # out-fetch as far as this page goes, not the whole table.
+        builtin_rows = await asyncio.to_thread(
+            db.search_recordings, search=search, limit=offset + limit, offset=0
+        )
+    elif limit is not None:
+        builtin_rows = await asyncio.to_thread(db.search_recordings, search=search, limit=limit, offset=offset)
+    else:
+        builtin_rows = await asyncio.to_thread(db.search_recordings, search=search)
     for row in builtin_rows:
         results.append(_format_builtin_recording(row))
         # Best-effort background poster backfill for existing rows lacking image_url
@@ -162,10 +191,12 @@ async def list_recordings(
             )
 
     # 2. Official HDHomeRun DVR recordings (if configured)
-    if hdhomerun_client.is_dvr_configured(settings):
+    if official_dvr_configured:
         try:
             official_recs = await hdhomerun_client.fetch_dvr_recordings(settings)
             for rec in official_recs:
+                if search and not _matches_search(rec, search):
+                    continue
                 rec_copy = dict(rec)
                 rec_copy.setdefault("provider", "hdhomerun")
                 results.append(rec_copy)
@@ -174,15 +205,12 @@ async def list_recordings(
 
     results.sort(key=lambda r: r.get("start") or 0, reverse=True)
     if limit is not None:
-        # Sliced in Python, post-merge, rather than pushed down as SQL
-        # LIMIT/OFFSET on db.list_recordings(): that function has other
-        # callers (retention/rule-matching) needing the complete set, and
-        # the official-HDHomeRun-DVR fetch above is always unbounded with
-        # no pagination API of its own, so a SQL-level limit on just the
-        # local source couldn't be combined with it correctly anyway. A
-        # self-hosted library is realistically hundreds of rows, so an
-        # unbounded fetch + Python slice here has no real cost.
-        return results[offset : offset + limit]
+        # Sliced in Python, post-merge: the official-DVR fetch above is
+        # always unbounded with no pagination API of its own, so a page
+        # boundary can only be applied after both sources are merged.
+        results = results[offset : offset + limit]
+
+    cache.set(cache_key, results, ttl_seconds=_RECORDINGS_CACHE_TTL_SECONDS)
     return results
 
 

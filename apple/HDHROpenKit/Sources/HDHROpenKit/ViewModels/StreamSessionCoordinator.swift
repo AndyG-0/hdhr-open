@@ -55,13 +55,13 @@ public final class StreamSessionCoordinator: ObservableObject {
         error = nil
     }
 
-    public func startChannel(_ channel: HDHomeRunChannel, engine: PlayerEngine, autoplay: Bool = true) async {
+    public func startChannel(_ channel: HDHomeRunChannel, engine: PlayerEngine, autoplay: Bool = true, quality: String? = nil) async {
         let myGeneration = negotiationGeneration + 1
         negotiationGeneration = myGeneration
 
         let result: StreamNegotiationResult
         do {
-            result = try await negotiator.negotiate(.channel(channel))
+            result = try await negotiator.negotiate(.channel(channel), quality: quality)
         } catch {
             guard negotiationGeneration == myGeneration else { return }
             Log.player.error("Direct HLS channel stream failed: \(error.localizedDescription)")
@@ -78,13 +78,13 @@ public final class StreamSessionCoordinator: ObservableObject {
         }
     }
 
-    public func startRecording(_ recording: HDHomeRunRecording, engine: PlayerEngine, autoplay: Bool = true) async {
+    public func startRecording(_ recording: HDHomeRunRecording, engine: PlayerEngine, autoplay: Bool = true, quality: String? = nil) async {
         let myGeneration = negotiationGeneration + 1
         negotiationGeneration = myGeneration
 
         let result: StreamNegotiationResult
         do {
-            result = try await negotiator.negotiate(.recording(recording))
+            result = try await negotiator.negotiate(.recording(recording), quality: quality)
         } catch {
             guard negotiationGeneration == myGeneration else { return }
             Log.player.error("Recording HLS stream failed: \(error.localizedDescription)")

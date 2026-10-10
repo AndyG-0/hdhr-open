@@ -14,6 +14,7 @@ import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.CaptionController
 import org.hdhropen.kit.playback.PlayerEngine
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playChannel
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -59,7 +60,7 @@ class PlayerViewModelChannelFallbackTest {
         every { apiClient.baseURL } returns "http://localhost:8000"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("4.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("4.1") } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("4.1", forCast = any(), audioIndex = any(), quality = any()) } returns HDHomeRunRecording(
             recordingId = "rec_fallback",
             sessionId = "sess-123",
             playlistUrl = "/api/hls/sess-123/playlist.m3u8",
@@ -84,7 +85,7 @@ class PlayerViewModelChannelFallbackTest {
         every { apiClient.baseURL } returns "http://localhost:8000"
         every { apiClient.bearerToken } returns null
         coEvery { apiClient.startWatch("4.1") } returns null
-        coEvery { apiClient.createChannelHLSSession("4.1") } returns HDHomeRunRecording(
+        coEvery { apiClient.createChannelHLSSession("4.1", forCast = any(), audioIndex = any(), quality = any()) } returns HDHomeRunRecording(
             sessionId = "sess-456",
             playlistUrl = "/api/hls/sess-456/playlist.m3u8",
             title = "Channel 4.1"

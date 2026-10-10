@@ -25,6 +25,15 @@
 			"title": "Tus ajustes",
 			"subtitle": "Específico de tu perfil en este dispositivo."
 		},
+		"tabs": {
+			"your_settings": "Your Settings",
+			"household": "Household",
+			"guide_channels": "Guide & Channels",
+			"tuners_network": "Tuners & Network",
+			"recording": "Recording",
+			"integrations": "Integrations",
+			"system": "System"
+		},
 		"profile": {
 			"heading": "Perfil",
 			"name_label": "Nombre",
@@ -204,6 +213,7 @@
 			"watch_live_button": "▶ Ver en directo",
 			"no_recordings": "No hay grabaciones en curso.",
 			"recorded_programs": "Programas grabados",
+			"search_recordings_placeholder": "Buscar grabaciones...",
 			"filter_all_types": "Todos los tipos",
 			"filter_shows": "Series y programas",
 			"filter_movies": "Películas",

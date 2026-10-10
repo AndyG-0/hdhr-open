@@ -426,6 +426,25 @@ public struct iOSPlayerView: View {
                                         .foregroundColor(.white)
                                 }
                             }
+
+                            Menu {
+                                ForEach(VideoQuality.allCases, id: \.self) { quality in
+                                    let isSelected = playerViewModel.quality == quality
+                                    Button {
+                                        Task { await playerViewModel.selectQuality(quality) }
+                                    } label: {
+                                        if isSelected {
+                                            Label(quality.label, systemImage: "checkmark")
+                                        } else {
+                                            Text(quality.label)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "slider.horizontal.below.rectangle")
+                                    .font(.title3)
+                                    .foregroundColor(.white)
+                            }
                         }
                     }
                     .padding(.horizontal, 20)

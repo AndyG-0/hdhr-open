@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,7 @@ import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.HDHomeRunRecording
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playRecording
 import org.hdhropen.kit.viewmodels.RecordingCategoryFilter
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
@@ -41,6 +43,7 @@ fun RecordingsScreen(
     val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
     val selectedFilter by recordingsViewModel.selectedFilter.collectAsState()
     val isLoading by recordingsViewModel.isLoading.collectAsState()
+    val searchQuery by recordingsViewModel.searchQuery.collectAsState()
     val channels by guideViewModel.channels.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -134,6 +137,27 @@ fun RecordingsScreen(
                     }
                 }
             }
+
+            // Search Box
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { recordingsViewModel.searchQuery.value = it },
+                placeholder = { Text("Search recordings", color = MaterialTheme.extendedColors.textMuted) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                    focusedBorderColor = BluePrimary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface
+                ),
+                singleLine = true
+            )
 
             // Category Filter Chips
             Row(

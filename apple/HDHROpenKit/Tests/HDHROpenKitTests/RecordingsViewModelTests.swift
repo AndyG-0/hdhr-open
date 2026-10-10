@@ -220,6 +220,96 @@ final class RecordingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.recordingRules.first?.keywordQuery, "breaking")
     }
 
+    // MARK: - Debounced search
+
+    /// 300ms is the production debounce window; tests wait comfortably past
+    /// it (real `Task.sleep`, no virtual clock exists for this ViewModel) and
+    /// use a margin generous enough to be stable under CI load.
+    private static let debounceSettleNanos: UInt64 = 450_000_000
+    private static let belowDebounceWindowNanos: UInt64 = 100_000_000
+
+    func testSettingSearchQueryDoesNotReloadBeforeDebounceWindowElapses() async throws {
+        let vm = RecordingsViewModel(apiClient: makeMockedAPIClient())
+        await loadRecordings(vm, json: """
+        [{"recording_id": "1", "title": "Unfiltered"}]
+        """)
+        MockURLProtocol.handlers["/api/dvr/recordings"] = (Data("""
+        [{"recording_id": "2", "title": "Matched"}]
+        """.utf8), 200)
+
+        vm.searchQuery = "match"
+        try await Task.sleep(nanoseconds: Self.belowDebounceWindowNanos)
+
+        XCTAssertEqual(vm.recordings.map(\.recordingId), ["1"], "reload must not fire before the debounce window elapses")
+    }
+
+    func testSettingSearchQueryReloadsAfterDebounceWindowElapses() async throws {
+        let vm = RecordingsViewModel(apiClient: makeMockedAPIClient())
+        await loadRecordings(vm, json: """
+        [{"recording_id": "1", "title": "Unfiltered"}]
+        """)
+        MockURLProtocol.handlers["/api/dvr/recordings"] = (Data("""
+        [{"recording_id": "2", "title": "Matched"}]
+        """.utf8), 200)
+
+        vm.searchQuery = "match"
+        try await Task.sleep(nanoseconds: Self.debounceSettleNanos)
+
+        XCTAssertEqual(vm.recordings.map(\.recordingId), ["2"])
+    }
+
+    func testRapidlyChangingSearchQueryOnlyReloadsForTheLastSettledValue() async throws {
+        let vm = RecordingsViewModel(apiClient: makeMockedAPIClient())
+        MockURLProtocol.handlers["/api/dvr/recordings"] = (Data("""
+        [{"recording_id": "stale", "title": "Should not win"}]
+        """.utf8), 200)
+
+        vm.searchQuery = "m"
+        try await Task.sleep(nanoseconds: Self.belowDebounceWindowNanos)
+        vm.searchQuery = "ma"
+        try await Task.sleep(nanoseconds: Self.belowDebounceWindowNanos)
+
+        MockURLProtocol.handlers["/api/dvr/recordings"] = (Data("""
+        [{"recording_id": "final", "title": "The settled query"}]
+        """.utf8), 200)
+        vm.searchQuery = "match"
+
+        try await Task.sleep(nanoseconds: Self.debounceSettleNanos)
+
+        XCTAssertEqual(vm.recordings.map(\.recordingId), ["final"], "only the last-settled query should have reached the server")
+    }
+
+    func testClearingSearchQueryReloadsWithoutSearchParam() async throws {
+        let vm = RecordingsViewModel(apiClient: makeMockedAPIClient())
+        vm.searchQuery = "match"
+        try await Task.sleep(nanoseconds: Self.debounceSettleNanos)
+
+        MockURLProtocol.handlers["/api/dvr/recordings"] = (Data("""
+        [{"recording_id": "1", "title": "Everything"}, {"recording_id": "2", "title": "Again"}]
+        """.utf8), 200)
+        vm.searchQuery = ""
+
+        try await Task.sleep(nanoseconds: Self.debounceSettleNanos)
+
+        XCTAssertEqual(Set(vm.recordings.map(\.recordingId)), ["1", "2"])
+    }
+
+    func testManualReloadCarriesTheActiveSearchTerm() async throws {
+        let vm = RecordingsViewModel(apiClient: makeMockedAPIClient())
+        vm.searchQuery = "match"
+        try await Task.sleep(nanoseconds: Self.debounceSettleNanos)
+
+        // A manual refresh (e.g. the toolbar's refresh button, which calls
+        // loadData() -> loadRecordings() with no explicit search argument)
+        // must still re-issue the currently active search term.
+        MockURLProtocol.handlers["/api/dvr/recordings"] = (Data("""
+        [{"recording_id": "still-matched", "title": "Matched Show"}]
+        """.utf8), 200)
+        await vm.loadRecordings()
+
+        XCTAssertEqual(vm.recordings.map(\.recordingId), ["still-matched"])
+    }
+
     func testAddRecordingRuleFailurePropagatesAndLeavesRulesUnchanged() async {
         MockURLProtocol.handlers["/api/dvr/recording-rules"] = (Data("{\"detail\":\"nope\"}".utf8), 500)
 

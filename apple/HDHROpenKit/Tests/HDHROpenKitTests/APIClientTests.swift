@@ -436,6 +436,28 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(query.contains("url=http://tuner/my%20recording.ts"))
     }
 
+    func testListRecordingsBuildsSearchQueryString() async throws {
+        RequestRecordingURLProtocol.responseBody = Data("[]".utf8)
+        let client = makeRecordingAPIClient()
+
+        _ = try await client.listRecordings(search: "the office")
+
+        let sentURL = RequestRecordingURLProtocol.lastRequest?.url
+        XCTAssertEqual(sentURL?.path, "/api/dvr/recordings")
+        XCTAssertEqual(sentURL?.query, "search=the%20office")
+    }
+
+    func testListRecordingsOmitsQueryStringWhenNoSearchGiven() async throws {
+        RequestRecordingURLProtocol.responseBody = Data("[]".utf8)
+        let client = makeRecordingAPIClient()
+
+        _ = try await client.listRecordings()
+
+        let sentURL = RequestRecordingURLProtocol.lastRequest?.url
+        XCTAssertEqual(sentURL?.path, "/api/dvr/recordings")
+        XCTAssertNil(sentURL?.query)
+    }
+
     // MARK: - Guide / DVR wrapper spot checks
 
     func testRefreshGuidePostsAndSucceedsWithNoBody() async throws {
