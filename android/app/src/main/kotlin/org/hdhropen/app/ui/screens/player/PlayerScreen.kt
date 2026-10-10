@@ -44,6 +44,7 @@ import org.hdhropen.kit.playback.PlaybackState
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlaybackMode
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.selectAudioTrack
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 
 fun enterPictureInPictureMode(activity: Activity, params: PictureInPictureParams): Boolean {

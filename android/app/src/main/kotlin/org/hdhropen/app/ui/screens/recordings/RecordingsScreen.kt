@@ -26,6 +26,7 @@ import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.HDHomeRunRecording
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playRecording
 import org.hdhropen.kit.viewmodels.RecordingCategoryFilter
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
 

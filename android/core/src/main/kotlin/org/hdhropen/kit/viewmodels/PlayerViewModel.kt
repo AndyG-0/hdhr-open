@@ -3,19 +3,14 @@ package org.hdhropen.kit.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.hdhropen.kit.models.*
 import org.hdhropen.kit.networking.APIClient
-import org.hdhropen.kit.networking.APIError
 import org.hdhropen.kit.networking.SyncPlayClient
 import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.*
@@ -31,137 +26,73 @@ enum class PlaybackMode {
     ServerTranscodedHls
 }
 
-/**
- * Mirrors TIER_ORDER/TIER_TARGET_MBPS/TIER_SCALE_HEIGHT in
- * HDHomeRunPlayer.svelte - the full tier ladder the auto-quality poll can
- * step through, including `minimal`, which the manual QualityPreference
- * picker never offers directly.
- */
-private enum class AutoTier(val backendValue: String, val targetMbps: Double, val maxSourceHeight: Int?) {
-    MINIMAL("minimal", 0.7, 360),
-    LOW("low", 1.5, 480),
-    MEDIUM("medium", 3.0, 720),
-    HIGH("high", 5.0, null)
-}
-
-private val AUTO_TIER_ORDER = listOf(AutoTier.MINIMAL, AutoTier.LOW, AutoTier.MEDIUM, AutoTier.HIGH)
-
-private fun QualityPreference.toAutoTier(): AutoTier = when (this) {
-    QualityPreference.LOW -> AutoTier.LOW
-    QualityPreference.MEDIUM -> AutoTier.MEDIUM
-    QualityPreference.HIGH, QualityPreference.AUTO -> AutoTier.HIGH
-}
-
-// A tier only belongs on the ladder if upscaling to it would actually mean
-// something for this source - same rationale as effectiveAutoTierOrder() in
-// HDHomeRunPlayer.svelte. Unknown source resolution keeps the full ladder.
-private fun effectiveAutoTierOrder(sourceHeight: Int?): List<AutoTier> {
-    if (sourceHeight == null || sourceHeight <= 0) return AUTO_TIER_ORDER
-    val ladder = AUTO_TIER_ORDER.filter { it == AutoTier.HIGH || (it.maxSourceHeight ?: Int.MAX_VALUE) < sourceHeight }
-    return if (ladder.size == 1) listOf(AutoTier.MINIMAL) + ladder else ladder
-}
-
-private fun stepDown(tier: AutoTier, ladder: List<AutoTier>): AutoTier? {
-    val idx = AUTO_TIER_ORDER.indexOf(tier)
-    for (i in idx - 1 downTo 0) {
-        if (AUTO_TIER_ORDER[i] in ladder) return AUTO_TIER_ORDER[i]
-    }
-    return null
-}
-
-private fun stepUp(tier: AutoTier, ladder: List<AutoTier>): AutoTier? {
-    val idx = AUTO_TIER_ORDER.indexOf(tier)
-    for (i in idx + 1 until AUTO_TIER_ORDER.size) {
-        if (AUTO_TIER_ORDER[i] in ladder) return AUTO_TIER_ORDER[i]
-    }
-    return null
-}
-
-private fun bestTierForSpeed(avgMbps: Double, ladder: List<AutoTier>, downgradeMargin: Double): AutoTier {
-    var best = ladder.first()
-    for (tier in ladder) {
-        if (avgMbps >= tier.targetMbps * downgradeMargin) best = tier
-    }
-    return best
-}
+// AutoTier and its ladder helpers live in PlayerViewModel+AutoQuality.kt,
+// alongside the auto-quality methods that are their only callers.
 
 @UnstableApi
 class PlayerViewModel(
-    private val apiClient: APIClient,
+    // Not private: used from PlayerViewModel+Streaming.kt's HLS session
+    // negotiation.
+    internal val apiClient: APIClient,
     val watchSessionManager: WatchSessionManager,
     val playerEngine: PlayerEngine = PlayerEngine(),
     val captionController: CaptionController = CaptionController(),
-    private val playbackPreferences: PlaybackPreferences = PlaybackPreferences(),
+    // Not private: read from PlayerViewModel+Streaming.kt's playChannel()
+    // and PlayerViewModel+AutoQuality.kt's initializeQualityForNewSession().
+    internal val playbackPreferences: PlaybackPreferences = PlaybackPreferences(),
     val liveCaptionAligner: LiveCaptionAligner = LiveCaptionAligner()
 ) : ViewModel() {
     private companion object {
-        const val CAPTION_POLL_INTERVAL_MS = 1_500L
-
         // Shared with HDHomeRunPlayer.svelte's auto-quality design - keep
         // these in sync across clients.
         const val STALL_WINDOW_MS = 20_000L
         const val STALL_THRESHOLD = 2
-        const val THROUGHPUT_SAMPLE_INTERVAL_MS = 5_000L
-        const val DOWNGRADE_SAMPLE_COUNT = 3
-        const val UPGRADE_SAMPLE_COUNT = 12
-        const val DOWNGRADE_MARGIN = 1.2
-        const val UPGRADE_MARGIN = 1.5
-        const val BASELINE_SAMPLE_COUNT = 24
-        const val BASELINE_DROP_RATIO = 0.5
-        const val BASELINE_NEAR_TARGET_RATIO = 0.8
-        const val BUFFER_TREND_SAMPLE_COUNT = 4
-        const val BUFFER_SAFE_FLOOR_SECONDS = 10.0
-        const val BUFFER_DRAIN_DROP_SECONDS = 3.0
     }
 
-    private var captionPollJob: Job? = null
+    // Not private: cancelled/started from PlayerViewModel+Streaming.kt's
+    // startCaptionPolling()/stopCaptionPolling().
+    internal var captionPollJob: Job? = null
 
-    private val _activeChannel = MutableStateFlow<HDHomeRunChannel?>(null)
+    // Not private: read/written from PlayerViewModel+Streaming.kt's HLS
+    // session negotiation.
+    internal val _activeChannel = MutableStateFlow<HDHomeRunChannel?>(null)
     val activeChannel: StateFlow<HDHomeRunChannel?> = _activeChannel.asStateFlow()
 
-    private val _activeAiring = MutableStateFlow<HDHomeRunGuideEntry?>(null)
+    internal val _activeAiring = MutableStateFlow<HDHomeRunGuideEntry?>(null)
     val activeAiring: StateFlow<HDHomeRunGuideEntry?> = _activeAiring.asStateFlow()
 
-    private val _activeRecording = MutableStateFlow<HDHomeRunRecording?>(null)
+    internal val _activeRecording = MutableStateFlow<HDHomeRunRecording?>(null)
     val activeRecording: StateFlow<HDHomeRunRecording?> = _activeRecording.asStateFlow()
 
-    private val _isWatchSession = MutableStateFlow(false)
+    internal val _isWatchSession = MutableStateFlow(false)
     val isWatchSession: StateFlow<Boolean> = _isWatchSession.asStateFlow()
 
-    private val _activeHLSSessionId = MutableStateFlow<String?>(null)
+    internal val _activeHLSSessionId = MutableStateFlow<String?>(null)
     val activeHLSSessionId: StateFlow<String?> = _activeHLSSessionId.asStateFlow()
 
-    private var hlsHeartbeatJob: Job? = null
-    private var serverSeekJob: Job? = null
+    // Not private: cancelled/started from PlayerViewModel+Streaming.kt's
+    // startHLSHeartbeat()/stopHLSHeartbeat().
+    internal var hlsHeartbeatJob: Job? = null
 
-    private fun startHLSHeartbeat(sessionId: String) {
-        hlsHeartbeatJob?.cancel()
-        hlsHeartbeatJob = viewModelScope.launch(Dispatchers.IO) {
-            while (isActive) {
-                delay(15_000)
-                if (!isActive) break
-                try {
-                    apiClient.heartbeatHLSSession(sessionId)
-                    Log.player.debug("Heartbeat sent for HLS session $sessionId")
-                } catch (e: Exception) {
-                    Log.player.warning("HLS heartbeat failed for $sessionId: ${e.localizedMessage}")
-                }
-            }
-        }
-    }
+    // Not private: cancelled/started from PlayerViewModel+Streaming.kt's
+    // seekRecordingViaServer(), cancelled from closePlayer() here.
+    internal var serverSeekJob: Job? = null
 
-    private fun stopHLSHeartbeat() {
-        hlsHeartbeatJob?.cancel()
-        hlsHeartbeatJob = null
-    }
+    // startHLSHeartbeat()/stopHLSHeartbeat() live in
+    // PlayerViewModel+Streaming.kt, alongside the HLS session negotiation
+    // methods that are their only callers.
 
-    private val _playbackMode = MutableStateFlow<PlaybackMode?>(null)
+    // Not private: read from PlayerViewModel+AutoQuality.kt's
+    // startAutoQualityPolling().
+    internal val _playbackMode = MutableStateFlow<PlaybackMode?>(null)
     val playbackMode: StateFlow<PlaybackMode?> = _playbackMode.asStateFlow()
 
-    private val _thumbnailCues = MutableStateFlow<List<ThumbnailCue>>(emptyList())
+    // Not private: written from PlayerViewModel+Streaming.kt's
+    // loadRecordingMetadata().
+    internal val _thumbnailCues = MutableStateFlow<List<ThumbnailCue>>(emptyList())
     val thumbnailCues: StateFlow<List<ThumbnailCue>> = _thumbnailCues.asStateFlow()
 
-    private val _thumbnailSpriteURL = MutableStateFlow<String?>(null)
+    internal val _thumbnailSpriteURL = MutableStateFlow<String?>(null)
     val thumbnailSpriteURL: StateFlow<String?> = _thumbnailSpriteURL.asStateFlow()
 
     private val _isPromoting = MutableStateFlow(false)
@@ -170,7 +101,9 @@ class PlayerViewModel(
     private val _isPromoted = MutableStateFlow(false)
     val isPromoted: StateFlow<Boolean> = _isPromoted.asStateFlow()
 
-    private val _isSwitchingAudioTrack = MutableStateFlow(false)
+    // Not private: written from PlayerViewModel+Streaming.kt's
+    // selectAudioTrack().
+    internal val _isSwitchingAudioTrack = MutableStateFlow(false)
     val isSwitchingAudioTrack: StateFlow<Boolean> = _isSwitchingAudioTrack.asStateFlow()
 
     // Per-session quality pick, refreshed from the persisted default
@@ -178,29 +111,39 @@ class PlayerViewModel(
     // time a new channel/recording starts - selectQuality() below only
     // changes it for the current session, mirroring how currentAudioTrack
     // is per-session with no persistence of its own.
-    private val _quality = MutableStateFlow(playbackPreferences.qualityPreference.value)
+    // Not private: read from PlayerViewModel+AutoQuality.kt's
+    // maybeStartAutoQualityPolling()/startAutoQualityPolling().
+    internal val _quality = MutableStateFlow(playbackPreferences.qualityPreference.value)
     val quality: StateFlow<QualityPreference> = _quality.asStateFlow()
 
-    private val _isSwitchingQuality = MutableStateFlow(false)
+    // Not private: written from PlayerViewModel+Streaming.kt's
+    // switchToQuality().
+    internal val _isSwitchingQuality = MutableStateFlow(false)
     val isSwitchingQuality: StateFlow<Boolean> = _isSwitchingQuality.asStateFlow()
 
     // The concrete tier AUTO is currently resolved to - tracked separately
     // from _quality (which stays AUTO while this moves between tiers).
-    private var autoEffectiveTier: AutoTier = AutoTier.HIGH
+    // Not private: read/written from PlayerViewModel+AutoQuality.kt's
+    // auto-quality methods, split into that file to keep this class under
+    // detekt's LargeClass cap.
+    internal var autoEffectiveTier: AutoTier = AutoTier.HIGH
 
-    private var autoQualityPollJob: Job? = null
-    private val stallTimestamps = mutableListOf<Long>()
-    private val speedSamplesMbps = mutableListOf<Double>()
-    private val bufferedAheadSamples = mutableListOf<Double>()
+    internal var autoQualityPollJob: Job? = null
+    internal val stallTimestamps = mutableListOf<Long>()
+    internal val speedSamplesMbps = mutableListOf<Double>()
+    internal val bufferedAheadSamples = mutableListOf<Double>()
 
-    private val _transientError = MutableStateFlow<String?>(null)
+    // Not private: written from PlayerViewModel+Streaming.kt's
+    // selectAudioTrack()/switchToQuality().
+    internal val _transientError = MutableStateFlow<String?>(null)
     val transientError: StateFlow<String?> = _transientError.asStateFlow()
 
     fun clearTransientError() {
         _transientError.value = null
     }
 
-    private val _fallbackNotice = MutableStateFlow<String?>(null)
+    // Not private: written from PlayerViewModel+Streaming.kt's playChannel().
+    internal val _fallbackNotice = MutableStateFlow<String?>(null)
     val fallbackNotice: StateFlow<String?> = _fallbackNotice.asStateFlow()
 
     private val _activeCommercialSegment = MutableStateFlow<CommercialSegment?>(null)
@@ -349,197 +292,9 @@ class PlayerViewModel(
             return _activeChannel.value?.name
         }
 
-    fun playChannel(channel: HDHomeRunChannel, airing: HDHomeRunGuideEntry? = null) {
-        viewModelScope.launch {
-            closePlayer()
-            initializeQualityForNewSession()
-            _activeChannel.value = channel
-            _activeAiring.value = airing ?: channel.now
-
-            if (syncPlayClient.isConnected.value && syncPlayClient.isHost.value) {
-                syncPlayClient.changeContent(
-                    SyncPlayContent(
-                        type = "channel",
-                        id = channel.channelNumber,
-                        title = airing?.title ?: channel.name,
-                        channelNumber = channel.channelNumber,
-                        playUrl = channel.playbackUrl
-                    )
-                )
-            }
-
-            val baseURL = apiClient.baseURL
-
-            // 0. Direct play: skips the watch session (so no live pause/rewind
-            // and no tuner sharing with other viewers) and server-side
-            // transcoding entirely, in exchange for lower latency/CPU - only
-            // for clients whose own platform can decode the tuner's raw
-            // MPEG-2/MPEG-TS stream, which ExoPlayer can.
-            val artworkUrl = airing?.imageUrl ?: channel.now?.imageUrl
-
-            if (playbackPreferences.directPlayEnabled.value) {
-                val directURL = StreamURLBuilder.liveStreamURL(baseURL, channel.channelNumber, direct = true)
-                _isWatchSession.value = false
-                _activeRecording.value = null
-                _activeHLSSessionId.value = null
-                _playbackMode.value = PlaybackMode.Direct
-                playerEngine.loadMedia(
-                    url = directURL,
-                    isLive = true,
-                    isSeekable = false,
-                    headers = hlsAuthHeaders(),
-                    title = mediaTitle,
-                    artworkUrl = artworkUrl
-                )
-                return@launch
-            }
-
-            val forCast = playerEngine.isCasting.value
-
-            // 1. Try starting a watch session for live pause/rewind, packaged as HLS
-            var watchStartFailed = false
-            try {
-                val watchRec = watchSessionManager.startWatch(channel.channelNumber)
-                val playUrl = watchRec?.playUrl
-                if (watchRec != null && playUrl != null) {
-                    val hlsSession = apiClient.createRecordingHLSSession(
-                        url = playUrl,
-                        recordingId = watchRec.recordingId,
-                        provider = watchRec.provider,
-                        forCast = forCast,
-                        quality = autoEffectiveTier.backendValue
-                    )
-                    // Uses the server's own playlist_url rather than
-                    // reconstructing it - when forCast is set, that URL is
-                    // scoped under a cast token and can't be derived from
-                    // sessionId alone.
-                    val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
-                    _activeRecording.value = watchRec
-                    _isWatchSession.value = true
-                    _activeHLSSessionId.value = hlsSession.sessionId
-                    startHLSHeartbeat(hlsSession.sessionId)
-                    _playbackMode.value = PlaybackMode.ServerTranscodedHls
-                    playerEngine.loadMedia(
-                        url = playlistURL,
-                        isLive = true,
-                        isSeekable = true,
-                        headers = hlsAuthHeaders(),
-                        title = mediaTitle,
-                        artworkUrl = artworkUrl ?: watchRec.imageUrl
-                    )
-                    loadRecordingMetadata(watchRec)
-                    maybeStartAutoQualityPolling()
-                    return@launch
-                } else {
-                    watchStartFailed = true
-                }
-            } catch (e: Exception) {
-                Log.player.warning("Watch session auto-start failed, falling back to direct HLS: ${e.localizedMessage}")
-                watchStartFailed = true
-            }
-
-            if (watchStartFailed) {
-                _fallbackNotice.value = "Live pause unavailable for this stream"
-            }
-
-            // 2. Direct HLS streaming fallback
-            try {
-                val rec = apiClient.createChannelHLSSession(channel.channelNumber, forCast = forCast, quality = autoEffectiveTier.backendValue)
-                val sessionId = rec.sessionId ?: throw APIError.DecodingError("Missing session_id")
-                val playlistURL = rec.playlistUrl?.let { StreamURLBuilder.resolve(baseURL, it) }
-                    ?: StreamURLBuilder.hlsPlaylistURL(baseURL = baseURL, sessionId = sessionId)
-                _isWatchSession.value = false
-                _activeRecording.value = if (rec.recordingId != null) rec else null
-                _activeHLSSessionId.value = sessionId
-                startHLSHeartbeat(sessionId)
-                _playbackMode.value = PlaybackMode.ServerTranscodedHls
-                playerEngine.loadMedia(
-                    url = playlistURL,
-                    isLive = true,
-                    isSeekable = false,
-                    headers = hlsAuthHeaders(),
-                    title = mediaTitle,
-                    artworkUrl = artworkUrl ?: rec.imageUrl
-                )
-                if (rec.recordingId != null) {
-                    loadRecordingMetadata(rec)
-                }
-                maybeStartAutoQualityPolling()
-            } catch (e: Exception) {
-                Log.player.error("Direct HLS channel stream failed: ${e.localizedMessage}")
-                setPlaybackError(e)
-            }
-        }
-    }
-
-    fun playRecording(recording: HDHomeRunRecording) {
-        viewModelScope.launch {
-            closePlayer()
-            initializeQualityForNewSession()
-            _activeRecording.value = recording
-            _activeChannel.value = null
-            _activeAiring.value = null
-            _isWatchSession.value = false
-
-            if (syncPlayClient.isConnected.value && syncPlayClient.isHost.value) {
-                syncPlayClient.changeContent(
-                    SyncPlayContent(
-                        type = "recording",
-                        id = recording.recordingId ?: "",
-                        title = recording.title,
-                        channelNumber = recording.channelNumber,
-                        playUrl = recording.playUrl
-                    )
-                )
-            }
-
-            val baseURL = apiClient.baseURL
-            val playUrl = recording.playUrl ?: return@launch
-
-            val initialDur = recording.durationSeconds?.takeIf { it > 0 }
-                ?: if (recording.start != null && recording.recordEnd != null && recording.recordEnd > recording.start) {
-                    recording.recordEnd - recording.start
-                } else null
-
-            try {
-                val hlsSession = apiClient.createRecordingHLSSession(
-                    url = playUrl,
-                    recordingId = recording.recordingId,
-                    provider = recording.provider,
-                    forCast = playerEngine.isCasting.value,
-                    quality = autoEffectiveTier.backendValue
-                )
-                val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
-                _activeHLSSessionId.value = hlsSession.sessionId
-                startHLSHeartbeat(hlsSession.sessionId)
-                _playbackMode.value = PlaybackMode.ServerTranscodedHls
-                playerEngine.loadMedia(
-                    url = playlistURL,
-                    isLive = recording.isInProgress,
-                    isSeekable = true,
-                    initialDuration = initialDur,
-                    headers = hlsAuthHeaders(),
-                    title = recording.title,
-                    artworkUrl = recording.imageUrl
-                )
-                loadRecordingMetadata(recording)
-                maybeStartAutoQualityPolling()
-            } catch (e: Exception) {
-                Log.player.error("Recording HLS stream failed: ${e.localizedMessage}")
-                setPlaybackError(e)
-            }
-        }
-    }
-
-    private fun setPlaybackError(e: Throwable) {
-        val parsed = PlaybackErrorMapper.mapApiError(e)
-        playerEngine.setFailed(
-            message = parsed.message,
-            detail = parsed.detail,
-            statusCode = parsed.statusCode,
-            isNetworkError = parsed.isNetworkError
-        )
-    }
+    // playChannel()/playRecording()/setPlaybackError() live in
+    // PlayerViewModel+Streaming.kt, alongside the rest of the HLS session
+    // negotiation.
 
     fun retry() {
         val channel = _activeChannel.value
@@ -569,102 +324,8 @@ class PlayerViewModel(
         }
     }
 
-    fun selectAudioTrack(track: HDHomeRunRecordingAudioInfo) {
-        // Audio track selection is baked into the HLS packaging itself
-        // (backend maps a specific source audio stream via ffmpeg's `-map`
-        // when building the session) rather than exposed as switchable
-        // in-stream tracks on the produced playlist, so "switching"
-        // requires starting a new HLS session with the new audio index
-        // and resuming playback at the current position.
-        if (_isSwitchingAudioTrack.value || track.index == playerEngine.currentAudioTrack.value?.index) return
-
-        viewModelScope.launch {
-            _isSwitchingAudioTrack.value = true
-            try {
-                val resumeTime = playerEngine.currentTime.value
-                val isLive = playerEngine.isLive.value
-                val isSeekable = playerEngine.isSeekable.value
-                val previousSessionId = _activeHLSSessionId.value
-                val previousAudioTracks = playerEngine.availableAudioTracks.value
-                val previousVideoSpecs = playerEngine.videoSpecs.value
-                val previousTranscodeInfo = playerEngine.transcodeInfo.value
-                val baseURL = apiClient.baseURL
-                val recording = _activeRecording.value
-                val channel = _activeChannel.value
-
-                val (sessionId, playlistUrl) = when {
-                    recording?.playUrl?.isNotEmpty() == true -> {
-                        val session = apiClient.createRecordingHLSSession(
-                            url = recording.playUrl,
-                            recordingId = recording.recordingId,
-                            start = resumeTime,
-                            audioIndex = track.index,
-                            provider = recording.provider,
-                            forCast = playerEngine.isCasting.value
-                        )
-                        session.sessionId to session.playlistUrl
-                    }
-                    channel != null -> {
-                        val session = apiClient.createChannelHLSSession(
-                            channelNumber = channel.channelNumber,
-                            forCast = playerEngine.isCasting.value,
-                            audioIndex = track.index
-                        )
-                        (session.sessionId ?: return@launch) to (session.playUrl ?: return@launch)
-                    }
-                    else -> return@launch
-                }
-
-                val playlistURL = StreamURLBuilder.resolve(baseURL, playlistUrl)
-                _activeHLSSessionId.value = sessionId
-                startHLSHeartbeat(sessionId)
-                // loadMedia() calls reset() internally, which wipes the audio
-                // track list/video specs - restore them with the selected track atomically.
-                playerEngine.loadMedia(
-                    url = playlistURL,
-                    isLive = isLive,
-                    isSeekable = isSeekable,
-                    headers = hlsAuthHeaders(),
-                    title = recording?.title ?: channel?.name,
-                    artworkUrl = recording?.imageUrl
-                )
-                playerEngine.setAudioTracks(previousAudioTracks, selectedTrack = track)
-                playerEngine.setVideoSpecs(previousVideoSpecs)
-                playerEngine.setTranscodeInfo(previousTranscodeInfo)
-
-                if (previousSessionId != null) {
-                    viewModelScope.launch {
-                        try {
-                            apiClient.stopHLSSession(previousSessionId)
-                        } catch (e: Exception) {
-                            // Ignore
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.player.error("Audio track switch failed: ${e.localizedMessage}")
-                _transientError.value = "Failed to switch audio track: ${e.localizedMessage ?: "Unknown error"}"
-            } finally {
-                _isSwitchingAudioTrack.value = false
-            }
-        }
-    }
-
-    // Called right after closePlayer() at the start of playChannel()/
-    // playRecording(), before any network call - refreshes the per-session
-    // quality pick from the persisted default so a prior session's manual
-    // override doesn't leak into unrelated content.
-    private fun initializeQualityForNewSession() {
-        stopAutoQualityPolling()
-        _quality.value = playbackPreferences.qualityPreference.value
-        autoEffectiveTier = if (_quality.value == QualityPreference.AUTO) AutoTier.HIGH else _quality.value.toAutoTier()
-    }
-
-    // Called once a session's loadMedia() has actually been issued - Direct
-    // play has no HLS session to adjust, so it's never started there.
-    private fun maybeStartAutoQualityPolling() {
-        if (_quality.value == QualityPreference.AUTO) startAutoQualityPolling()
-    }
+    // selectAudioTrack() lives in PlayerViewModel+Streaming.kt.
+    // initializeQualityForNewSession() lives in PlayerViewModel+AutoQuality.kt.
 
     /** User-facing quality picker entry point - parity with selectAudioTrack(). */
     fun selectQuality(preference: QualityPreference) {
@@ -681,254 +342,8 @@ class PlayerViewModel(
         }
     }
 
-    private fun resetAutoQualitySamples() {
-        speedSamplesMbps.clear()
-        bufferedAheadSamples.clear()
-        stallTimestamps.clear()
-    }
-
-    private fun isBufferDraining(): Boolean {
-        if (bufferedAheadSamples.size < BUFFER_TREND_SAMPLE_COUNT) return false
-        val newest = bufferedAheadSamples.last()
-        val oldest = bufferedAheadSamples.first()
-        return newest < BUFFER_SAFE_FLOOR_SECONDS && (oldest - newest) >= BUFFER_DRAIN_DROP_SECONDS
-    }
-
-    private fun startAutoQualityPolling() {
-        if (_playbackMode.value == PlaybackMode.Direct) return
-        if (autoQualityPollJob?.isActive == true) return
-        resetAutoQualitySamples()
-        autoQualityPollJob = viewModelScope.launch {
-            while (isActive) {
-                delay(THROUGHPUT_SAMPLE_INTERVAL_MS)
-                if (_quality.value != QualityPreference.AUTO) break
-                sampleAutoQualityTick()
-            }
-        }
-    }
-
-    private fun stopAutoQualityPolling() {
-        autoQualityPollJob?.cancel()
-        autoQualityPollJob = null
-    }
-
-    // Mirrors sampleThroughput() in HDHomeRunPlayer.svelte: buffer-drain is
-    // the necessary gate for any throughput-triggered downgrade: measured
-    // speed alone only picks *which* tier to land on once (1) or (2) from
-    // the shared design has already justified a downgrade.
-    private fun sampleAutoQualityTick() {
-        playerEngine.bufferedAheadSeconds()?.let { bufferedAhead ->
-            bufferedAheadSamples.add(bufferedAhead)
-            while (bufferedAheadSamples.size > BUFFER_TREND_SAMPLE_COUNT) bufferedAheadSamples.removeAt(0)
-        }
-
-        val speedMbps = (playerEngine.observedBitrateBps.value ?: return) / 1_000_000.0
-        speedSamplesMbps.add(speedMbps)
-        while (speedSamplesMbps.size > BASELINE_SAMPLE_COUNT) speedSamplesMbps.removeAt(0)
-
-        val ladder = effectiveAutoTierOrder(playerEngine.videoSpecs.value?.height)
-        val tier = autoEffectiveTier
-
-        val recentWindow = speedSamplesMbps.takeLast(DOWNGRADE_SAMPLE_COUNT)
-        if (recentWindow.size >= DOWNGRADE_SAMPLE_COUNT && isBufferDraining()) {
-            val recentAvg = recentWindow.average()
-            val baselineAvg = speedSamplesMbps.average()
-            val tierTarget = tier.targetMbps
-            val baselineNearTarget = baselineAvg >= tierTarget * BASELINE_NEAR_TARGET_RATIO
-
-            if (baselineNearTarget) {
-                if (recentAvg < tierTarget * DOWNGRADE_MARGIN) {
-                    val target = bestTierForSpeed(recentAvg, ladder, DOWNGRADE_MARGIN)
-                    if (AUTO_TIER_ORDER.indexOf(target) < AUTO_TIER_ORDER.indexOf(tier)) {
-                        applyAutoAdjustment(target)
-                        return
-                    }
-                }
-            } else if (recentAvg < baselineAvg * BASELINE_DROP_RATIO) {
-                stepDown(tier, ladder)?.let { target ->
-                    applyAutoAdjustment(target)
-                    return
-                }
-            }
-        }
-
-        val nextUp = stepUp(tier, ladder) ?: return
-        val upgradeWindow = speedSamplesMbps.takeLast(UPGRADE_SAMPLE_COUNT)
-        if (upgradeWindow.size < UPGRADE_SAMPLE_COUNT) return
-        if (stallTimestamps.isNotEmpty()) return
-        if (upgradeWindow.average() < nextUp.targetMbps * UPGRADE_MARGIN) return
-        applyAutoAdjustment(nextUp)
-    }
-
-    private fun applyAutoDowngradeOneTier() {
-        val ladder = effectiveAutoTierOrder(playerEngine.videoSpecs.value?.height)
-        val target = stepDown(autoEffectiveTier, ladder) ?: return
-        applyAutoAdjustment(target)
-    }
-
-    private fun applyAutoAdjustment(target: AutoTier) {
-        autoEffectiveTier = target
-        resetAutoQualitySamples()
-        switchToQuality(target.backendValue)
-    }
-
-    // The actual session-swap: follows the exact template of
-    // selectAudioTrack() (new HLS session at the new quality, resume
-    // position, restore engine state, stop the old session in the
-    // background), just keyed on `quality` instead of `audioIndex`, and
-    // preserving the current audio track selection across the swap.
-    private fun switchToQuality(backendValue: String?) {
-        if (_isSwitchingQuality.value) return
-        viewModelScope.launch {
-            _isSwitchingQuality.value = true
-            try {
-                val resumeTime = playerEngine.currentTime.value
-                val isLive = playerEngine.isLive.value
-                val isSeekable = playerEngine.isSeekable.value
-                val previousSessionId = _activeHLSSessionId.value
-                val previousAudioTracks = playerEngine.availableAudioTracks.value
-                val previousTrack = playerEngine.currentAudioTrack.value
-                val previousVideoSpecs = playerEngine.videoSpecs.value
-                val previousTranscodeInfo = playerEngine.transcodeInfo.value
-                val baseURL = apiClient.baseURL
-                val recording = _activeRecording.value
-                val channel = _activeChannel.value
-
-                val (sessionId, playlistUrl) = when {
-                    recording?.playUrl?.isNotEmpty() == true -> {
-                        val session = apiClient.createRecordingHLSSession(
-                            url = recording.playUrl,
-                            recordingId = recording.recordingId,
-                            start = resumeTime,
-                            audioIndex = previousTrack?.index,
-                            provider = recording.provider,
-                            forCast = playerEngine.isCasting.value,
-                            quality = backendValue
-                        )
-                        session.sessionId to session.playlistUrl
-                    }
-                    channel != null -> {
-                        val session = apiClient.createChannelHLSSession(
-                            channelNumber = channel.channelNumber,
-                            forCast = playerEngine.isCasting.value,
-                            audioIndex = previousTrack?.index,
-                            quality = backendValue
-                        )
-                        (session.sessionId ?: return@launch) to (session.playUrl ?: return@launch)
-                    }
-                    else -> return@launch
-                }
-
-                val playlistURL = StreamURLBuilder.resolve(baseURL, playlistUrl)
-                _activeHLSSessionId.value = sessionId
-                startHLSHeartbeat(sessionId)
-                playerEngine.loadMedia(
-                    url = playlistURL,
-                    isLive = isLive,
-                    isSeekable = isSeekable,
-                    headers = hlsAuthHeaders(),
-                    title = recording?.title ?: channel?.name,
-                    artworkUrl = recording?.imageUrl
-                )
-                playerEngine.setAudioTracks(previousAudioTracks, selectedTrack = previousTrack)
-                playerEngine.setVideoSpecs(previousVideoSpecs)
-                playerEngine.setTranscodeInfo(previousTranscodeInfo)
-
-                if (previousSessionId != null) {
-                    viewModelScope.launch {
-                        try {
-                            apiClient.stopHLSSession(previousSessionId)
-                        } catch (e: Exception) {
-                            // Ignore
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.player.error("Quality switch failed: ${e.localizedMessage}")
-                _transientError.value = "Failed to switch quality: ${e.localizedMessage ?: "Unknown error"}"
-            } finally {
-                _isSwitchingQuality.value = false
-            }
-        }
-    }
-
-    private fun hlsAuthHeaders(): Map<String, String> =
-        apiClient.bearerToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
-
-    private fun loadRecordingMetadata(recording: HDHomeRunRecording) {
-        val recId = recording.recordingId ?: return
-        val playUrl = recording.playUrl ?: return
-
-        viewModelScope.launch {
-            val baseURL = apiClient.baseURL
-
-            // Fetch Detail (audio tracks, video specs)
-            try {
-                val detail = apiClient.getRecordingDetail(
-                    url = playUrl,
-                    recordingId = recId,
-                    start = recording.start,
-                    recordEnd = recording.recordEnd,
-                    provider = recording.provider
-                )
-                playerEngine.setAudioTracks(detail.audio)
-                playerEngine.setVideoSpecs(detail.video)
-                playerEngine.setTranscodeInfo(detail.transcode)
-                playerEngine.setCommercialSegments(detail.commercialSegments)
-                detail.durationSeconds?.let { dur ->
-                    if (dur > 0) playerEngine.setDuration(dur)
-                }
-            } catch (e: Exception) {
-                // Detail is optional
-            }
-
-            // Fetch Thumbnails VTT
-            try {
-                val vttURL = StreamURLBuilder.thumbnailVttURL(
-                    baseURL = baseURL,
-                    recordingId = recId,
-                    playUrl = playUrl,
-                    recordEnd = recording.recordEnd,
-                    provider = recording.provider
-                )
-                _thumbnailSpriteURL.value = StreamURLBuilder.thumbnailSpriteURL(
-                    baseURL = baseURL,
-                    recordingId = recId,
-                    playUrl = playUrl,
-                    recordEnd = recording.recordEnd,
-                    provider = recording.provider
-                )
-                val vttString = apiClient.fetchRawString(vttURL)
-                _thumbnailCues.value = VTTParser.parseThumbnailVtt(vttString)
-            } catch (e: Exception) {
-                // Thumbnails are optional
-            }
-
-            fetchCaptionsOnce(recording)
-            startCaptionPolling(recording)
-        }
-    }
-
-    private suspend fun fetchCaptionsOnce(recording: HDHomeRunRecording) {
-        val recId = recording.recordingId ?: return
-        val playUrl = recording.playUrl ?: return
-        try {
-            val capURL = StreamURLBuilder.captionsURL(
-                baseURL = apiClient.baseURL,
-                recordingId = recId,
-                playUrl = playUrl,
-                recordEnd = recording.recordEnd,
-                provider = recording.provider
-            )
-            val capString = apiClient.fetchRawString(capURL)
-            val cues = VTTParser.parseCaptions(capString)
-            liveCaptionAligner.lastRawCues = cues
-            val aligned = liveCaptionAligner.alignLiveCues(recording, cues, playerEngine.currentTime.value)
-            captionController.setCues(aligned)
-        } catch (e: Exception) {
-            // Captions are optional / not extracted yet - poller (if running) retries next tick
-        }
-    }
+    // switchToQuality()/hlsAuthHeaders()/loadRecordingMetadata()/
+    // fetchCaptionsOnce() live in PlayerViewModel+Streaming.kt.
 
     fun play() {
         playerEngine.play()
@@ -970,78 +385,7 @@ class PlayerViewModel(
         }
     }
 
-    private fun seekRecordingViaServer(recording: HDHomeRunRecording, playUrl: String, targetSeconds: Double) {
-        serverSeekJob?.cancel()
-
-        val previousSessionId = _activeHLSSessionId.value
-        val previousAudioTracks = playerEngine.availableAudioTracks.value
-        val previousTrack = playerEngine.currentAudioTrack.value
-        val previousVideoSpecs = playerEngine.videoSpecs.value
-        val previousTranscodeInfo = playerEngine.transcodeInfo.value
-        val previousCommercialSegments = playerEngine.commercialSegments.value
-        val totalDuration = if (playerEngine.duration.value > 0) playerEngine.duration.value else (recording.durationSeconds ?: 0.0)
-        val isLive = recording.isInProgress
-        val isSeekable = playerEngine.isSeekable.value
-
-        // Update position and pause playback without seeking the out-of-range old item
-        playerEngine.prepareForServerSeek(targetSeconds)
-
-        serverSeekJob = viewModelScope.launch {
-            val baseURL = apiClient.baseURL
-            try {
-                val hlsSession = apiClient.createRecordingHLSSession(
-                    url = playUrl,
-                    recordingId = recording.recordingId,
-                    start = targetSeconds,
-                    audioIndex = previousTrack?.index,
-                    provider = recording.provider,
-                    forCast = playerEngine.isCasting.value
-                )
-                if (!isActive) {
-                    viewModelScope.launch(NonCancellable) {
-                        try {
-                            apiClient.stopHLSSession(hlsSession.sessionId)
-                        } catch (e: Exception) {
-                            // Ignore
-                        }
-                    }
-                    return@launch
-                }
-                val playlistURL = StreamURLBuilder.resolve(baseURL, hlsSession.playlistUrl)
-                _activeHLSSessionId.value = hlsSession.sessionId
-                startHLSHeartbeat(hlsSession.sessionId)
-
-                playerEngine.loadMedia(
-                    url = playlistURL,
-                    isLive = isLive,
-                    isSeekable = isSeekable,
-                    initialDuration = totalDuration,
-                    initialTimeOffset = targetSeconds,
-                    headers = hlsAuthHeaders(),
-                    title = recording.title,
-                    artworkUrl = recording.imageUrl
-                )
-                playerEngine.setAudioTracks(previousAudioTracks, selectedTrack = previousTrack)
-                playerEngine.setVideoSpecs(previousVideoSpecs)
-                playerEngine.setTranscodeInfo(previousTranscodeInfo)
-                playerEngine.setCommercialSegments(previousCommercialSegments)
-
-                if (previousSessionId != null) {
-                    viewModelScope.launch(NonCancellable) {
-                        try {
-                            apiClient.stopHLSSession(previousSessionId)
-                        } catch (e: Exception) {
-                            // Ignore
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                if (isActive) {
-                    Log.player.error("Server seek failed: ${e.localizedMessage}")
-                }
-            }
-        }
-    }
+    // seekRecordingViaServer() lives in PlayerViewModel+Streaming.kt.
 
     fun skipForward(seconds: Double = 10.0) {
         val target = playerEngine.currentTime.value + seconds
@@ -1138,42 +482,8 @@ class PlayerViewModel(
         }
     }
 
-    private fun resyncCaptionsAfterSeek() {
-        val recording = _activeRecording.value ?: return
-        val resynced = liveCaptionAligner.resyncCaptionsAfterSeek(recording, playerEngine.currentTime.value)
-        if (resynced != null) {
-            captionController.setCues(resynced)
-        }
-    }
-
-    private fun startCaptionPolling(recording: HDHomeRunRecording) {
-        if (!recording.isInProgress) return
-        captionPollJob?.cancel()
-        captionPollJob = viewModelScope.launch {
-            while (isActive) {
-                delay(CAPTION_POLL_INTERVAL_MS)
-                val current = _activeRecording.value ?: break
-                val wasInProgress = current.isInProgress
-                if (!wasInProgress) {
-                    fetchCaptionsOnce(current)
-                    break
-                }
-                val start = current.start
-                if (start != null) {
-                    val elapsed = (System.currentTimeMillis() / 1000.0) - start
-                    if (elapsed > playerEngine.duration.value) {
-                        playerEngine.setDuration(elapsed)
-                    }
-                }
-                fetchCaptionsOnce(current)
-            }
-        }
-    }
-
-    private fun stopCaptionPolling() {
-        captionPollJob?.cancel()
-        captionPollJob = null
-    }
+    // resyncCaptionsAfterSeek()/startCaptionPolling()/stopCaptionPolling()
+    // live in PlayerViewModel+Streaming.kt.
 
     fun closePlayer() {
         serverSeekJob?.cancel()

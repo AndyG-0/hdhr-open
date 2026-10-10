@@ -16,6 +16,7 @@ import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.CaptionController
 import org.hdhropen.kit.playback.PlayerEngine
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playChannel
 import org.junit.After
 import org.junit.Before
 import org.junit.Test

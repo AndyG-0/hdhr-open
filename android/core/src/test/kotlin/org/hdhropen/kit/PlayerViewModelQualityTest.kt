@@ -20,6 +20,7 @@ import org.hdhropen.kit.playback.PlayerEngine
 import org.hdhropen.kit.playback.QualityPreference
 import org.hdhropen.kit.viewmodels.PlaybackMode
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.sampleAutoQualityTick
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -119,8 +120,7 @@ class PlayerViewModelQualityTest {
     }
 
     private fun sampleAutoQualityTick(vm: PlayerViewModel) {
-        val method = PlayerViewModel::class.java.getDeclaredMethod("sampleAutoQualityTick").apply { isAccessible = true }
-        method.invoke(vm)
+        vm.sampleAutoQualityTick()
     }
 
     @Test

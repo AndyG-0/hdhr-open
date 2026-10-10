@@ -19,6 +19,8 @@ import org.hdhropen.kit.networking.HLSSessionResponse
 import org.hdhropen.kit.networking.WatchSessionManager
 import org.hdhropen.kit.playback.*
 import org.hdhropen.kit.viewmodels.PlayerViewModel
+import org.hdhropen.kit.viewmodels.playChannel
+import org.hdhropen.kit.viewmodels.playRecording
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
