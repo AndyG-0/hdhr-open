@@ -103,4 +103,42 @@ public final class SettingsViewModel: ObservableObject {
         connectionStatus = ok ? "Server reachable" : "Server unreachable"
         return ok
     }
+
+    // MARK: - Server URL Validation
+
+    /// Parses a server-URL text field's contents into a `URL`, requiring both
+    /// a scheme and a host so inputs like "192.168.1.10" (no scheme) or
+    /// "http://" (no host) are rejected - `URL(string:)` alone would accept
+    /// those and leave callers thinking they have a connectable address.
+    /// Shared by iOS and tvOS so "Connect"/"Save" is enabled under identical
+    /// conditions on both platforms.
+    public func parsedServerURL(from input: String) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), url.scheme != nil, url.host != nil else {
+            return nil
+        }
+        return url
+    }
+
+    /// Debounced auto-connect shared by both platforms' server-URL text
+    /// fields: callers re-invoke this from a `.task(id:)` keyed on the raw
+    /// input, so a still-in-progress call is cancelled automatically as soon
+    /// as the text changes again - only a pause in typing lets it run to
+    /// completion.
+    ///
+    /// This can be reached with a still-incomplete address (a pause
+    /// mid-typing), so it must confirm reachability before returning a URL -
+    /// otherwise a failed premature attempt would get committed as "current"
+    /// and, since this only re-runs when the input itself changes, it would
+    /// never retry on its own once the address is completed. Returns `nil`
+    /// when there's nothing to do; the caller is responsible for actually
+    /// committing the URL (e.g. via `AppEnvironment.setServerURL`).
+    public func attemptAutoConnect(for input: String, currentServerURLString: String) async -> URL? {
+        try? await Task.sleep(nanoseconds: 800_000_000)
+        guard !Task.isCancelled else { return nil }
+        guard let url = parsedServerURL(from: input) else { return nil }
+        guard input != currentServerURLString else { return nil }
+        guard await testServerConnection(url: url) else { return nil }
+        return url
+    }
 }

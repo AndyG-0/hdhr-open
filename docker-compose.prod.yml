@@ -7,6 +7,12 @@
 x-podman:
   in_pod: false
 
+# HDHROPEN_VERSION is the supported way to pin or roll back the deployed
+# version (e.g. `HDHROPEN_VERSION=0.7.0 docker compose -f docker-compose.prod.yml up -d`).
+# Both image: lines below default to `latest`, and pull_policy: always means
+# a plain `up -d` re-pulls and switches to whatever `latest` currently
+# points at — set HDHROPEN_VERSION in a .env file next to this compose file
+# (or on the command line) to stay on a known-good tag instead.
 services:
   backend:
     image: ghcr.io/andyg-0/hdhropen-backend:${HDHROPEN_VERSION:-latest}
@@ -23,6 +29,12 @@ services:
       # container's, so BACKEND_PORT alone is enough to dodge a host-port
       # collision with another service. Keep PUBLIC_API_BASE_URL below in
       # sync if you change BACKEND_PORT.
+      #
+      # Binds to all interfaces by default — this is the product's core
+      # self-hosting/LAN-access use case and stays the default. For a
+      # reverse-proxy-only deployment that shouldn't expose this port on
+      # every interface, the supported pattern is to bind to loopback only,
+      # e.g. "127.0.0.1:${BACKEND_PORT:-8000}:${UVICORN_PORT:-8000}".
       - "${BACKEND_PORT:-8000}:${UVICORN_PORT:-8000}"
     environment:
       # What port uvicorn actually binds to inside the container (see
@@ -169,6 +181,11 @@ services:
       # supported across Compose implementations).
       - PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL:-http://localhost:8000}
     ports:
+      # Binds to all interfaces by default — this is the product's core
+      # self-hosting/LAN-access use case and stays the default. For a
+      # reverse-proxy-only deployment that shouldn't expose this port on
+      # every interface, the supported pattern is to bind to loopback only,
+      # e.g. "127.0.0.1:3000:3000".
       - "3000:3000"
     depends_on:
       backend:

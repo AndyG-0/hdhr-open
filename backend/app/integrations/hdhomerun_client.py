@@ -451,6 +451,7 @@ async def resolve_hostname(ip: str | None) -> str | None:
 
 def _guide_entry_dict(entry: dict[str, Any], channel_number: str = "") -> dict[str, Any]:
     filters = entry.get("Filter")
+    category: str | None
     if isinstance(filters, list):
         category = ", ".join(str(f) for f in filters if f)
     else:
@@ -709,7 +710,8 @@ async def fetch_dvr_ssh_clients(settings: dict[str, Any]) -> list[dict[str, Any]
                 continue
             if proc.exit_status != 0:
                 continue
-            ips = _parse_ssh_socket_clients(proc.stdout or "", port)
+            stdout = proc.stdout or ""
+            ips = _parse_ssh_socket_clients(stdout if isinstance(stdout, str) else stdout.decode(), port)
             break
     finally:
         conn.close()

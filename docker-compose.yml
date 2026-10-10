@@ -19,6 +19,12 @@ services:
       # container's, so BACKEND_PORT alone is enough to dodge a host-port
       # collision with another service. Keep PUBLIC_API_BASE_URL below in
       # sync if you change BACKEND_PORT.
+      #
+      # Binds to all interfaces by default — this is the product's core
+      # self-hosting/LAN-access use case and stays the default. For a
+      # reverse-proxy-only deployment that shouldn't expose this port on
+      # every interface, the supported pattern is to bind to loopback only,
+      # e.g. "127.0.0.1:${BACKEND_PORT:-8000}:${UVICORN_PORT:-8000}".
       - "${BACKEND_PORT:-8000}:${UVICORN_PORT:-8000}"
     environment:
       # What port uvicorn actually binds to inside the container (see
@@ -164,6 +170,11 @@ services:
       # supported across Compose implementations).
       - PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL:-http://localhost:8000}
     ports:
+      # Binds to all interfaces by default — this is the product's core
+      # self-hosting/LAN-access use case and stays the default. For a
+      # reverse-proxy-only deployment that shouldn't expose this port on
+      # every interface, the supported pattern is to bind to loopback only,
+      # e.g. "127.0.0.1:3000:3000".
       - "3000:3000"
     depends_on:
       backend:

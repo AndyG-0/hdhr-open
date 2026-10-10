@@ -34,5 +34,22 @@ class AppEnvironment(
     fun updateServerURL(url: String) {
         serverDiscovery.setServerURL(url)
         apiClient.baseURL = url
+        apiClient.cookieJar.clear()
+    }
+
+    /**
+     * Tears down everything this environment owns that otherwise outlives
+     * it: [watchSessionManager] and [playerEngine] each default-construct
+     * their own `CoroutineScope(Dispatchers.Main + SupervisorJob())`, which
+     * is never cancelled on its own. AppEnvironment is currently created
+     * per-MainActivity instance (see MainActivity.onCreate) rather than
+     * being a true application-lifetime singleton, so without this call
+     * those scopes - and anything still running in them - leak across
+     * activity recreations. Call once, from `MainActivity.onDestroy()`.
+     */
+    fun shutdown() {
+        watchSessionManager.cancel()
+        playerEngine.release()
+        playerEngine.cancel()
     }
 }

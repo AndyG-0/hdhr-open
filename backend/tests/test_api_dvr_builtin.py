@@ -2045,6 +2045,80 @@ def test_resolve_target_media_url_falls_through_for_hdhomerun_provider(tmp_db, m
     mock_resolve.assert_called_once_with(settings, "/recorded/off_1")
 
 
+def test_resolve_target_media_url_rejects_relative_traversal_string(tmp_db, tmp_path, monkeypatch):
+    """A classic `../../etc/passwd`-style *relative* traversal string must
+    be rejected the same way an absolute path outside RECORDINGS_DIR is -
+    the containment check must not be foolable just because the input has
+    no leading slash. RECORDINGS_DIR is tmp_path (see conftest's
+    _isolate_recordings_dir); the traversal string below is a real relative
+    path, from tmp_path, up and back down into a sibling directory outside
+    it."""
+    outside_dir = tmp_path.parent / "outside_traversal"
+    outside_dir.mkdir(exist_ok=True)
+    secret_file = outside_dir / "passwd"
+    secret_file.write_bytes(b"root:x:0:0:root:/root:/bin/bash")
+
+    traversal_url = os.path.relpath(secret_file, tmp_path)
+    assert traversal_url.startswith("..")
+
+    monkeypatch.chdir(tmp_path)
+    resolved = dvr_streaming._resolve_target_media_url({"tuner_host": "", "dvr_host": ""}, traversal_url)
+
+    assert resolved != str(secret_file.resolve())
+
+
+def test_resolve_local_media_path_for_edl_returns_local_path_when_file_exists(tmp_db, tmp_path):
+    """For a builtin (non-hdhomerun) recording, `target_url` itself is the
+    local comskip-adjacent file path - it must be returned as-is when that
+    file exists."""
+    video_file = tmp_path / "recording.ts"
+    video_file.write_bytes(b"video-bytes")
+
+    result = dvr_streaming._resolve_local_media_path_for_edl(str(video_file), "rec_1", "builtin", {}, None)
+
+    assert result == video_file
+
+
+def test_resolve_local_media_path_for_edl_returns_none_when_file_missing(tmp_db, tmp_path):
+    missing_file = tmp_path / "does_not_exist.ts"
+
+    result = dvr_streaming._resolve_local_media_path_for_edl(str(missing_file), "rec_1", "builtin", {}, None)
+
+    assert result is None
+
+
+def test_resolve_local_media_path_for_edl_returns_none_without_dvr_recordings_path(tmp_db):
+    """A hdhomerun-provider recording with no configured local DVR mount
+    can't be resolved to a local path at all - must return None rather than
+    raise or guess a path."""
+    result = dvr_streaming._resolve_local_media_path_for_edl(
+        "http://dvr.local:50000/recorded/off_1", "off_1", "hdhomerun", {}, "off_1.ts"
+    )
+
+    assert result is None
+
+
+def test_resolve_local_media_path_for_edl_resolves_hdhomerun_mount(tmp_db, tmp_path):
+    """A hdhomerun-provider recording with a configured local DVR mount
+    resolves via the filename reported by the DVR engine, joined onto that
+    mount - mirroring app.dvr.builtin.comskip.resolve_hdhomerun_local_path's
+    own containment guard (which this function delegates to)."""
+    recordings_path = tmp_path / "dvr_mount"
+    recordings_path.mkdir()
+    recorded_file = recordings_path / "Show Name 2024-01-01.ts"
+    recorded_file.write_bytes(b"video-bytes")
+
+    result = dvr_streaming._resolve_local_media_path_for_edl(
+        "http://dvr.local:50000/recorded/off_1",
+        "off_1",
+        "hdhomerun",
+        {"dvr_recordings_path": str(recordings_path)},
+        "Show Name 2024-01-01.ts",
+    )
+
+    assert result == recorded_file
+
+
 def _spy_on_build_ffmpeg_args(monkeypatch, captured_kwargs: dict):
     real_build = dvr_streaming.transcoding.build_ffmpeg_args
 

@@ -6,7 +6,19 @@ IFS=$'\n\t'
 readonly REPOSITORY_URL="${HDHROPEN_REPOSITORY_URL:-https://github.com/andyg-0/hdhr-open.git}"
 readonly REPOSITORY_REF="${HDHROPEN_REPOSITORY_REF:-main}"
 OS_RELEASE_FILE="${HDHROPEN_OS_RELEASE_FILE:-/etc/os-release}"
-readonly NODE_SETUP_URL="https://deb.nodesource.com/setup_20.x"
+# Node.js is installed from NodeSource's apt repo, configured manually below
+# (GPG key + explicit sources.list entry) rather than by piping NodeSource's
+# setup script into `sudo bash` — same outcome, without trusting a remote
+# script with root. See install_nodejs().
+readonly NODE_MAJOR="${HDHROPEN_NODE_MAJOR:-20}"
+readonly NODE_GPG_KEY_URL="https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key"
+readonly NODE_KEYRING="/etc/apt/keyrings/nodesource.gpg"
+# uv is installed from a pinned, checksum-verified GitHub release tarball
+# rather than by piping astral.sh's install script into `sh` — this mirrors
+# what astral-sh/setup-uv@v4 already does under the hood in CI. Bump this
+# (and nothing else) to pick up a newer uv release; the matching .sha256
+# published alongside that release is what gets verified against.
+readonly UV_VERSION="0.13.0"
 SYSTEMD_DIR="${HDHROPEN_SYSTEMD_DIR:-/etc/systemd/system}"
 
 INSTALL_USER="${INSTALL_USER:-}"
@@ -136,20 +148,90 @@ validate_platform() {
 install_system_dependencies() {
   info "Installing system dependencies"
   sudo apt-get update
-  sudo apt-get install -y ca-certificates curl git build-essential python3
+  sudo apt-get install -y ca-certificates curl gnupg git build-essential python3
 
-  if ! command -v node >/dev/null 2>&1 || [[ "$(node --version | sed 's/^v//' | cut -d. -f1)" -lt 20 ]]; then
-    info "Installing Node.js 20"
-    curl -fsSL "$NODE_SETUP_URL" | sudo -E bash -
-    sudo apt-get install -y nodejs
+  if ! command -v node >/dev/null 2>&1 || [[ "$(node --version | sed 's/^v//' | cut -d. -f1)" -lt "$NODE_MAJOR" ]]; then
+    install_nodejs
   fi
 }
 
-install_uv() {
-  if [[ ! -x "$INSTALL_HOME/.local/bin/uv" ]]; then
-    info "Installing uv"
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+# Configures NodeSource's apt repo by hand (GPG key + explicit sources.list
+# entry) instead of piping their setup script into `sudo bash`, so we're
+# never executing an unreviewed remote script as root. This follows
+# NodeSource's own documented manual-install steps, adapted to verify the
+# key before trusting it.
+install_nodejs() {
+  info "Installing Node.js ${NODE_MAJOR}.x"
+
+  local key_tmp
+  key_tmp="$(mktemp)"
+  require_command curl
+  curl -fsSL "$NODE_GPG_KEY_URL" -o "$key_tmp" || { rm -f "$key_tmp"; fail "Failed to download the NodeSource signing key from $NODE_GPG_KEY_URL"; }
+  [[ -s "$key_tmp" ]] || { rm -f "$key_tmp"; fail "Downloaded NodeSource signing key is empty."; }
+
+  require_command gpg
+  local keyring_tmp
+  keyring_tmp="$(mktemp)"
+  # `gpg --dearmor` fails on anything that isn't a well-formed ASCII-armored
+  # OpenPGP key, so a successful conversion is itself a validity check —
+  # this isn't blind trust of whatever curl happened to return.
+  if ! gpg --dearmor <"$key_tmp" >"$keyring_tmp" 2>/dev/null; then
+    rm -f "$key_tmp" "$keyring_tmp"
+    fail "Downloaded NodeSource signing key is not a valid GPG key."
   fi
+  rm -f "$key_tmp"
+
+  sudo install -d -m 755 "$(dirname "$NODE_KEYRING")"
+  sudo install -m 644 "$keyring_tmp" "$NODE_KEYRING"
+  rm -f "$keyring_tmp"
+
+  local node_arch
+  node_arch="$(dpkg --print-architecture)"
+  printf 'deb [arch=%s signed-by=%s] https://deb.nodesource.com/node_%s.x nodistro main\n' \
+    "$node_arch" "$NODE_KEYRING" "$NODE_MAJOR" | sudo tee /etc/apt/sources.list.d/nodesource.list >/dev/null
+
+  sudo apt-get update
+  sudo apt-get install -y nodejs
+}
+
+# Installs uv from a pinned GitHub release tarball, verified against its
+# published sha256 checksum, instead of piping astral.sh's install script
+# into `sh`. Mirrors what astral-sh/setup-uv@v4 already does under the hood
+# in CI.
+install_uv() {
+  if [[ -x "$INSTALL_HOME/.local/bin/uv" ]]; then
+    export PATH="$INSTALL_HOME/.local/bin:$PATH"
+    require_command uv
+    return
+  fi
+
+  info "Installing uv $UV_VERSION"
+  require_command curl
+  require_command sha256sum
+  require_command tar
+
+  local target
+  case "$(uname -m)" in
+    x86_64) target="x86_64-unknown-linux-gnu" ;;
+    aarch64|arm64) target="aarch64-unknown-linux-gnu" ;;
+    armv7l) target="armv7-unknown-linux-gnueabihf" ;;
+    *) fail "Unsupported architecture for uv install: $(uname -m)" ;;
+  esac
+
+  local base_url="https://github.com/astral-sh/uv/releases/download/$UV_VERSION"
+  local archive="uv-$target.tar.gz"
+  local workdir
+  workdir="$(mktemp -d)"
+
+  curl -fsSL -o "$workdir/$archive" "$base_url/$archive" || { rm -rf "$workdir"; fail "Failed to download uv archive from $base_url/$archive"; }
+  curl -fsSL -o "$workdir/$archive.sha256" "$base_url/$archive.sha256" || { rm -rf "$workdir"; fail "Failed to download uv checksum from $base_url/$archive.sha256"; }
+  (cd "$workdir" && sha256sum -c "$archive.sha256") || { rm -rf "$workdir"; fail "uv archive checksum verification failed."; }
+  tar -xzf "$workdir/$archive" -C "$workdir" || { rm -rf "$workdir"; fail "Failed to extract uv archive."; }
+
+  mkdir -p "$INSTALL_HOME/.local/bin"
+  install -m 755 "$workdir/uv-$target/uv" "$workdir/uv-$target/uvx" "$INSTALL_HOME/.local/bin/"
+  rm -rf "$workdir"
+
   export PATH="$INSTALL_HOME/.local/bin:$PATH"
   require_command uv
 }

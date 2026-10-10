@@ -131,6 +131,7 @@
 			"tuner_terminate_modal_title": "Arrêter l'utilisation du tuner {index} ?",
 			"tuner_terminate_modal_confirm": "Arrêter le flux",
 			"tuner_terminate_modal_cancel": "Annuler",
+			"tuner_terminate_modal_body": "Voulez-vous vraiment arrêter ce flux de tuner actif ?",
 			"guide_today": "Aujourd'hui",
 			"guide_tomorrow": "Demain",
 			"jump_to_label": "Aller à",
@@ -330,7 +331,16 @@
 		"listen": "Écouter l'audio",
 		"close_slot": "Fermer le flux",
 		"close_all": "Fermer Multi-View",
-		"tuners_exhausted": "Tuners physiques épuisés. La lecture peut échouer."
+		"tuners_exhausted": "Tuners physiques épuisés. La lecture peut échouer.",
+		"tuners_all_in_use": "Les {count} tuners sont actuellement utilisés.",
+		"active_recordings_breakdown": "{count} enregistrement : {details}",
+		"active_streams_breakdown": "{count} diffusion : {details}",
+		"tuners_currently_breakdown": "Actuellement : {details}.",
+		"tuners_watch_without_new": "Vous pouvez regarder {channels} sans utiliser un autre tuner, ou fermer un flux actif.",
+		"tuners_close_feed": "Fermez un flux actif pour libérer un tuner.",
+		"recording_on_channel": "Enregistrement sur {channel}",
+		"unknown_channel": "Inconnu",
+		"live_tv_viewer": "Spectateur TV en direct"
 	},
 	"syncplay": {
 		"title": "Soirée vidéo SyncPlay",

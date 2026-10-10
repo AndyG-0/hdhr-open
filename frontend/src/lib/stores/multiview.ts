@@ -1,10 +1,19 @@
 import { writable, get } from 'svelte/store';
+import { _ } from 'svelte-i18n';
 import {
 	api,
 	type HDHomeRunChannel,
 	type HDHomeRunGuideEntry,
 	type HDHomeRunTuner,
 } from '$lib/api';
+import { createWatchSessionHeartbeat } from './watchSessionHeartbeat';
+
+// This store builds user-facing warning/explanation strings outside of any
+// component, so it can't use the `$_()` auto-subscription syntax - `_` here
+// is svelte-i18n's translate-function store, read imperatively via get().
+function t(id: string, values?: Record<string, string | number>): string {
+	return get(_)(id, values ? { values } : undefined) as string;
+}
 
 export type MultiViewLayout = 'side_by_side' | 'three_box' | 'quad';
 
@@ -45,7 +54,6 @@ export interface MultiViewState {
 }
 
 export const MAX_MULTIVIEW_FEEDS = 4;
-const WATCH_HEARTBEAT_INTERVAL_MS = 20_000;
 
 export function availableLayouts(maxFeeds: number = 2): MultiViewLayout[] {
 	if (maxFeeds <= 2) return ['side_by_side'];
@@ -89,30 +97,19 @@ const initialState: MultiViewState = {
 
 export const multiview = writable<MultiViewState>(initialState);
 
-// Tracks active heartbeat intervals by slot id
-const heartbeatHandles = new Map<string, ReturnType<typeof setInterval>>();
+// One heartbeat per slot, keyed by slot id.
+const slotHeartbeats = createWatchSessionHeartbeat();
 
 function stopSlotHeartbeat(slotId: string) {
-	const handle = heartbeatHandles.get(slotId);
-	if (handle !== undefined) {
-		clearInterval(handle);
-		heartbeatHandles.delete(slotId);
-	}
+	slotHeartbeats.stop(slotId);
 }
 
 function startSlotHeartbeat(slotId: string, watchSessionId: string) {
-	stopSlotHeartbeat(slotId);
-	const handle = setInterval(() => {
-		api.heartbeatWatch(watchSessionId).catch(() => {});
-	}, WATCH_HEARTBEAT_INTERVAL_MS);
-	heartbeatHandles.set(slotId, handle);
+	slotHeartbeats.start(slotId, watchSessionId);
 }
 
 function stopAllHeartbeats() {
-	for (const handle of heartbeatHandles.values()) {
-		clearInterval(handle);
-	}
-	heartbeatHandles.clear();
+	slotHeartbeats.stopAll();
 }
 
 /**
@@ -149,9 +146,9 @@ export async function checkTunerCapacity(): Promise<string | null> {
 	try {
 		const tuners = await api.getTunerStatus();
 		if (Array.isArray(tuners) && tuners.length > 0) {
-			const available = tuners.filter((t: HDHomeRunTuner) => !t.in_use);
+			const available = tuners.filter((tuner: HDHomeRunTuner) => !tuner.in_use);
 			if (available.length === 0) {
-				return 'Physical tuners exhausted. Playback may fail or conflict with active recordings.';
+				return t('multiview.tuners_exhausted');
 			}
 		}
 	} catch {
@@ -190,17 +187,21 @@ export async function evaluateTunerAvailability(
 
 	if (tuners.length > 0) {
 		totalTuners = Math.max(totalTuners, tuners.length);
-		for (const t of tuners) {
-			if (t.in_use) {
-				const ch = t.channel_number || (t.channel_name ? t.channel_name : 'Unknown');
-				if (t.channel_number) {
-					sharableSet.add(t.channel_number);
+		for (const tuner of tuners) {
+			if (tuner.in_use) {
+				const ch = tuner.channel_number || (tuner.channel_name ? tuner.channel_name : t('multiview.unknown_channel'));
+				if (tuner.channel_number) {
+					sharableSet.add(tuner.channel_number);
 				}
-				if (t.client?.is_recording || t.client?.type === 'scheduled_recording' || t.client?.recording_id) {
-					const title = t.client?.name || t.channel_name || `Recording on ${ch}`;
+				if (
+					tuner.client?.is_recording ||
+					tuner.client?.type === 'scheduled_recording' ||
+					tuner.client?.recording_id
+				) {
+					const title = tuner.client?.name || tuner.channel_name || t('multiview.recording_on_channel', { channel: ch });
 					activeRecordings.push({ channel: ch, title });
 				} else {
-					const viewer = t.client?.name || 'Live TV Viewer';
+					const viewer = tuner.client?.name || t('multiview.live_tv_viewer');
 					activeStreams.push({ channel: ch, viewer });
 				}
 			}
@@ -214,7 +215,7 @@ export async function evaluateTunerAvailability(
 		}
 	}
 
-	const inUseCount = tuners.filter((t) => t.in_use).length;
+	const inUseCount = tuners.filter((tuner) => tuner.in_use).length;
 	const freeTuners = Math.max(0, totalTuners - inUseCount);
 	const sharableChannels = Array.from(sharableSet);
 	const isTargetShared = Boolean(targetChannelNumber && sharableSet.has(targetChannelNumber));
@@ -231,30 +232,30 @@ export async function evaluateTunerAvailability(
 	}
 
 	// All physical tuners in use and target channel requires a new tuner
-	let explanation = `All ${totalTuners} tuners are currently in use.`;
+	let explanation = t('multiview.tuners_all_in_use', { count: totalTuners });
 	const breakdownParts: string[] = [];
 	if (activeRecordings.length > 0) {
 		const recDesc = activeRecordings
 			.map((r) => `${r.title} (Ch ${r.channel})`)
 			.join(', ');
-		breakdownParts.push(`${activeRecordings.length} recording: ${recDesc}`);
+		breakdownParts.push(t('multiview.active_recordings_breakdown', { count: activeRecordings.length, details: recDesc }));
 	}
 	if (activeStreams.length > 0) {
 		const streamDesc = activeStreams
 			.map((s) => `Ch ${s.channel} (${s.viewer})`)
 			.join(', ');
-		breakdownParts.push(`${activeStreams.length} streaming: ${streamDesc}`);
+		breakdownParts.push(t('multiview.active_streams_breakdown', { count: activeStreams.length, details: streamDesc }));
 	}
 
 	if (breakdownParts.length > 0) {
-		explanation += ` Currently: ${breakdownParts.join('; ')}.`;
+		explanation += ` ${t('multiview.tuners_currently_breakdown', { details: breakdownParts.join('; ') })}`;
 	}
 
 	if (activeRecordings.length > 0) {
 		const recChannels = activeRecordings.map((r) => `Ch ${r.channel}`).join(', ');
-		explanation += ` You can watch ${recChannels} without consuming another tuner, or close an active feed.`;
+		explanation += ` ${t('multiview.tuners_watch_without_new', { channels: recChannels })}`;
 	} else {
-		explanation += ' Close an active feed to free up a tuner.';
+		explanation += ` ${t('multiview.tuners_close_feed')}`;
 	}
 
 	return {

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SettingsInputAntenna
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,9 +28,9 @@ import org.hdhropen.kit.viewmodels.TunerViewModel
 fun TunerStatusScreen(
     tunerViewModel: TunerViewModel
 ) {
-    val tuners by tunerViewModel.tuners.collectAsState()
-    val tunerInfo by tunerViewModel.tunerInfo.collectAsState()
-    val isLoading by tunerViewModel.isLoading.collectAsState()
+    val tuners by tunerViewModel.tuners.collectAsStateWithLifecycle()
+    val tunerInfo by tunerViewModel.tunerInfo.collectAsStateWithLifecycle()
+    val isLoading by tunerViewModel.isLoading.collectAsStateWithLifecycle()
 
     DisposableEffect(Unit) {
         tunerViewModel.loadData()

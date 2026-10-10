@@ -7,6 +7,7 @@ the same channel share a single tuner/capture.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -52,7 +53,9 @@ async def start_watch(
         # No free tuner - caller falls back to plain live streaming.
         return {"recording_id": None, "session_id": None}
 
-    rec = db.get_recording(result["recording_id"])
+    rec = await asyncio.to_thread(db.get_recording, result["recording_id"])
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
     body = _format_builtin_recording(rec)
     body["session_id"] = result["session_id"]
     return body
@@ -101,5 +104,7 @@ async def promote_watch(session_id: str, payload: PromoteWatchRequest):
     if recording_id is None:
         raise HTTPException(status_code=404, detail="Watch session not found or already finished")
 
-    rec = db.get_recording(recording_id)
+    rec = await asyncio.to_thread(db.get_recording, recording_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="Recording not found")
     return _format_builtin_recording(rec)

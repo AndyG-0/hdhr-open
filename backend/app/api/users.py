@@ -170,6 +170,8 @@ async def update_profile(payload: UpdateUserRequest, user: dict[str, Any] = Depe
     if fields:
         await asyncio.to_thread(update_user, user["id"], **fields)
     updated = await asyncio.to_thread(get_user, user["id"])
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
     return user_shape(updated)
 
 

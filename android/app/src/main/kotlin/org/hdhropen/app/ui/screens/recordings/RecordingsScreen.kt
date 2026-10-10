@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,13 +39,13 @@ fun RecordingsScreen(
     guideViewModel: GuideViewModel,
     playerViewModel: PlayerViewModel
 ) {
-    val recordings by recordingsViewModel.recordings.collectAsState()
-    val recordingRules by recordingsViewModel.recordingRules.collectAsState()
-    val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
-    val selectedFilter by recordingsViewModel.selectedFilter.collectAsState()
-    val isLoading by recordingsViewModel.isLoading.collectAsState()
-    val searchQuery by recordingsViewModel.searchQuery.collectAsState()
-    val channels by guideViewModel.channels.collectAsState()
+    val recordings by recordingsViewModel.recordings.collectAsStateWithLifecycle()
+    val recordingRules by recordingsViewModel.recordingRules.collectAsStateWithLifecycle()
+    val dvrInfo by recordingsViewModel.dvrInfo.collectAsStateWithLifecycle()
+    val selectedFilter by recordingsViewModel.selectedFilter.collectAsStateWithLifecycle()
+    val isLoading by recordingsViewModel.isLoading.collectAsStateWithLifecycle()
+    val searchQuery by recordingsViewModel.searchQuery.collectAsStateWithLifecycle()
+    val channels by guideViewModel.channels.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
     var selectedRecordingForSheet by remember { mutableStateOf<HDHomeRunRecording?>(null) }

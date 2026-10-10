@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     # hosts, cross-site cookies require SameSite=None + Secure, which in turn
     # requires real TLS — override both once a reverse proxy terminates it.
     cookie_secure: bool = False
-    cookie_samesite: str = "lax"
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
     # Root logger level (standard `logging` names: "DEBUG", "INFO", "WARNING",
     # "ERROR"). See app/logging_config.py.

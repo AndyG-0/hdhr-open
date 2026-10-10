@@ -17,6 +17,14 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    // Generates this module's own BuildConfig.DEBUG, used by Logger.kt to
+    // gate verbose/debug-level logging out of release builds. Library
+    // modules don't get BuildConfig for free - AGP only generates it when
+    // this is explicitly enabled.
+    buildFeatures {
+        buildConfig = true
+    }
+
     buildTypes {
         debug {
             enableUnitTestCoverage = true

@@ -18,13 +18,15 @@ import asyncio
 import json
 import logging
 import re
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from typing import Any
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from defusedxml import ElementTree as DefusedElementTree
+from defusedxml.common import DefusedXmlException
 
 from app.config import effective_settings, resolve_timezone
 from app.storage import db
@@ -97,6 +99,7 @@ def _parse_xmltv_time(value: str | None, default_tz: ZoneInfo | None = None) -> 
     except ValueError:
         return None
 
+    tz: tzinfo
     if tz_part:
         if tz_part in ("Z", "UTC", "GMT"):
             tz = UTC
@@ -118,8 +121,11 @@ async def _fetch_xmltv_root(url: str) -> ElementTree.Element | None:
             response = await client.get(url)
         if response.status_code >= 400:
             return None
-        return ElementTree.fromstring(response.content)
-    except (httpx.HTTPError, ElementTree.ParseError):
+        # Untrusted external feed - defusedxml guards against XXE/entity-
+        # expansion ("billion laughs") attacks that the stdlib parser alone
+        # does not.
+        return DefusedElementTree.fromstring(response.content)
+    except (httpx.HTTPError, ElementTree.ParseError, DefusedXmlException):
         logger.debug("Could not fetch/parse XMLTV guide from '%s'", url, exc_info=True)
         return None
 

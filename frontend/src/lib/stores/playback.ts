@@ -15,8 +15,7 @@ import {
 	isAutoSkipCommercialsEnabled,
 	setAutoSkipCommercialsEnabled,
 } from '$lib/auto-skip-commercials-preference';
-
-const WATCH_HEARTBEAT_INTERVAL_MS = 20_000;
+import { createWatchSessionHeartbeat } from './watchSessionHeartbeat';
 
 export interface PlaybackMedia {
 	title: string;
@@ -75,25 +74,14 @@ export const playback = writable<PlaybackState>({ media: null, originPath: null,
 export const keepPlayingOnNavigate = writable<boolean>(isKeepPlayingOnNavigateEnabled());
 export const autoSkipCommercials = writable<boolean>(isAutoSkipCommercialsEnabled());
 
-let heartbeatHandle: ReturnType<typeof setInterval> | undefined;
-
-function stopHeartbeat() {
-	if (heartbeatHandle !== undefined) {
-		clearInterval(heartbeatHandle);
-		heartbeatHandle = undefined;
-	}
-}
-
-function startHeartbeat(sessionId: string) {
-	stopHeartbeat();
-	heartbeatHandle = setInterval(() => {
-		api.heartbeatWatch(sessionId).catch(() => {});
-	}, WATCH_HEARTBEAT_INTERVAL_MS);
-}
+// Only one session plays at a time here, so a single fixed key is enough to
+// address it in the shared heartbeat tracker.
+const HEARTBEAT_KEY = 'playback';
+const heartbeat = createWatchSessionHeartbeat();
 
 function stopCurrent() {
 	const current = get(playback);
-	stopHeartbeat();
+	heartbeat.stop(HEARTBEAT_KEY);
 	if (current.media?.isWatchSession && current.media.watchSessionId) {
 		api.stopWatch(current.media.watchSessionId);
 	}
@@ -108,7 +96,7 @@ export function startPlayback(media: PlaybackMedia, originPath: string, context:
 	stopCurrent();
 	playback.set({ media, originPath, context });
 	if (media.isWatchSession && media.watchSessionId) {
-		startHeartbeat(media.watchSessionId);
+		heartbeat.start(HEARTBEAT_KEY, media.watchSessionId);
 	}
 }
 

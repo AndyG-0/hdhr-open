@@ -1,0 +1,16 @@
+[
+	{
+		"id": "GHSA-pxg6-pf52-xh8x",
+		"package": "cookie",
+		"reason": "Only forward fix is the SvelteKit 2->3 migration (fixAvailable points at @sveltejs/kit@3.0.1). Confirmed via SvelteKit's own migration guide that v3 removes the $lib alias (replacing it with a package.json-declared #lib import, requiring a rename across ~98 files in src/), relocates $env/$app/environment modules, removes $app/stores, and requires Node >=22.17, TypeScript v6 and Vite v8 -- a full toolchain migration, not a dependency bump. A prior attempt at this migration broke $lib resolution and PUBLIC_* env var resolution. Severity is low (CVSS 0): the advisory is about out-of-bounds characters in a cookie name/path/domain, which this app never sets by hand. Re-evaluate once the SvelteKit 3 migration is undertaken as its own tracked project.",
+		"addedDate": "2026-10-10",
+		"addedBy": "andy.gilbreath@gmail.com"
+	},
+	{
+		"id": "GHSA-67mh-4wv8-2f99",
+		"package": "esbuild",
+		"reason": "Vulnerable esbuild is bundled by svelte-i18n@4.0.1 -- the latest published release -- as its own direct dependency (node_modules/svelte-i18n/node_modules/esbuild); no newer svelte-i18n release exists that updates it, so there is no forward fix. npm's only reported fix path is downgrading to svelte-i18n@3.7.1, which predates the v4 API this app's src/lib/i18n/ already relies on across 46 files -- a downgrade, not a fix. The advisory describes esbuild's own dev server accepting cross-origin requests; this app never invokes svelte-i18n's bundled CLI (bin: svelte-i18n -> dist/cli.js is unreferenced by any npm script here), so that esbuild copy is never actually run. Re-evaluate if a future svelte-i18n release bumps its esbuild dependency.",
+		"addedDate": "2026-10-10",
+		"addedBy": "andy.gilbreath@gmail.com"
+	}
+]

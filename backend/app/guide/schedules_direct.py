@@ -147,9 +147,9 @@ def _auto_map_channels_from_lineup(
         if ch["id"] in already_mapped:
             continue
         num = ch.get("channel_number", "").strip()
-        station_id = station_by_channel_num.get(num)
-        if station_id:
-            db.upsert_sd_station_map(ch["id"], station_id, lineup_id)
+        mapped_station_id = station_by_channel_num.get(num)
+        if mapped_station_id:
+            db.upsert_sd_station_map(ch["id"], mapped_station_id, lineup_id)
             already_mapped.add(ch["id"])
 
 
@@ -233,7 +233,7 @@ async def refresh_schedules_direct_guide() -> None:
         try:
             fetched_meta = await schedules_direct.get_programs(token, missing_ids)
             now_iso = datetime.now(UTC).isoformat()
-            cache_entries = [
+            cache_entries: list[dict[str, Any]] = [
                 {"program_id": m.get("programID"), "metadata": m, "fetched_at": now_iso}
                 for m in fetched_meta
                 if m.get("programID")
@@ -250,8 +250,10 @@ async def refresh_schedules_direct_guide() -> None:
     rows_by_channel: dict[str, list[dict[str, Any]]] = {}
 
     for station_sched in schedules_result:
-        st_id = station_sched.get("stationID")
-        channel_ids = channels_by_station.get(st_id, [])
+        sched_station_id = station_sched.get("stationID")
+        if not sched_station_id:
+            continue
+        channel_ids = channels_by_station.get(sched_station_id, [])
         if not channel_ids:
             continue
 

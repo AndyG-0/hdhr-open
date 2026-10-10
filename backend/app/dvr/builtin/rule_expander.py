@@ -164,7 +164,7 @@ def cleanup_expired_single_rules(
     scheduled-recordings list. Series rules are left alone - they keep
     matching new airings indefinitely.
     """
-    statuses_by_rule: dict[str, list[str]] = {}
+    statuses_by_rule: dict[str, list[str | None]] = {}
     for s in all_scheduled:
         rule_id = s.get("rule_id")
         if rule_id:

@@ -56,8 +56,13 @@ data class ParsedPlaybackError(
 @UnstableApi
 class PlayerEngine(
     private val context: Context? = null,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    coroutineScope: CoroutineScope? = null
 ) {
+    // Only cancel a scope we created ourselves (the no-arg-default case) -
+    // never one a caller passed in and still owns.
+    private val ownsCoroutineScope = coroutineScope == null
+    private val coroutineScope: CoroutineScope = coroutineScope ?: CoroutineScope(Dispatchers.Main + SupervisorJob())
+
     private val _state = MutableStateFlow<PlaybackState>(PlaybackState.Idle)
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
@@ -548,5 +553,19 @@ class PlayerEngine(
         }
         sessionManagerListener = null
         castContext = null
+    }
+
+    /**
+     * Cancels this engine's owned [coroutineScope] (the time-tracking job
+     * included, same as [reset] already does via [stopTimeTracking], plus
+     * the scope itself so it can't be reused to launch new coroutines).
+     * Only cancels a scope this instance created by default - never one a
+     * caller passed in and still owns. Call after [release], on final
+     * teardown (e.g. `Activity.onDestroy`) - not on every [reset].
+     */
+    fun cancel() {
+        if (ownsCoroutineScope) {
+            coroutineScope.cancel()
+        }
     }
 }

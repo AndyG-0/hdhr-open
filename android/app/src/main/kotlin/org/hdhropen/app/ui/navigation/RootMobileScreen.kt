@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.launch
@@ -26,10 +27,10 @@ fun RootMobileScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val authManager = appEnvironment.authManager
-    val currentUser by authManager.currentUser.collectAsState()
+    val currentUser by authManager.currentUser.collectAsStateWithLifecycle()
     val playerViewModel = appEnvironment.playerViewModel
-    val activeChannel by playerViewModel.activeChannel.collectAsState()
-    val activeRecording by playerViewModel.activeRecording.collectAsState()
+    val activeChannel by playerViewModel.activeChannel.collectAsStateWithLifecycle()
+    val activeRecording by playerViewModel.activeRecording.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableStateOf(AppTab.GUIDE) }
 

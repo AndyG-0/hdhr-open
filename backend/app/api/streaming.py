@@ -415,7 +415,11 @@ async def stream_channel_hls(
     recording_id = await watch.start_fallback_capture(channel_number, settings, viewer_token)
     active_capture = await capture_pipeline.get_active_capture(recording_id) if recording_id else None
 
-    if active_capture is not None and not await _wait_for_live_capture_data(active_capture, recording_id):
+    if (
+        active_capture is not None
+        and recording_id is not None
+        and not await _wait_for_live_capture_data(active_capture, recording_id)
+    ):
         logger.error(
             "Channel %s: fallback capture produced no data within %ss (tuner likely still locking)",
             channel_number,
@@ -500,7 +504,10 @@ async def stream_channel_hls(
         await hls_streaming.attach_pump(session_id, pump_task, pump_stop_event)
 
     if recording_id is not None:
-        body = _format_builtin_recording(db.get_recording(recording_id))
+        rec = await asyncio.to_thread(db.get_recording, recording_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="Recording not found")
+        body = _format_builtin_recording(rec)
     else:
         # No capture backs this stream (the raw-URL safety net) - clients
         # still decode this response as recording metadata, so `title` (the

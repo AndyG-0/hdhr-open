@@ -25,11 +25,15 @@ public final class SyncPlayClient: ObservableObject {
 
     public init() {}
 
-    public func connect(url: URL) {
+    public func connect(url: URL, token: String? = nil) {
         disconnect()
 
         let session = URLSession(configuration: .default)
-        let task = session.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let task = session.webSocketTask(with: request)
         webSocketTask = task
         isConnected = true
         task.resume()

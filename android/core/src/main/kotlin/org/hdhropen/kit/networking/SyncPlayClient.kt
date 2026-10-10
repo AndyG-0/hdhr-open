@@ -52,12 +52,14 @@ class SyncPlayClient(
     var getCurrentPosition: (() -> Double)? = null
     var isPlayerReady: (() -> Boolean)? = null
 
-    fun connect(wsUrl: String) {
+    fun connect(wsUrl: String, bearerToken: String? = null) {
         disconnect()
 
-        val request = Request.Builder()
-            .url(wsUrl)
-            .build()
+        val requestBuilder = Request.Builder().url(wsUrl)
+        bearerToken?.let { token ->
+            requestBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = requestBuilder.build()
 
         webSocket = httpClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {

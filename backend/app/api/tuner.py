@@ -21,9 +21,8 @@ async def _enrich_tuner_status(
     tuners: list[dict[str, Any]], settings: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     enriched = []
-    dvr_host = (
-        hdhomerun_client._normalize_host(settings.get("dvr_host")) if settings and settings.get("dvr_host") else None
-    )
+    raw_dvr_host = settings.get("dvr_host") if settings else None
+    dvr_host = hdhomerun_client._normalize_host(raw_dvr_host) if raw_dvr_host else None
 
     for tuner in tuners:
         tuner_copy = dict(tuner)
@@ -61,7 +60,7 @@ async def _enrich_tuner_status(
             else:
                 # Live watch session
                 sessions = await watch.get_watch_sessions_for_recording(capture.recording_id)
-                viewers = [
+                viewers: list[dict[str, Any]] = [
                     {"user_name": s.user_name or "Unknown User", "client_ip": s.client_ip}
                     for s in sessions
                 ]

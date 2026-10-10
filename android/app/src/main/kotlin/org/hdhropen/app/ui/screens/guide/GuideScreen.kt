@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -33,10 +34,10 @@ fun GuideScreen(
     recordingsViewModel: RecordingsViewModel,
     playerViewModel: PlayerViewModel
 ) {
-    val channels by guideViewModel.channels.collectAsState()
-    val filterOnlyFavorites by guideViewModel.filterOnlyFavorites.collectAsState()
-    val isLoading by guideViewModel.isLoading.collectAsState()
-    val dvrInfo by recordingsViewModel.dvrInfo.collectAsState()
+    val channels by guideViewModel.channels.collectAsStateWithLifecycle()
+    val filterOnlyFavorites by guideViewModel.filterOnlyFavorites.collectAsStateWithLifecycle()
+    val isLoading by guideViewModel.isLoading.collectAsStateWithLifecycle()
+    val dvrInfo by recordingsViewModel.dvrInfo.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         if (dvrInfo == null) {

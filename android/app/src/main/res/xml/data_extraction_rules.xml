@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) backup/transfer rules.
+
+  Excludes the auth-prefs SharedPreferences file (see AuthManager.kt's
+  `prefsName`, "hdhr_open_auth_prefs") from both cloud backup and
+  device-to-device transfer. That file holds the bearer token/device id.
+  As of the fix wiring AuthManager up to EncryptedSharedPreferences, its
+  values are encrypted with a Keystore-bound key that doesn't survive a
+  restore to a different device anyway - excluding the file outright is
+  cheap, explicit defense-in-depth on top of that.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="hdhr_open_auth_prefs.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="hdhr_open_auth_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>

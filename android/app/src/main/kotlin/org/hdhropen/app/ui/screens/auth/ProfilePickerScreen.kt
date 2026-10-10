@@ -19,12 +19,12 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,10 +48,10 @@ fun ProfilePickerScreen(
     onUpdateServerURL: (String) -> Unit
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val profiles by authManager.profiles.collectAsState()
-    val isLoading by authManager.isLoading.collectAsState()
-    val authError by authManager.authError.collectAsState()
-    val showPinEntry by authViewModel.showPinEntry.collectAsState()
+    val profiles by authManager.profiles.collectAsStateWithLifecycle()
+    val isLoading by authManager.isLoading.collectAsStateWithLifecycle()
+    val authError by authManager.authError.collectAsStateWithLifecycle()
+    val showPinEntry by authViewModel.showPinEntry.collectAsStateWithLifecycle()
     var showServerSetupDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
