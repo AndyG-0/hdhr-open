@@ -163,6 +163,17 @@ def test_sync_channels_and_guide_returns_rows_by_channel(tmp_db):
     assert rows_by_channel[channel["id"]][0]["title"] == "Some Show"
 
 
+def test_sync_channels_and_guide_persists_is_drm_and_auto_hides(tmp_db):
+    now = time.time()
+    drm_lineup = [{**LINEUP[0], "is_drm": True}]
+
+    guide_service._sync_channels_and_guide(drm_lineup, _guide(now, now + 1800), now)
+
+    channel = db.get_channel_by_number("4.1")
+    assert channel["is_drm"] == 1
+    assert channel["hidden"] == 1
+
+
 async def test_refresh_backfills_missing_poster_via_poster_lookup(tmp_db, monkeypatch):
     _configure_tuner(tmp_db)
     now = time.time()

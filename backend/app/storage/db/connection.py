@@ -94,7 +94,9 @@ CREATE TABLE IF NOT EXISTS channels (
     hidden INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     guide_provider TEXT,
-    affiliate TEXT
+    affiliate TEXT,
+    is_drm INTEGER NOT NULL DEFAULT 0,
+    hidden_is_manual INTEGER NOT NULL DEFAULT 0
 );
 
 -- A single airing, from whichever guide provider supplied it. Unique per
@@ -525,6 +527,16 @@ def _migration_14(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE channels ADD COLUMN affiliate TEXT")
 
 
+def _migration_15(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "channels" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(channels)").fetchall()}
+        if "is_drm" not in cols:
+            conn.execute("ALTER TABLE channels ADD COLUMN is_drm INTEGER NOT NULL DEFAULT 0")
+        if "hidden_is_manual" not in cols:
+            conn.execute("ALTER TABLE channels ADD COLUMN hidden_is_manual INTEGER NOT NULL DEFAULT 0")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -540,6 +552,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_12,
     _MIGRATION_13,
     _migration_14,
+    _migration_15,
 )
 
 

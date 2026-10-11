@@ -200,7 +200,25 @@
 						{#if channel.is_hd}
 							<span class="hd-badge">HD</span>
 						{/if}
+						{#if channel.is_drm}
+							<span class="drm-badge">{$_('network_settings.drm_badge')}</span>
+						{/if}
 					</div>
+
+					{#if channel.is_drm}
+						<p class="hint drm-hint">
+							{channel.hidden && !channel.hidden_is_manual
+								? $_('network_settings.drm_auto_hidden_hint')
+								: !channel.hidden
+									? $_('network_settings.drm_manual_override_hint')
+									: $_('network_settings.drm_manually_hidden_hint')}
+						</p>
+					{/if}
+
+					<label class="hidden-toggle">
+						<input type="checkbox" bind:checked={channel.hidden} />
+						{$_('network_settings.hidden_from_guide_label')}
+					</label>
 
 					<div class="channel-fields-grid">
 						<label>
@@ -361,6 +379,29 @@
 		border-radius: 0.25rem;
 		padding: 0.1rem 0.35rem;
 		font-weight: 600;
+	}
+
+	.drm-badge {
+		font-size: 0.7rem;
+		background: var(--color-warning, #d9a441);
+		color: var(--color-surface);
+		border-radius: 0.25rem;
+		padding: 0.1rem 0.35rem;
+		font-weight: 600;
+	}
+
+	.drm-hint {
+		color: var(--color-warning, #d9a441);
+		margin: 0;
+	}
+
+	.hidden-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.82rem;
+		color: var(--color-text-muted);
+		width: fit-content;
 	}
 
 	.channel-fields-grid {

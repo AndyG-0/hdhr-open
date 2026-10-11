@@ -268,6 +268,8 @@ export interface HDHomeRunChannelSetting {
 	is_hd: boolean;
 	is_favorite: boolean;
 	hidden: boolean;
+	is_drm: boolean;
+	hidden_is_manual: boolean;
 	guide_provider: 'hdhomerun_cloud' | 'xmltv' | 'schedules_direct' | null;
 	xmltv_channel_id: string | null;
 	xmltv_display_name: string | null;

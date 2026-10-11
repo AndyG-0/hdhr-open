@@ -23,6 +23,8 @@ const channel = {
 	is_hd: true,
 	is_favorite: false,
 	hidden: false,
+	is_drm: false,
+	hidden_is_manual: false,
 	guide_provider: null,
 	xmltv_channel_id: '',
 	xmltv_display_name: '',
@@ -116,5 +118,46 @@ describe('ChannelLineupSection', () => {
 		await fireEvent.click(screen.getByRole('button', { name: /^All/ }));
 		expect(screen.getByText('Channel Five')).toBeInTheDocument();
 		expect(screen.getByText('Channel Six')).toBeInTheDocument();
+	});
+
+	it('shows a restricted badge and auto-hidden hint for a DRM channel', async () => {
+		const drmChannel = { ...channel, is_drm: true, hidden: true, hidden_is_manual: false };
+		getChannelSettings.mockResolvedValue([drmChannel]);
+
+		render(ChannelLineupSection, {
+			xmltvFeedChannels: [],
+			sdStations: [],
+			onFeedChannelsChanged: vi.fn(),
+			onStationsChanged: vi.fn(),
+		});
+
+		expect(await screen.findByText('Restricted')).toBeInTheDocument();
+		expect(
+			screen.getByText(
+				"Automatically hidden — the broadcaster has applied usage restrictions, so this channel usually can't be played through this tuner.",
+			),
+		).toBeInTheDocument();
+		expect(screen.getByRole('checkbox', { name: 'Hidden from guide' })).toBeChecked();
+	});
+
+	it('toggling the hidden checkbox and saving persists the override', async () => {
+		render(ChannelLineupSection, {
+			xmltvFeedChannels: [],
+			sdStations: [],
+			onFeedChannelsChanged: vi.fn(),
+			onStationsChanged: vi.fn(),
+		});
+		await screen.findByText('Channel Five');
+
+		const checkbox = screen.getByRole('checkbox', { name: 'Hidden from guide' });
+		expect(checkbox).not.toBeChecked();
+		await fireEvent.click(checkbox);
+		expect(checkbox).toBeChecked();
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+		await waitFor(() =>
+			expect(updateChannelSetting).toHaveBeenCalledWith('c1', expect.objectContaining({ hidden: true })),
+		);
 	});
 });

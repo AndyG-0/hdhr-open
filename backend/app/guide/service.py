@@ -93,6 +93,28 @@ def _airing_to_row(channel_id: str, airing: dict[str, Any]) -> dict[str, Any] | 
     }
 
 
+def sync_channel_from_lineup_entry(entry: dict[str, Any]) -> str | None:
+    """Get-or-create the channel row for one `fetch_lineup()` entry and
+    refresh its tuner-sourced fields, including `is_drm` (which in turn
+    drives auto-hiding broadcaster-restricted channels from the guide, see
+    `db.upsert_channel`). Returns the channel id, or None if the entry has
+    no channel number."""
+    number = entry.get("channel_number")
+    if not number:
+        return None
+    existing = db.get_channel_by_number(number)
+    channel_id = existing["id"] if existing else uuid.uuid4().hex
+    db.upsert_channel(
+        channel_id,
+        number,
+        entry.get("name") or number,
+        entry.get("is_hd", False),
+        affiliate=entry.get("affiliate"),
+        is_drm=entry.get("is_drm", False),
+    )
+    return channel_id
+
+
 def _sync_channels_and_guide(
     lineup: list[dict[str, Any]], full_guide: list[dict[str, Any]], job_start_ts: float
 ) -> dict[str, list[dict[str, Any]]]:
@@ -101,16 +123,9 @@ def _sync_channels_and_guide(
         number = channel["channel_number"]
         if not number:
             continue
-        existing = db.get_channel_by_number(number)
-        channel_id = existing["id"] if existing else uuid.uuid4().hex
-        db.upsert_channel(
-            channel_id,
-            number,
-            channel.get("name") or number,
-            channel.get("is_hd", False),
-            affiliate=channel.get("affiliate"),
-        )
-        channel_id_by_number[number] = channel_id
+        channel_id = sync_channel_from_lineup_entry(channel)
+        if channel_id is not None:
+            channel_id_by_number[number] = channel_id
 
     rows_by_channel: dict[str, list[dict[str, Any]]] = {}
     for channel in full_guide:

@@ -12,7 +12,7 @@ from typing import Any
 from app.storage.db.connection import _connect, _upsert, _validate_update_columns
 
 _CHANNEL_UPDATABLE_COLUMNS = frozenset(
-    {"name", "is_hd", "is_favorite", "hidden", "sort_order", "guide_provider"}
+    {"name", "is_hd", "is_favorite", "hidden", "hidden_is_manual", "sort_order", "guide_provider"}
 )
 
 
@@ -29,29 +29,45 @@ def _channel_sort_key(channel_number: str) -> tuple[float, float, str]:
 
 
 def upsert_channel(
-    id: str, channel_number: str, name: str, is_hd: bool, sort_order: int = 0, affiliate: str | None = None
+    id: str,
+    channel_number: str,
+    name: str,
+    is_hd: bool,
+    sort_order: int = 0,
+    affiliate: str | None = None,
+    is_drm: bool = False,
 ) -> None:
     """Create the channel if new; on an existing id, only refresh the
-    tuner-sourced fields (number/name/HD flag/affiliate) and leave
-    user-editable fields (favorite, hidden, sort_order, guide_provider)
-    untouched. `affiliate` uses COALESCE so a resync that doesn't know it
-    (e.g. a channel seeded from the guide rather than the tuner lineup)
-    never clobbers a previously-captured value with NULL."""
+    tuner-sourced fields (number/name/HD flag/affiliate/DRM flag) and leave
+    user-editable fields (favorite, sort_order, guide_provider) untouched.
+    `affiliate` uses COALESCE so a resync that doesn't know it (e.g. a
+    channel seeded from the guide rather than the tuner lineup) never
+    clobbers a previously-captured value with NULL.
+
+    `hidden` is kept in sync with the detected `is_drm` status unless the
+    user has manually overridden it (`hidden_is_manual = 1`), so a
+    broadcaster-restricted channel is auto-hidden from the guide, a
+    channel whose restriction is lifted is auto-unhidden, and a channel the
+    user has explicitly shown/hidden stays as they left it."""
     with _connect() as conn:
         existing = conn.execute("SELECT 1 FROM channels WHERE id = ?", (id,)).fetchone()
         if existing:
             conn.execute(
                 "UPDATE channels SET channel_number = ?, name = ?, is_hd = ?, "
-                "affiliate = COALESCE(?, affiliate) WHERE id = ?",
-                (channel_number, name, int(is_hd), affiliate, id),
+                "affiliate = COALESCE(?, affiliate), is_drm = ? WHERE id = ?",
+                (channel_number, name, int(is_hd), affiliate, int(is_drm), id),
             )
         else:
             conn.execute(
                 "INSERT INTO channels "
-                "(id, channel_number, name, is_hd, is_favorite, hidden, sort_order, guide_provider, affiliate) "
-                "VALUES (?, ?, ?, ?, 0, 0, ?, NULL, ?)",
-                (id, channel_number, name, int(is_hd), sort_order, affiliate),
+                "(id, channel_number, name, is_hd, is_favorite, hidden, sort_order, guide_provider, affiliate, is_drm) "
+                "VALUES (?, ?, ?, ?, 0, 0, ?, NULL, ?, ?)",
+                (id, channel_number, name, int(is_hd), sort_order, affiliate, int(is_drm)),
             )
+        conn.execute(
+            "UPDATE channels SET hidden = ? WHERE id = ? AND hidden_is_manual = 0",
+            (int(is_drm), id),
+        )
 
 
 def list_channels(include_hidden: bool = False) -> list[dict[str, Any]]:

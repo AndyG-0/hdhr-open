@@ -17,7 +17,10 @@ def test_upsert_channel_creates_row(tmp_db):
 
 def test_upsert_channel_preserves_user_edits_on_existing_row(tmp_db):
     db.upsert_channel("ch1", "4.1", "WNBC", True)
-    db.update_channel("ch1", is_favorite=1, hidden=1, sort_order=5)
+    # A manual hide must also mark hidden_is_manual (as the API layer does)
+    # for it to survive a resync - see test_upsert_channel_syncs_hidden_to_is_drm
+    # for the auto-hide behavior this is guarding against.
+    db.update_channel("ch1", is_favorite=1, hidden=1, hidden_is_manual=1, sort_order=5)
 
     # Simulate a subsequent guide-refresh cycle re-syncing tuner-sourced fields.
     db.upsert_channel("ch1", "4.1", "WNBC HD", True)
@@ -28,6 +31,50 @@ def test_upsert_channel_preserves_user_edits_on_existing_row(tmp_db):
     assert channel["is_favorite"] == 1
     assert channel["hidden"] == 1
     assert channel["sort_order"] == 5
+
+
+def test_upsert_channel_persists_is_drm(tmp_db):
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=True)
+
+    channel = db.get_channel("ch1")
+
+    assert channel["is_drm"] == 1
+
+
+def test_upsert_channel_auto_hides_when_drm_detected(tmp_db):
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=False)
+    assert db.get_channel("ch1")["hidden"] == 0
+
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=True)
+
+    channel = db.get_channel("ch1")
+    assert channel["is_drm"] == 1
+    assert channel["hidden"] == 1
+    assert channel["hidden_is_manual"] == 0
+
+
+def test_upsert_channel_auto_unhides_when_drm_lifted(tmp_db):
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=True)
+    assert db.get_channel("ch1")["hidden"] == 1
+
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=False)
+
+    assert db.get_channel("ch1")["hidden"] == 0
+
+
+def test_upsert_channel_does_not_clobber_manual_hidden_override(tmp_db):
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=True)
+    assert db.get_channel("ch1")["hidden"] == 1
+
+    # User manually shows the channel despite the DRM flag.
+    db.update_channel("ch1", hidden=0, hidden_is_manual=1)
+
+    # A subsequent resync still reports is_drm=True but must not re-hide it.
+    db.upsert_channel("ch1", "4.1", "WNBC", True, is_drm=True)
+
+    channel = db.get_channel("ch1")
+    assert channel["is_drm"] == 1
+    assert channel["hidden"] == 0
 
 
 def test_get_channel_by_number_returns_none_when_missing(tmp_db):
