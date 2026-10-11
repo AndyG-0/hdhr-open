@@ -28,7 +28,9 @@ data class HDHomeRunGuideEntry(
     val isNew: Boolean? = null,
     @SerialName("has_cc")
     val hasCC: Boolean? = null,
-    val audio: String? = null
+    val audio: String? = null,
+    val bucket: String? = null,
+    val source: String? = null
 ) {
     val formattedAudio: String?
         get() {

@@ -12,7 +12,8 @@ final class TVDiscoveryCardViewTests: XCTestCase {
         channelNumber: String? = "4.1",
         isNew: Bool? = nil,
         imageUrl: String? = nil,
-        start: TimeInterval? = 1_700_000_000
+        start: TimeInterval? = 1_700_000_000,
+        source: String? = nil
     ) -> HDHomeRunGuideEntry {
         HDHomeRunGuideEntry(
             title: title,
@@ -20,7 +21,8 @@ final class TVDiscoveryCardViewTests: XCTestCase {
             start: start,
             imageUrl: imageUrl,
             channelNumber: channelNumber,
-            isNew: isNew
+            isNew: isNew,
+            source: source
         )
     }
 
@@ -82,6 +84,20 @@ final class TVDiscoveryCardViewTests: XCTestCase {
         try view.inspect().find(ViewType.Button.self).tap()
 
         XCTAssertTrue(didSelect)
+    }
+
+    func testShowsSourceBadgeForNonPersonalizedSource() throws {
+        let view = TVDiscoveryCardView(airing: makeAiring(source: "network_pick")) {}
+
+        XCTAssertNoThrow(try view.inspect().find(text: "Network pick"))
+    }
+
+    func testHidesSourceBadgeWhenSourceIsPersonalizedOrNil() throws {
+        let personalizedView = TVDiscoveryCardView(airing: makeAiring(source: "personalized")) {}
+        XCTAssertThrowsError(try personalizedView.inspect().find(text: "Network pick"))
+
+        let nilSourceView = TVDiscoveryCardView(airing: makeAiring(source: nil)) {}
+        XCTAssertThrowsError(try nilSourceView.inspect().find(text: "Network pick"))
     }
 
     func testShowsFormattedDayDate() throws {

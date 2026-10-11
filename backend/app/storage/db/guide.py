@@ -16,23 +16,29 @@ _CHANNEL_UPDATABLE_COLUMNS = frozenset(
 )
 
 
-def upsert_channel(id: str, channel_number: str, name: str, is_hd: bool, sort_order: int = 0) -> None:
+def upsert_channel(
+    id: str, channel_number: str, name: str, is_hd: bool, sort_order: int = 0, affiliate: str | None = None
+) -> None:
     """Create the channel if new; on an existing id, only refresh the
-    tuner-sourced fields (number/name/HD flag) and leave user-editable
-    fields (favorite, hidden, sort_order, guide_provider) untouched."""
+    tuner-sourced fields (number/name/HD flag/affiliate) and leave
+    user-editable fields (favorite, hidden, sort_order, guide_provider)
+    untouched. `affiliate` uses COALESCE so a resync that doesn't know it
+    (e.g. a channel seeded from the guide rather than the tuner lineup)
+    never clobbers a previously-captured value with NULL."""
     with _connect() as conn:
         existing = conn.execute("SELECT 1 FROM channels WHERE id = ?", (id,)).fetchone()
         if existing:
             conn.execute(
-                "UPDATE channels SET channel_number = ?, name = ?, is_hd = ? WHERE id = ?",
-                (channel_number, name, int(is_hd), id),
+                "UPDATE channels SET channel_number = ?, name = ?, is_hd = ?, "
+                "affiliate = COALESCE(?, affiliate) WHERE id = ?",
+                (channel_number, name, int(is_hd), affiliate, id),
             )
         else:
             conn.execute(
                 "INSERT INTO channels "
-                "(id, channel_number, name, is_hd, is_favorite, hidden, sort_order, guide_provider) "
-                "VALUES (?, ?, ?, ?, 0, 0, ?, NULL)",
-                (id, channel_number, name, int(is_hd), sort_order),
+                "(id, channel_number, name, is_hd, is_favorite, hidden, sort_order, guide_provider, affiliate) "
+                "VALUES (?, ?, ?, ?, 0, 0, ?, NULL, ?)",
+                (id, channel_number, name, int(is_hd), sort_order, affiliate),
             )
 
 

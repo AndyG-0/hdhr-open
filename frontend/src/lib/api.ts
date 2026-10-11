@@ -96,6 +96,59 @@ export interface HDHomeRunGuideEntry {
 	audio?: string | null;
 	has_cc?: boolean | null;
 	is_hd?: boolean | null;
+	bucket?: string | null;
+	source?: string | null;
+}
+
+export interface InsightsCastMember {
+	name: string;
+	character: string | null;
+	profile_url: string | null;
+}
+
+/** Mirrors backend/app/api/insights.py's ProgramInsights. */
+export interface ProgramInsights {
+	kind: 'movie' | 'tv';
+	tmdb_id: number;
+	title: string;
+	overview: string | null;
+	poster_url: string | null;
+	backdrop_url: string | null;
+	vote_average: number | null;
+	genres: string[];
+	release_date: string | null;
+	first_air_date: string | null;
+	runtime_minutes: number | null;
+	number_of_seasons: number | null;
+	status: string | null;
+	tagline: string | null;
+	cast: InsightsCastMember[];
+	episode_name: string | null;
+	episode_overview: string | null;
+	episode_air_date: string | null;
+	episode_number: number | null;
+	episode_still_url: string | null;
+}
+
+/** Mirrors backend/app/api/insights.py's SportsEventInsights. */
+export interface SportsEventInsights {
+	status: 'scheduled' | 'live' | 'finished' | null;
+	home_team: string | null;
+	away_team: string | null;
+	home_score: number | null;
+	away_score: number | null;
+	venue: string | null;
+	league: string | null;
+	date_event: string | null;
+	time: string | null;
+}
+
+/** GET /api/insights/program — see backend/app/api/insights.py. */
+export interface InsightsResponse {
+	category: 'shows' | 'movies' | 'sports';
+	tmdb_configured: boolean;
+	tmdb: ProgramInsights | null;
+	sports: SportsEventInsights | null;
 }
 
 export interface HDHomeRunRecordingRule {
@@ -831,6 +884,24 @@ export const api = {
 		if (options?.quality) params.set('quality', options.quality);
 		if (options?.provider) params.set('provider', options.provider);
 		return `${env.PUBLIC_API_BASE_URL}/api/dvr/recording-stream?${params.toString()}`;
+	},
+	getProgramInsights: (options: {
+		title: string;
+		episodeTitle?: string | null;
+		seasonNumber?: number | null;
+		category?: string | null;
+		startTs?: number | null;
+	}) => {
+		const params = new URLSearchParams({ title: options.title });
+		if (options.episodeTitle) params.set('episode_title', options.episodeTitle);
+		if (options.seasonNumber !== undefined && options.seasonNumber !== null) {
+			params.set('season_number', String(options.seasonNumber));
+		}
+		if (options.category) params.set('category', options.category);
+		if (options.startTs !== undefined && options.startTs !== null) {
+			params.set('start_ts', String(options.startTs));
+		}
+		return getJSON<InsightsResponse>(`/api/insights/program?${params.toString()}`);
 	},
 	hdhomerunRecordingDetail: (options: {
 		url: string;

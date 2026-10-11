@@ -1,0 +1,57 @@
+site_name: HDHR Open
+site_description: Self-hosted guide, live TV player, and DVR for HDHomeRun tuners.
+site_url: https://andyg-0.github.io/hdhr-open/
+repo_url: https://github.com/AndyG-0/hdhr-open
+repo_name: AndyG-0/hdhr-open
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+site_dir: site
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Usage Guide: usage.md
+  - DVR Guide: dvr.md
+  - Hardware Acceleration: hardware-acceleration.md
+  - Updating & Uninstalling: updating.md
+  - Native Apps: native-apps.md

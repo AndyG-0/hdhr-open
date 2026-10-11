@@ -78,6 +78,38 @@ final class TVDiscoveryViewTests: XCTestCase {
         XCTAssertThrowsError(try view.inspect().find(text: "No recommendations right now. Check back after the guide updates."))
     }
 
+    func testFilterPillsDisplayAllBucketLabels() throws {
+        let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
+
+        let view = TVDiscoveryView()
+            .environmentObject(discoveryViewModel)
+            .environmentObject(guideViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(text: "All"))
+        XCTAssertNoThrow(try view.inspect().find(text: "Shows"))
+        XCTAssertNoThrow(try view.inspect().find(text: "Movies"))
+        XCTAssertNoThrow(try view.inspect().find(text: "Sports"))
+    }
+
+    func testSettingFilterNarrowsDisplayedItemsToThatBucket() async throws {
+        let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
+        MockURLProtocol.handlers["/api/discovery"] = (Data("""
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Morning Show", "bucket": "shows", "source": "personalized", "channel_number": "4.1"},
+            {"title": "Lakers at Celtics", "bucket": "sports", "source": "favorite_team", "channel_number": "7.2"}
+        ]}
+        """.utf8), 200)
+        await discoveryViewModel.loadData()
+        discoveryViewModel.filter = .sports
+
+        let view = TVDiscoveryView()
+            .environmentObject(discoveryViewModel)
+            .environmentObject(guideViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(text: "Lakers at Celtics"))
+        XCTAssertThrowsError(try view.inspect().find(text: "Morning Show"))
+    }
+
     func testChannelLookupFallsBackToBareChannelWhenGuideHasNoMatch() async throws {
         let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
         MockURLProtocol.handlers["/api/guide/channels"] = (Data("""

@@ -26,8 +26,8 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
   panel, and automatic quality downgrade for single-viewer live TV.
 - **Commercial detection** — comskip marks commercial breaks in completed
   recordings (Built-in DVR, and HDHomeRun DVR once its storage is mounted),
-  with an opt-in auto-skip in the player.
-  See [`docs/dvr-usage-guide.md`](docs/dvr-usage-guide.md#commercial-detection).
+  with an opt-in auto-skip in the player. See the
+  [DVR Guide](https://andyg-0.github.io/hdhr-open/dvr/#commercial-detection).
 - **Optional hardware-accelerated transcoding** — VAAPI/Quick Sync support
   with a built-in diagnostics page (Settings → playback) to verify the
   container actually has GPU access before relying on it.
@@ -36,8 +36,9 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
   cross-provider Series ID enrichment (matching XMLTV airings against
   HDHomeRun Cloud) and automatic fallback with user notifications when a Series
   ID cannot be resolved. Browse in-progress and completed recordings, and seek
-  within recordings in `server_transcode` mode. See [`docs/dvr-usage-guide.md`](docs/dvr-usage-guide.md)
-  for details on guide matching, Series IDs, and fallback behavior.
+  within recordings in `server_transcode` mode. See the
+  [DVR Guide](https://andyg-0.github.io/hdhr-open/dvr/) for details on guide
+  matching, Series IDs, and fallback behavior.
 - **Multi-user profiles** — PIN-protected household profiles with
   admin/member roles, one browser session per device.
 - **Multi-language UI** — English, Spanish, French, German.
@@ -56,6 +57,8 @@ playback, and recording. See [`ROADMAP.md`](ROADMAP.md) for where it's headed
 
 ## Running it
 
+📖 **Full install, config, and usage docs: <https://andyg-0.github.io/hdhr-open/>**
+
 ### Docker (recommended for self-hosting)
 
 ```sh
@@ -64,42 +67,16 @@ docker compose up -d --build
 ```
 
 This starts the backend on `:8000` and the frontend on `:3000`. Open
-`http://<host>:3000` in a browser, or `http://<host>:3000` on the same
-LAN — see `docker-compose.yml` for the environment variables that need to
-change when the frontend and backend are reachable at different hosts
-(`CORS_ORIGIN`, `PUBLIC_API_BASE_URL`).
-
-If port 8000 is already taken on the host (e.g. another project running
-alongside this one), set `BACKEND_PORT` to publish the backend on a
-different host port instead — e.g. `BACKEND_PORT=18001 docker compose up -d`
-— and update `PUBLIC_API_BASE_URL` to match. This only changes the
-published host port; it can't collide with another container regardless,
-since each container has its own isolated network namespace — the internal
-port doesn't need to change for that. `UVICORN_PORT` (also env-overridable)
-controls what port uvicorn binds to *inside* the container, for the rare
-case something else inside that same namespace needs port 8000.
-
-For a tagged-image production deployment (pulling from a registry instead of
-building locally), see `docker-compose.prod.yml`.
-
-Recordings are stored in a Docker volume by default. To keep them on a NAS or
-large disk, set `RECORDINGS_PATH` to a host directory. To let commercial
-detection read recordings made by the HDHomeRun DVR engine, set
-`HDHOMERUN_RECORDINGS_PATH` to that engine's storage mount (read-write in the
-container, since comskip writes each `.edl` next to its recording), then enter
-`/app/hdhomerun-recordings` as the "Recordings path (local mount)" in HDHomeRun
-network settings and press "Test recordings mount". Host directories must be
-readable by uid 1000, and writable for `RECORDINGS_PATH` (see the comments in
-`docker-compose.yml`).
+`http://<host>:3000` in a browser, or the host's LAN IP on the same network.
+See the [Installation guide](https://andyg-0.github.io/hdhr-open/installation/)
+for port overrides, production/tagged images, Podman, and the
+[Configuration guide](https://andyg-0.github.io/hdhr-open/configuration/) for
+every environment variable, including `RECORDINGS_PATH` and
+`HDHOMERUN_RECORDINGS_PATH`.
 
 Hardware-accelerated transcoding (VAAPI/Quick Sync, or NVENC with an NVIDIA
 GPU) requires passing the right device through to the backend container —
-see [`docs/hardware-acceleration.md`](docs/hardware-acceleration.md) for the
-device-passthrough and permissions details for each.
-
-Both compose files also run under rootless `podman-compose`, but need a
-couple of settings Docker doesn't — see
-[`docs/hardware-acceleration.md`](docs/hardware-acceleration.md#podman-rootless).
+see [Hardware Acceleration](https://andyg-0.github.io/hdhr-open/hardware-acceleration/).
 
 ### Local development
 
@@ -107,11 +84,9 @@ couple of settings Docker doesn't — see
 ./dev.sh
 ```
 
-Starts the backend (`uvicorn --reload`) on `:8100` and the frontend (Vite
-dev server) on `:5273` — offset from the stock 8000/5173 ports so this can
-run alongside another local project using the defaults. First run copies
-`backend/.env.example` → `backend/.env` and `frontend/.env.example` →
-`frontend/.env` automatically.
+Starts the backend on `:8100` and the frontend on `:5273`. See
+[`backend/README.md`](backend/README.md) and
+[`frontend/README.md`](frontend/README.md) for details.
 
 ### Barebones (no Docker)
 
@@ -123,19 +98,19 @@ curl -fsSL https://raw.githubusercontent.com/andyg-0/hdhr-open/main/deploy/insta
 ```
 
 Installs system dependencies, builds both services, and runs them as
-systemd services. See [`deploy/README.md`](deploy/README.md) for manual
-setup, updating, uninstalling, and enabling hardware-accelerated
-transcoding outside a container.
+systemd services. See the
+[Installation guide](https://andyg-0.github.io/hdhr-open/installation/#barebones-no-docker)
+for manual setup and hardware acceleration, and
+[Updating & Uninstalling](https://andyg-0.github.io/hdhr-open/updating/).
 
 ## Network exposure
 
 There is no authentication in front of the HTTP server beyond the app's own
 PIN-based profile login — treat the `ports:` mapping in your compose file (or
 whatever reverse proxy you put in front of it) as the real security
-perimeter. Don't expose this directly to the internet without a reverse
-proxy and TLS in front of it. The optional DVR SSH connection (for
-retention/cleanup on a HDHomeRun DVR box) likewise does not pin host keys
-(`known_hosts=None`) — same LAN-trust assumption as the HTTP calls above.
+perimeter. See
+[Configuration → Network exposure](https://andyg-0.github.io/hdhr-open/configuration/#network-exposure)
+for the full picture.
 
 ## Releasing
 

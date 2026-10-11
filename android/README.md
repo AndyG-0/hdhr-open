@@ -128,6 +128,10 @@ Generate JaCoCo HTML code coverage reports:
 # - core/build/reports/coverage/test/debug/index.html
 ```
 
+> **Not published to Google Play.** See the
+> [Native Apps guide](https://andyg-0.github.io/hdhr-open/native-apps/) for
+> status and how to help get it there.
+
 ## Installing a Release Build
 
 `app/build.gradle.kts`'s `release` build type signs itself when release

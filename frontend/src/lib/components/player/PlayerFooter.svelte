@@ -56,6 +56,7 @@
 		onAspectRatioChange: (ratio: 'contain' | 'cover' | 'fill' | '16:9' | '4:3') => void;
 		onQualityChange?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
 		onTogglePlaybackInfo: () => void;
+		onToggleInsights: () => void;
 		channelSwitcherAvailable?: boolean;
 		onToggleChannelDrawer?: () => void;
 		onGoLive?: () => void;
@@ -110,6 +111,7 @@
 		onAspectRatioChange,
 		onQualityChange,
 		onTogglePlaybackInfo,
+		onToggleInsights,
 		channelSwitcherAvailable = false,
 		onToggleChannelDrawer,
 		onGoLive,
@@ -459,6 +461,16 @@
 				title={$_('player.playback_info', { default: 'Playback Info' })}
 			>
 				<PlayerIcon name="info" size={20} />
+			</button>
+
+			<button
+				type="button"
+				class="ctrl-btn insights-btn"
+				onclick={onToggleInsights}
+				aria-label={$_('player.insights', { default: 'Insights' })}
+				title={$_('player.insights', { default: 'Insights' })}
+			>
+				<PlayerIcon name="insights" size={20} />
 			</button>
 
 			<button

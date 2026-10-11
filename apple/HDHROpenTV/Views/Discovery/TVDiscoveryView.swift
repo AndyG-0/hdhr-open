@@ -12,6 +12,8 @@ public struct TVDiscoveryView: View {
 
     @State private var selectedAiring: HDHomeRunGuideEntry?
 
+    @FocusState private var focusedFilter: DiscoveryBucketFilter?
+
     public init() {}
 
     private let columns = [
@@ -34,15 +36,50 @@ public struct TVDiscoveryView: View {
             Theme.appBackground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Discovery")
-                        .font(.largeTitle.bold())
-                        .foregroundColor(Theme.textPrimary)
+                HStack(alignment: .center, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Discovery")
+                            .font(.largeTitle.bold())
+                            .foregroundColor(Theme.textPrimary)
 
-                    if !discoveryViewModel.hasProfile, !discoveryViewModel.items.isEmpty {
-                        Text("New & Notable — record a few shows to get picks tailored to you.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        if !discoveryViewModel.hasProfile, !discoveryViewModel.items.isEmpty {
+                            Text("New & Notable — record a few shows to get picks tailored to you.")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Bucket filter: a focusable pill row rather than a
+                    // `.segmented` Picker (tvOS renders those poorly). Local
+                    // filter of the single fetch above - switching buckets
+                    // never triggers a second network call.
+                    HStack(spacing: 12) {
+                        ForEach(DiscoveryBucketFilter.allCases, id: \.self) { bucketFilter in
+                            let isFocused = focusedFilter == bucketFilter
+                            let isSelected = discoveryViewModel.filter == bucketFilter
+
+                            Button(action: {
+                                discoveryViewModel.filter = bucketFilter
+                            }) {
+                                Text(bucketFilter.label)
+                                    .font(.callout.bold())
+                                    .foregroundColor(isSelected ? .white : .secondary)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(isSelected ? Color.blue : Theme.appSurfaceVariant)
+                                    .cornerRadius(20)
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(isFocused ? Theme.textPrimary : Color.clear, lineWidth: 3)
+                                    )
+                                    .scaleEffect(isFocused ? 1.08 : 1.0)
+                                    .animation(.easeInOut(duration: 0.15), value: isFocused)
+                            }
+                            .buttonStyle(.plain)
+                            .focused($focusedFilter, equals: bucketFilter)
+                        }
                     }
                 }
                 .padding(.horizontal, 48)
@@ -56,7 +93,7 @@ public struct TVDiscoveryView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity)
-                } else if discoveryViewModel.items.isEmpty {
+                } else if discoveryViewModel.filteredItems.isEmpty {
                     VStack(spacing: 16) {
                         Spacer()
                         Image(systemName: "sparkles")
@@ -71,7 +108,7 @@ public struct TVDiscoveryView: View {
                 } else {
                     ScrollView {
                         LazyVGrid(columns: columns, spacing: 32) {
-                            ForEach(discoveryViewModel.items) { airing in
+                            ForEach(discoveryViewModel.filteredItems) { airing in
                                 TVDiscoveryCardView(airing: airing) {
                                     selectedAiring = airing
                                 }

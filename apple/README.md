@@ -62,6 +62,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-pa
 ### Opening in Xcode
 Open the `apple/` folder or `apple/HDHROpenKit` in Xcode 15+. Select the **HDHROpenTV** or **HDHROpeniOS** scheme and choose your Apple TV or iPhone simulator.
 
+> **Not published to the App Store.** See the
+> [Native Apps guide](https://andyg-0.github.io/hdhr-open/native-apps/) for
+> status and how to help get it there.
+
 ## Sideloading
 
 Both app targets use `CODE_SIGN_STYLE = Automatic` with no team/certificate/

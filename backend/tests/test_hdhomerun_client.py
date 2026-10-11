@@ -24,7 +24,13 @@ DISCOVER_RESPONSE = {
 }
 
 LINEUP_RESPONSE = [
-    {"GuideNumber": "4.1", "GuideName": "WCMH-DT", "HD": 1, "URL": "http://hdhr.local:5004/auto/v4.1"},
+    {
+        "GuideNumber": "4.1",
+        "GuideName": "WCMH-DT",
+        "HD": 1,
+        "URL": "http://hdhr.local:5004/auto/v4.1",
+        "Affiliate": "NBC",
+    },
     {"GuideNumber": "7.1", "GuideName": "WHIO-DT", "Tags": "drm", "URL": "http://hdhr.local:5004/auto/v7.1"},
 ]
 
@@ -96,8 +102,10 @@ async def test_fetch_lineup_maps_channels():
         "is_hd": True,
         "is_drm": False,
         "stream_url": "http://hdhr.local:5004/auto/v4.1",
+        "affiliate": "NBC",
     }
     assert channels[1]["is_drm"] is True
+    assert channels[1]["affiliate"] is None
     assert channels[1]["is_hd"] is False
 
 

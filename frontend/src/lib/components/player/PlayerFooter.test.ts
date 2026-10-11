@@ -28,6 +28,7 @@ describe('PlayerFooter.svelte', () => {
 		onPlaybackRateChange: vi.fn(),
 		onAspectRatioChange: vi.fn(),
 		onTogglePlaybackInfo: vi.fn(),
+		onToggleInsights: vi.fn(),
 	};
 
 	it('renders pause button when playing and triggers onTogglePlay on click', async () => {

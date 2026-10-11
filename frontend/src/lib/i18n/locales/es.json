@@ -10,7 +10,12 @@
 	},
 	"discovery": {
 		"fallback_banner": "Novedades y destacados — grava algunos programas para recibir recomendaciones personalizadas.",
-		"empty": "No hay recomendaciones por ahora. Vuelve a comprobarlo después de que se actualice la guía."
+		"empty": "No hay recomendaciones por ahora. Vuelve a comprobarlo después de que se actualice la guía.",
+		"filter_all": "Todos",
+		"source_active_rule": "Regla de grabación activa",
+		"source_favorite_team": "Equipo favorito",
+		"source_network_pick": "Recomendación de cadena",
+		"source_new_and_notable": "Novedades y destacados"
 	},
 	"settings": {
 		"language": {
@@ -298,6 +303,7 @@
 		"caption_track_2": "Pista 2",
 		"caption_track_unavailable": "no disponible",
 		"playback_info": "Información de reproducción",
+		"insights": "Información adicional",
 		"video": "Vídeo",
 		"audio": "Audio",
 		"subtitle": "Subtítulo",
@@ -371,6 +377,27 @@
 		"or": "O",
 		"create_new": "Crear nueva sala",
 		"creating": "Creando…"
+	},
+	"insights": {
+		"title": "Información adicional",
+		"loading": "Cargando información…",
+		"error": "No se pudo cargar la información.",
+		"no_match": "No se encontró coincidencia en TMDB.",
+		"tmdb_not_configured": "Agrega una clave de API de TMDB en Configuración → Integraciones para ver detalles de series/películas.",
+		"event_not_found": "No se encontraron detalles en vivo de este partido.",
+		"cast": "Reparto",
+		"genres": "Géneros",
+		"rating": "Calificación",
+		"venue": "Recinto",
+		"league": "Liga",
+		"status_live": "En vivo",
+		"status_scheduled": "Programado",
+		"status_finished": "Finalizado",
+		"seasons": "{count} temporadas",
+		"runtime": "{minutes} min",
+		"episode": "Episodio",
+		"episode_heading": "Episodio {number}",
+		"live_score_unavailable": "Marcador en vivo no disponible: solo se muestran los detalles del partido."
 	},
 	"setup": {
 		"title": "Bienvenido a HDHR Open",

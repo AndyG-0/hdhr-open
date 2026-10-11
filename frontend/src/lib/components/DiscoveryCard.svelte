@@ -11,6 +11,17 @@
 
 	let imageFailed = $state(false);
 
+	// Mirrors the Android/iOS/tvOS `discovery.*` source labels - shown on
+	// every non-"personalized" item so users can see why something was
+	// recommended.
+	const sourceBadgeKey: Record<string, string> = {
+		active_rule: 'discovery.source_active_rule',
+		favorite_team: 'discovery.source_favorite_team',
+		network_pick: 'discovery.source_network_pick',
+		new_and_notable: 'discovery.source_new_and_notable',
+	};
+	const sourceBadgeLabel = $derived(airing.source ? sourceBadgeKey[airing.source] : undefined);
+
 	function formatTime(seconds: number | null): string {
 		if (seconds === null) return '';
 		return new Date(seconds * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -44,6 +55,7 @@
 	<div class="discovery-info">
 		<span class="discovery-title">{airing.title}</span>
 		{#if airing.episode_title}<span class="discovery-sub">{airing.episode_title}</span>{/if}
+		{#if sourceBadgeLabel}<span class="discovery-source-badge">{$_(sourceBadgeLabel)}</span>{/if}
 		<div class="discovery-meta">
 			{#if airing.is_new}<span class="discovery-badge new">{$_('hdhomerun.detail.new_badge')}</span>{/if}
 			{#if airing.channel_number}<span class="discovery-channel">{airing.channel_number}</span>{/if}
@@ -53,7 +65,10 @@
 		</div>
 		{#if airing.category}
 			<div class="discovery-categories">
-				{#each airing.category.split(',').map((c) => c.trim()).filter(Boolean) as cat (cat)}
+				{#each airing.category
+					.split(',')
+					.map((c) => c.trim())
+					.filter(Boolean) as cat (cat)}
 					<span class="discovery-category-tag">{cat}</span>
 				{/each}
 			</div>
@@ -132,6 +147,16 @@
 		font-weight: 700;
 		font-size: 0.68rem;
 		text-transform: uppercase;
+	}
+
+	.discovery-source-badge {
+		align-self: flex-start;
+		font-size: 0.68rem;
+		font-weight: 600;
+		color: var(--color-text-muted);
+		background: var(--color-surface-hover, rgba(255, 255, 255, 0.08));
+		border-radius: 0.25rem;
+		padding: 0.08rem 0.35rem;
 	}
 
 	.discovery-categories {

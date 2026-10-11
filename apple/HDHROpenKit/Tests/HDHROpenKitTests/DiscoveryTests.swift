@@ -24,6 +24,18 @@ final class DiscoveryTests: XCTestCase {
         XCTAssertTrue(response.items.isEmpty)
     }
 
+    func testDecodesBucketAndSourceFromSnakeCase() throws {
+        let json = """
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Oscar Marathon", "bucket": "movies", "source": "network_pick"}
+        ]}
+        """
+        let response = try JSONDecoder().decode(DiscoveryResponse.self, from: Data(json.utf8))
+
+        XCTAssertEqual(response.items.first?.bucket, "movies")
+        XCTAssertEqual(response.items.first?.source, "network_pick")
+    }
+
     func testMemberwiseInit() {
         let response = DiscoveryResponse(enabled: true, hasProfile: false, items: [HDHomeRunGuideEntry(title: "T")])
 

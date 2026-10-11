@@ -1,4 +1,4 @@
-# DVR Usage Guide
+# DVR Guide
 
 HDHR Open supports a flexible, dual-engine DVR architecture allowing you to record live broadcast television either through HDHR Open's **Built-in DVR** or through SiliconDust's **Official HDHomeRun DVR Service**.
 

@@ -256,6 +256,7 @@ def _channel_dict(entry: dict[str, Any]) -> dict[str, Any]:
         "is_hd": bool(entry.get("HD")) or "hd" in tags,
         "is_drm": bool(entry.get("DRM")) or "drm" in tags,
         "stream_url": entry.get("URL", ""),
+        "affiliate": entry.get("Affiliate"),
     }
 
 
