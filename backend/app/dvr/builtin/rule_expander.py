@@ -222,8 +222,19 @@ def expand_rules_sync(lookahead_seconds: float = DEFAULT_LOOKAHEAD_SECONDS) -> l
     priority = resolve_guide_provider_priority()
     resolved_programs_by_channel = db.resolve_guide_programs(list(channels_by_id.values()), raw_programs, priority)
 
+    # "interrupted" is what DVREngine.recover_on_startup() stamps a scheduled
+    # row with after a crash/restart, and "failed" is what CapturePipeline.
+    # stop_capture() stamps a recording with when a (force-)terminated file
+    # landed under the minimum-bytes threshold - both have to count as "this
+    # airing instance already has a row" or the very next expand_rules tick
+    # (which fires immediately on every startup, per engine.py's scheduler
+    # registration) schedules a duplicate for the same still-airing episode,
+    # stacking a second tuner grab on a surviving orphan, or silently
+    # undoing a manual force-terminate.
     existing_scheduled = [
-        s for s in existing_scheduled_raw if s.get("status") in ("scheduled", "in_progress", "completed")
+        s
+        for s in existing_scheduled_raw
+        if s.get("status") in ("scheduled", "in_progress", "completed", "interrupted", "failed")
     ]
     existing_recordings = db.list_completed_recordings()
 

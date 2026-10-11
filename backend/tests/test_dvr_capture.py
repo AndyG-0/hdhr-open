@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
@@ -84,6 +85,7 @@ async def test_start_capture_writer_loglevel_follows_ffmpeg_debug_setting(tmp_db
 
     mock_proc = MagicMock()
     mock_proc.returncode = None
+    mock_proc.pid = 424242
     mock_proc.stderr = MagicMock()
     mock_proc.stderr.read = AsyncMock(return_value=b"")
 
@@ -118,6 +120,7 @@ async def test_start_capture_captures_writer_stderr_instead_of_discarding_it(tmp
 
     mock_proc = MagicMock()
     mock_proc.returncode = None
+    mock_proc.pid = 424242
     mock_proc.stderr = MagicMock()
     mock_proc.stderr.read = AsyncMock(side_effect=[b"Connection refused - could not connect to tuner", b""])
 
@@ -151,6 +154,7 @@ async def test_start_and_stop_capture_lifecycle(tmp_db, tmp_path, monkeypatch):
     # Mock subprocess
     mock_proc = MagicMock()
     mock_proc.returncode = None
+    mock_proc.pid = 424242
     mock_proc.terminate = MagicMock()
     mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.stderr = MagicMock()
@@ -232,6 +236,7 @@ async def _start_stop_capture_no_image(pipeline, tmp_path, monkeypatch, recordin
 
     mock_proc = MagicMock()
     mock_proc.returncode = None
+    mock_proc.pid = 424242
     mock_proc.terminate = MagicMock()
     mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.stderr = MagicMock()
@@ -333,6 +338,7 @@ async def test_stop_capture_schedules_eager_caption_generation_when_has_captions
 
     mock_proc = MagicMock()
     mock_proc.returncode = None
+    mock_proc.pid = 424242
     mock_proc.terminate = MagicMock()
     mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.stderr = MagicMock()
@@ -381,9 +387,13 @@ async def test_stop_capture_does_not_schedule_caption_generation_when_no_caption
     generate_mock.assert_not_called()
 
 
+_next_mock_pid = itertools.count(424242)
+
+
 def _mock_ffmpeg_process() -> MagicMock:
     mock_proc = MagicMock()
     mock_proc.returncode = None
+    mock_proc.pid = next(_next_mock_pid)
     mock_proc.terminate = MagicMock()
     mock_proc.wait = AsyncMock(return_value=0)
     mock_proc.stderr = MagicMock()

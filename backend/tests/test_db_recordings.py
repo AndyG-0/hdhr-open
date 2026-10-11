@@ -98,6 +98,16 @@ def test_create_update_delete_recording_invalidate_cache(tmp_db):
     assert cache.get("dvr_recordings:::None:0") is None
 
 
+def test_create_and_update_recording_round_trips_pid(tmp_db):
+    rec = _make_recording("r1", "Show A", 1000.0, status="recording")
+    rec["pid"] = 1111
+    db.create_recording(rec)
+    assert db.get_recording("r1")["pid"] == 1111
+
+    db.update_recording("r1", pid=2222)
+    assert db.get_recording("r1")["pid"] == 2222
+
+
 def test_update_recording_heartbeat_only_does_not_invalidate_cache(tmp_db):
     db.create_recording(_make_recording("r1", "Show A", 1000.0, status="recording"))
     cache.set("dvr_recordings:::None:0", ["cached"], ttl_seconds=60)

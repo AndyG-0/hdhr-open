@@ -569,6 +569,19 @@ def _migration_17(conn: sqlite3.Connection) -> None:
     )
 
 
+# Persists the ffmpeg writer's PID for an in-progress recording so a force
+# "terminate tuner" (app.api.tuner) or startup recovery (DVREngine.
+# recover_on_startup) can still find and kill it after a backend process
+# restart orphans it - in-memory tracking in CapturePipeline is wiped on
+# every restart, but the orphaned ffmpeg keeps running and holding the tuner.
+def _migration_18(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recordings" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "pid" not in cols:
+            conn.execute("ALTER TABLE recordings ADD COLUMN pid INTEGER")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -587,6 +600,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _migration_15,
     _migration_16,
     _migration_17,
+    _migration_18,
 )
 
 

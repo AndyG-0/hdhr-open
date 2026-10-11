@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 import uuid
 
+import pytest
+
 from app.dvr.builtin.rule_expander import (
     _SINGLE_RULE_FALLBACK_GRACE_SECONDS,
     _index_scheduled,
@@ -213,6 +215,72 @@ def test_expand_rules_single_airing_rule(tmp_db):
     assert scheduled[0]["title"] == "Movie Night: Inception"
     assert scheduled[0]["start_ts"] == airing_start - 30
     assert scheduled[0]["end_ts"] == airing_start + 9000 + 300
+
+
+@pytest.mark.parametrize("prior_status", ["interrupted", "failed"])
+def test_expand_rules_does_not_resurrect_an_interrupted_or_failed_airing(tmp_db, prior_status):
+    """A backend restart stamps a still-in-progress scheduled recording
+    'interrupted' (DVREngine.recover_on_startup), and a force-terminated
+    capture that landed under the min-bytes threshold stamps it 'failed'
+    (app.api.tuner.terminate_tuner) - either way, the very next expand_rules
+    tick (which fires immediately on every startup) must not schedule a
+    duplicate for the same still-in-window airing, which would stack a new
+    tuner grab on a surviving orphan or silently undo a manual
+    force-terminate."""
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "7.1", "KABC", True)
+    now = time.time()
+    airing_start = now + 7200
+
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "xmltv",
+                "external_program_id": None,
+                "title": "Movie Night: Inception",
+                "episode_title": None,
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "A thief steals secrets through dreams.",
+                "start_ts": airing_start,
+                "end_ts": airing_start + 9000,
+                "original_air_date": "2010-07-16",
+                "image_url": None,
+                "is_new": 0,
+                "category": "Movie",
+            }
+        ]
+    )
+
+    rule_id = "rule_movie_single"
+    db.create_recording_rule(
+        {
+            "id": rule_id,
+            "provider": "builtin",
+            "type": "single",
+            "title": "Movie Night: Inception",
+            "series_match_key": str(int(airing_start)),
+            "channel_id": "7.1",
+            "start_padding_seconds": 30,
+            "end_padding_seconds": 300,
+        }
+    )
+
+    db.upsert_scheduled_recording(
+        {
+            "id": "sched_already_tried",
+            "rule_id": rule_id,
+            "channel_id": "7.1",
+            "title": "Movie Night: Inception",
+            "start_ts": airing_start - 30,
+            "end_ts": airing_start + 9000 + 300,
+            "status": prior_status,
+        }
+    )
+
+    scheduled = expand_rules_sync()
+    assert scheduled == []
 
 
 def test_expand_rules_skips_already_recorded_episodes(tmp_db):

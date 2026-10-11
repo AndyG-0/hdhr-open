@@ -230,7 +230,11 @@
 			} else {
 				tuners = await api.getTunerStatus();
 			}
-			tunerToTerminate = null;
+			if (!res.ok) {
+				error = res.message;
+			} else {
+				tunerToTerminate = null;
+			}
 		} catch (err: unknown) {
 			error = err instanceof Error ? err.message : 'Failed to terminate tuner';
 		} finally {
