@@ -16,6 +16,18 @@ _CHANNEL_UPDATABLE_COLUMNS = frozenset(
 )
 
 
+def _channel_sort_key(channel_number: str) -> tuple[float, float, str]:
+    """Numeric-aware sort key for "<major>.<minor>" channel numbers (e.g.
+    "15.1" before "145.1"), since the column is TEXT and a plain SQL sort
+    is lexicographic. Anything that doesn't parse sorts last, by raw
+    string, instead of raising."""
+    major, _, minor = channel_number.partition(".")
+    try:
+        return (float(major), float(minor) if minor else 0.0, channel_number)
+    except ValueError:
+        return (float("inf"), float("inf"), channel_number)
+
+
 def upsert_channel(
     id: str, channel_number: str, name: str, is_hd: bool, sort_order: int = 0, affiliate: str | None = None
 ) -> None:
@@ -45,12 +57,12 @@ def upsert_channel(
 def list_channels(include_hidden: bool = False) -> list[dict[str, Any]]:
     with _connect() as conn:
         if include_hidden:
-            rows = conn.execute("SELECT * FROM channels ORDER BY sort_order, channel_number").fetchall()
+            rows = conn.execute("SELECT * FROM channels").fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM channels WHERE hidden = 0 ORDER BY sort_order, channel_number"
-            ).fetchall()
-    return [dict(row) for row in rows]
+            rows = conn.execute("SELECT * FROM channels WHERE hidden = 0").fetchall()
+    channels = [dict(row) for row in rows]
+    channels.sort(key=lambda c: (c["sort_order"], _channel_sort_key(c["channel_number"])))
+    return channels
 
 
 def get_channel(channel_id: str) -> dict[str, Any] | None:

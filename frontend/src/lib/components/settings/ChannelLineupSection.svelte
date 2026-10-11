@@ -21,6 +21,21 @@
 	let guideRefreshing = $state(false);
 	let guideRefreshMessage = $state<string | null>(null);
 	let guideRefreshError = $state<string | null>(null);
+	let channelFilter = $state<'all' | 'mapped' | 'unmapped'>('all');
+
+	function isChannelMapped(channel: HDHomeRunChannelSetting): boolean {
+		return channel.guide_provider === 'hdhomerun_cloud' || !!channel.xmltv_channel_id || !!channel.sd_station_id;
+	}
+
+	const mappedChannelSettings = $derived(channelSettings.filter((c) => isChannelMapped(c)));
+	const unmappedChannelSettings = $derived(channelSettings.filter((c) => !isChannelMapped(c)));
+	const filteredChannelSettings = $derived(
+		channelFilter === 'mapped'
+			? mappedChannelSettings
+			: channelFilter === 'unmapped'
+				? unmappedChannelSettings
+				: channelSettings,
+	);
 
 	onMount(() => {
 		loadChannelSettings();
@@ -145,8 +160,39 @@
 			</datalist>
 		{/if}
 
+		<div class="channel-filter-bar" role="group" aria-label={$_('network_settings.channel_filter_all')}>
+			<button
+				type="button"
+				class="filter-chip"
+				class:active={channelFilter === 'all'}
+				onclick={() => (channelFilter = 'all')}
+			>
+				{$_('network_settings.channel_filter_all')} ({channelSettings.length})
+			</button>
+			<button
+				type="button"
+				class="filter-chip"
+				class:active={channelFilter === 'mapped'}
+				onclick={() => (channelFilter = 'mapped')}
+			>
+				{$_('network_settings.channel_filter_mapped')} ({mappedChannelSettings.length})
+			</button>
+			<button
+				type="button"
+				class="filter-chip"
+				class:active={channelFilter === 'unmapped'}
+				onclick={() => (channelFilter = 'unmapped')}
+			>
+				{$_('network_settings.channel_filter_unmapped')} ({unmappedChannelSettings.length})
+			</button>
+		</div>
+
+		{#if filteredChannelSettings.length === 0}
+			<p class="hint">{$_('network_settings.no_channels_match_filter')}</p>
+		{/if}
+
 		<div class="channel-settings-list">
-			{#each channelSettings as channel (channel.id)}
+			{#each filteredChannelSettings as channel (channel.id)}
 				<div class="channel-setting-card">
 					<div class="channel-header-row">
 						<span class="channel-badge">{channel.channel_number}</span>
@@ -241,6 +287,36 @@
 </section>
 
 <style>
+	.channel-filter-bar {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin: 0.5rem 0;
+	}
+
+	.filter-chip {
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		color: var(--color-text-muted);
+		border-radius: 2rem;
+		padding: 0.3rem 0.8rem;
+		font-size: 0.82rem;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.filter-chip:hover {
+		color: var(--color-text);
+		border-color: var(--color-text-muted);
+	}
+
+	.filter-chip.active {
+		background: var(--color-accent);
+		color: var(--color-surface);
+		border-color: var(--color-accent);
+		font-weight: 500;
+	}
+
 	.channel-settings-list {
 		display: flex;
 		flex-direction: column;

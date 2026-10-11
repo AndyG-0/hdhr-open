@@ -90,4 +90,31 @@ describe('ChannelLineupSection', () => {
 
 		expect(await screen.findByText('Guide refresh started.')).toBeInTheDocument();
 	});
+
+	it('filters channels by mapped/unmapped status', async () => {
+		const mappedChannel = { ...channel, id: 'c1', name: 'Channel Five', xmltv_channel_id: 'wnbc.us' };
+		const unmappedChannel = { ...channel, id: 'c2', name: 'Channel Six', xmltv_channel_id: '' };
+		getChannelSettings.mockResolvedValue([mappedChannel, unmappedChannel]);
+
+		render(ChannelLineupSection, {
+			xmltvFeedChannels: [],
+			sdStations: [],
+			onFeedChannelsChanged: vi.fn(),
+			onStationsChanged: vi.fn(),
+		});
+		await screen.findByText('Channel Five');
+		expect(screen.getByText('Channel Six')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /^Mapped/ }));
+		expect(screen.getByText('Channel Five')).toBeInTheDocument();
+		expect(screen.queryByText('Channel Six')).not.toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /^Unmapped/ }));
+		expect(screen.queryByText('Channel Five')).not.toBeInTheDocument();
+		expect(screen.getByText('Channel Six')).toBeInTheDocument();
+
+		await fireEvent.click(screen.getByRole('button', { name: /^All/ }));
+		expect(screen.getByText('Channel Five')).toBeInTheDocument();
+		expect(screen.getByText('Channel Six')).toBeInTheDocument();
+	});
 });

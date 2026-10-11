@@ -21,6 +21,16 @@ def _xmltv_time(ts: float) -> str:
     return time.strftime("%Y%m%d%H%M%S +0000", time.gmtime(ts))
 
 
+def test_list_channels_sorts_channel_number_numerically(tmp_db):
+    db.upsert_channel("ch145", "145.1", "Channel 145", False)
+    db.upsert_channel("ch15", "15.1", "Channel 15", False)
+    db.upsert_channel("ch2", "2.1", "Channel 2", False)
+
+    channels = db.list_channels(True)
+
+    assert [c["channel_number"] for c in channels] == ["2.1", "15.1", "145.1"]
+
+
 async def test_refresh_noops_when_unconfigured(tmp_db):
     await guide_xmltv.refresh_xmltv_guide()
 
