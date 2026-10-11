@@ -196,6 +196,7 @@ async def get_channel_settings(user: dict[str, Any] = Depends(get_current_user))
                 "hidden": bool(c.get("hidden", 0)),
                 "is_drm": bool(c.get("is_drm", 0)),
                 "hidden_is_manual": bool(c.get("hidden_is_manual", 0)),
+                "affiliate": c.get("affiliate"),
                 "guide_provider": c.get("guide_provider"),
                 "xmltv_channel_id": xm["xmltv_channel_id"] if xm else None,
                 "xmltv_display_name": xm["display_name"] if xm else None,

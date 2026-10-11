@@ -380,7 +380,7 @@ def test_get_channel_settings_empty(client, tmp_db):
 
 def test_get_channel_settings_with_channels_and_mapping(client, tmp_db):
     channel_id = uuid.uuid4().hex
-    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    db.upsert_channel(channel_id, "4.1", "WNBC", True, affiliate="NBC")
     db.update_channel(channel_id, guide_provider="xmltv", is_favorite=1)
     db.upsert_xmltv_channel_map(channel_id, "wnbc.us", "NBC New York")
 
@@ -396,6 +396,7 @@ def test_get_channel_settings_with_channels_and_mapping(client, tmp_db):
     assert body[0]["hidden"] is False
     assert body[0]["is_drm"] is False
     assert body[0]["hidden_is_manual"] is False
+    assert body[0]["affiliate"] == "NBC"
     assert body[0]["guide_provider"] == "xmltv"
     assert body[0]["xmltv_channel_id"] == "wnbc.us"
     assert body[0]["xmltv_display_name"] == "NBC New York"

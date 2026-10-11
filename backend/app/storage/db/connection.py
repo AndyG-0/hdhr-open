@@ -537,6 +537,38 @@ def _migration_15(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE channels ADD COLUMN hidden_is_manual INTEGER NOT NULL DEFAULT 0")
 
 
+# Lets sports auto-recording auto-resolve OTA broadcast networks (CBS/NBC/
+# etc.) to a local channel via channels.affiliate, distinguish an
+# auto-detected mapping from an explicit admin one, and show per-game detail
+# (not just a network-name count) for events still unresolved.
+def _migration_16(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "sports_network_channel_map" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sports_network_channel_map)").fetchall()}
+        if "source" not in cols:
+            conn.execute("ALTER TABLE sports_network_channel_map ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+    if "sports_tracked_events" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sports_tracked_events)").fetchall()}
+        if "matchup_title" not in cols:
+            conn.execute("ALTER TABLE sports_tracked_events ADD COLUMN matchup_title TEXT")
+
+
+# Lets the user save a custom "watch" URL for a cable/streaming broadcast
+# network (ESPN, TNT, ...) that has no local tunable channel, separate from
+# sports_network_channel_map's channel_id - a network can have one, both, or
+# neither, so this is its own table rather than a new nullable column there.
+def _migration_17(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sports_network_watch_link_map (
+            network_name TEXT PRIMARY KEY,
+            url TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -553,6 +585,8 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_13,
     _migration_14,
     _migration_15,
+    _migration_16,
+    _migration_17,
 )
 
 

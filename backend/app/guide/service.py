@@ -164,6 +164,13 @@ async def refresh_hdhomerun_guide() -> None:
         logger.info("Tuner unreachable; skipping guide refresh this cycle", exc_info=True)
         return
 
+    # `lineup.json`'s `Affiliate` field needs no cloud-guide subscription -
+    # backfill it for any household's channels (even one whose active guide
+    # provider is xmltv/schedules_direct, not hdhomerun_cloud) regardless of
+    # whether the full cloud guide below is available this cycle. Narrow:
+    # only fills a NULL affiliate, never touches name/is_hd.
+    await asyncio.to_thread(db.backfill_channel_affiliates, lineup)
+
     full_guide = await hdhomerun_client.fetch_full_guide(settings, "hdhomerun")
     if full_guide is None:
         logger.info("HDHomeRun cloud guide unavailable this cycle (no subscription / fetch failed)")

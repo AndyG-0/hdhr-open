@@ -197,6 +197,9 @@
 					<div class="channel-header-row">
 						<span class="channel-badge">{channel.channel_number}</span>
 						<span class="channel-name">{channel.name}</span>
+						{#if channel.affiliate}
+							<span class="affiliate-badge">{channel.affiliate}</span>
+						{/if}
 						{#if channel.is_hd}
 							<span class="hd-badge">HD</span>
 						{/if}
@@ -372,7 +375,8 @@
 		font-size: 0.9rem;
 	}
 
-	.hd-badge {
+	.hd-badge,
+	.affiliate-badge {
 		font-size: 0.7rem;
 		background: var(--color-border);
 		color: var(--color-text-muted);

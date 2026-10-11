@@ -154,6 +154,42 @@ async def test_refresh_leaves_existing_data_when_guide_fetch_fails(tmp_db, monke
     assert db.get_guide_provider_state(guide_service.SOURCE_PROVIDER) == state_before
 
 
+async def test_refresh_backfills_affiliate_even_when_cloud_guide_unavailable(tmp_db, monkeypatch):
+    # An XMLTV-primary channel: already exists under its own name, with no
+    # affiliate known yet, and the cloud guide subscription is unavailable
+    # this cycle - affiliate should still be backfilled from the tuner's
+    # local lineup.json, and the XMLTV-sourced name must stay untouched.
+    _configure_tuner(tmp_db)
+    db.upsert_channel("chan1", "4.1", "KNBC (XMLTV)", True)
+    monkeypatch.setattr(
+        guide_service.hdhomerun_client,
+        "fetch_lineup",
+        AsyncMock(return_value=[{**LINEUP[0], "affiliate": "NBC"}]),
+    )
+    monkeypatch.setattr(guide_service.hdhomerun_client, "fetch_full_guide", AsyncMock(return_value=None))
+
+    await guide_service.refresh_hdhomerun_guide()
+
+    channel = db.get_channel_by_number("4.1")
+    assert channel["affiliate"] == "NBC"
+    assert channel["name"] == "KNBC (XMLTV)"
+
+
+async def test_refresh_does_not_overwrite_existing_affiliate(tmp_db, monkeypatch):
+    _configure_tuner(tmp_db)
+    db.upsert_channel("chan1", "4.1", "KNBC (XMLTV)", True, affiliate="NBC")
+    monkeypatch.setattr(
+        guide_service.hdhomerun_client,
+        "fetch_lineup",
+        AsyncMock(return_value=[{**LINEUP[0], "affiliate": "FOX"}]),
+    )
+    monkeypatch.setattr(guide_service.hdhomerun_client, "fetch_full_guide", AsyncMock(return_value=None))
+
+    await guide_service.refresh_hdhomerun_guide()
+
+    assert db.get_channel_by_number("4.1")["affiliate"] == "NBC"
+
+
 def test_sync_channels_and_guide_returns_rows_by_channel(tmp_db):
     now = time.time()
     rows_by_channel = guide_service._sync_channels_and_guide(LINEUP, _guide(now, now + 1800), now)

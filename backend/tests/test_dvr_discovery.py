@@ -125,16 +125,6 @@ def test_take_new_and_notable_caps_results_per_channel():
     assert taken == discovery._FALLBACK_MAX_PER_CHANNEL
 
 
-def test_is_major_network_rejects_cable_lookalikes():
-    assert discovery._is_major_network("NBC") is True
-    assert discovery._is_major_network("FOX") is True
-    assert discovery._is_major_network("FOXNEWS") is False
-    assert discovery._is_major_network("FOXSPORTS1") is False
-    assert discovery._is_major_network("NBCSN") is False
-    assert discovery._is_major_network(None) is False
-    assert discovery._is_major_network("TBS") is False
-
-
 def test_get_discovery_recommendations_personalized_scores_matching_category(tmp_db):
     now = time.time()
     db.create_recording(

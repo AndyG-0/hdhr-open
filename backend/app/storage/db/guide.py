@@ -70,6 +70,25 @@ def upsert_channel(
         )
 
 
+def backfill_channel_affiliates(entries: list[dict[str, Any]]) -> None:
+    """Fills in `channels.affiliate` for existing channels only when it's
+    still NULL, keyed by `channel_number`. Used to pick up HDHomeRun's
+    `lineup.json` `Affiliate` field (no cloud-guide subscription required)
+    even when `hdhomerun_cloud` isn't the active guide provider, without
+    touching `name`/`is_hd` (which stay tuner-sourced-only for that
+    provider) - see app.guide.service.refresh_hdhomerun_guide."""
+    with _connect() as conn:
+        for entry in entries:
+            number = entry.get("channel_number")
+            affiliate = entry.get("affiliate")
+            if not number or not affiliate:
+                continue
+            conn.execute(
+                "UPDATE channels SET affiliate = ? WHERE channel_number = ? AND affiliate IS NULL",
+                (affiliate, number),
+            )
+
+
 def list_channels(include_hidden: bool = False) -> list[dict[str, Any]]:
     with _connect() as conn:
         if include_hidden:

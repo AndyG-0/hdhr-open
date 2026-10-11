@@ -43,6 +43,7 @@ from app.config import (
     resolve_sports_autorecord_postseason_enabled,
     resolve_sports_autorecord_top25_enabled,
 )
+from app.dvr.builtin.network_affiliates import normalize_major_network_token
 from app.dvr.rule_engine import create_builtin_recording_rule
 from app.integrations import espn
 from app.storage import db
@@ -73,6 +74,11 @@ def register(scheduler: AsyncIOScheduler) -> None:
         func=sync_sports_autorecord,
         trigger="interval",
         seconds=SYNC_INTERVAL_SECONDS,
+        # Run once immediately on startup rather than waiting a full
+        # interval - otherwise a freshly-migrated/freshly-restarted backend
+        # can sit for up to SYNC_INTERVAL_SECONDS with stale/NULL
+        # matchup_title data on unresolved events.
+        next_run_time=datetime.now(UTC),
         replace_existing=True,
         max_instances=1,
         coalesce=True,
@@ -115,6 +121,16 @@ async def sync_sports_autorecord() -> None:
     network_map_by_name = {
         row["network_name"]: row["channel_id"] for row in await asyncio.to_thread(db.list_network_channel_map)
     }
+    # Index channels by their normalized OTA affiliate token (e.g. "CBS") so
+    # a favorited team's game on a major network can be auto-resolved to the
+    # local affiliate without requiring a manual network-map entry - see
+    # _sync_one_event. Cable/streaming networks (ESPN, TNT, ...) never match
+    # here and keep requiring a manual mapping.
+    channels_by_affiliate_token: dict[str, list[str]] = {}
+    for channel in await asyncio.to_thread(db.list_channels, True):
+        token = normalize_major_network_token(channel.get("affiliate"))
+        if token:
+            channels_by_affiliate_token.setdefault(token, []).append(channel["id"])
     tracked_by_event_id = {row["espn_event_id"]: row for row in await asyncio.to_thread(db.list_tracked_events)}
     postseason_widened = resolve_sports_autorecord_postseason_enabled()
 
@@ -142,7 +158,9 @@ async def sync_sports_autorecord() -> None:
                 pass
 
             seen_event_ids.add(game["event_id"])
-            await _sync_one_event(fav, game, network_map_by_name, tracked_by_event_id.get(game["event_id"]))
+            await _sync_one_event(
+                fav, game, network_map_by_name, channels_by_affiliate_token, tracked_by_event_id.get(game["event_id"])
+            )
 
     # Drop tracking rows for events that fell out of every favorite's
     # schedule window (game passed, or favorite removed) once their rule is
@@ -160,10 +178,31 @@ async def _sync_one_event(
     fav: dict[str, Any],
     game: dict[str, Any],
     network_map_by_name: dict[str, str],
+    channels_by_affiliate_token: dict[str, list[str]],
     existing: dict[str, Any] | None,
 ) -> None:
     network = game["broadcast_network"]
     channel_id = network_map_by_name.get(network) if network else None
+
+    # No explicit mapping yet (manual mappings always win - never overridden
+    # here) and the network is a recognized OTA major network: auto-resolve
+    # it to the single local channel whose affiliate matches, same as a
+    # manual mapping from here on. Zero matches (no local affiliate for that
+    # network) or more than one (ambiguous) fall through to the existing
+    # "surface as unresolved" path below rather than guessing.
+    if channel_id is None and network:
+        token = normalize_major_network_token(network)
+        if token:
+            candidates = channels_by_affiliate_token.get(token, [])
+            if len(candidates) == 1:
+                channel_id = candidates[0]
+                await asyncio.to_thread(db.auto_assign_network_channel_map_entry, network, channel_id)
+            elif len(candidates) > 1:
+                logger.warning(
+                    "sports_autorecord: ambiguous OTA affiliate match for %r (%d candidate channels)",
+                    network,
+                    len(candidates),
+                )
 
     if existing is not None:
         if existing["start_ts"] != game["start_time"]:
@@ -191,6 +230,7 @@ async def _sync_one_event(
                     "league": fav["league"],
                     "start_ts": game["start_time"],
                     "network_name": network,
+                    "matchup_title": game.get("matchup_title"),
                     "title_resolved": False,
                     "updated_at": _now_iso(),
                 },
@@ -227,6 +267,7 @@ async def _sync_one_event(
             "league": fav["league"],
             "start_ts": game["start_time"],
             "network_name": network,
+            "matchup_title": game.get("matchup_title"),
             "title_resolved": title_resolved,
             "updated_at": _now_iso(),
         },

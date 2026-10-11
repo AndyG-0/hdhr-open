@@ -25,6 +25,7 @@ const channel = {
 	hidden: false,
 	is_drm: false,
 	hidden_is_manual: false,
+	affiliate: null,
 	guide_provider: null,
 	xmltv_channel_id: '',
 	xmltv_display_name: '',
@@ -58,9 +59,7 @@ describe('ChannelLineupSection', () => {
 		await waitFor(() =>
 			expect(onFeedChannelsChanged).toHaveBeenCalledWith([{ xmltv_channel_id: 'ch1', display_names: ['Channel 1'] }]),
 		);
-		await waitFor(() =>
-			expect(onStationsChanged).toHaveBeenCalledWith([{ station_id: 's1', name: 'Station 1' }]),
-		);
+		await waitFor(() => expect(onStationsChanged).toHaveBeenCalledWith([{ station_id: 's1', name: 'Station 1' }]));
 	});
 
 	it('saves a channel setting', async () => {
@@ -74,7 +73,9 @@ describe('ChannelLineupSection', () => {
 
 		await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-		await waitFor(() => expect(updateChannelSetting).toHaveBeenCalledWith('c1', expect.objectContaining({ guide_provider: null })));
+		await waitFor(() =>
+			expect(updateChannelSetting).toHaveBeenCalledWith('c1', expect.objectContaining({ guide_provider: null })),
+		);
 		expect(await screen.findByText('Saved.')).toBeInTheDocument();
 	});
 
@@ -138,6 +139,21 @@ describe('ChannelLineupSection', () => {
 			),
 		).toBeInTheDocument();
 		expect(screen.getByRole('checkbox', { name: 'Hidden from guide' })).toBeChecked();
+	});
+
+	it('shows the affiliate badge when the tuner lineup reports one', async () => {
+		const affiliateChannel = { ...channel, affiliate: 'CBS' };
+		getChannelSettings.mockResolvedValue([affiliateChannel]);
+
+		render(ChannelLineupSection, {
+			xmltvFeedChannels: [],
+			sdStations: [],
+			onFeedChannelsChanged: vi.fn(),
+			onStationsChanged: vi.fn(),
+		});
+
+		expect(await screen.findByText('Channel Five')).toBeInTheDocument();
+		expect(screen.getByText('CBS')).toBeInTheDocument();
 	});
 
 	it('toggling the hidden checkbox and saving persists the override', async () => {
