@@ -10,7 +10,12 @@
 	},
 	"discovery": {
 		"fallback_banner": "Nouveautés et incontournables — enregistrez quelques émissions pour obtenir des suggestions personnalisées.",
-		"empty": "Aucune suggestion pour le moment. Revenez après la mise à jour du guide."
+		"empty": "Aucune suggestion pour le moment. Revenez après la mise à jour du guide.",
+		"filter_all": "Tous",
+		"source_active_rule": "Règle d'enregistrement active",
+		"source_favorite_team": "Équipe favorite",
+		"source_network_pick": "Sélection de la chaîne",
+		"source_new_and_notable": "Nouveautés et incontournables"
 	},
 	"settings": {
 		"language": {

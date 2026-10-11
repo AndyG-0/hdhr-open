@@ -99,6 +99,55 @@ final class iOSDiscoveryViewTests: XCTestCase {
         XCTAssertThrowsError(try view.inspect().find(text: "NEW"))
     }
 
+    func testFilterChipsDisplayAllBucketLabels() throws {
+        let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
+
+        let view = iOSDiscoveryView()
+            .environmentObject(discoveryViewModel)
+            .environmentObject(guideViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(text: "All"))
+        XCTAssertNoThrow(try view.inspect().find(text: "Shows"))
+        XCTAssertNoThrow(try view.inspect().find(text: "Movies"))
+        XCTAssertNoThrow(try view.inspect().find(text: "Sports"))
+    }
+
+    func testSettingFilterNarrowsDisplayedItemsToThatBucket() async throws {
+        let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
+        MockURLProtocol.handlers["/api/discovery"] = (Data("""
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Personalized Drama", "bucket": "shows", "source": "personalized"},
+            {"title": "Lakers at Celtics", "bucket": "sports", "source": "favorite_team"}
+        ]}
+        """.utf8), 200)
+        await discoveryViewModel.loadData()
+        discoveryViewModel.filter = .sports
+
+        let view = iOSDiscoveryView()
+            .environmentObject(discoveryViewModel)
+            .environmentObject(guideViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(text: "Lakers at Celtics"))
+        XCTAssertThrowsError(try view.inspect().find(text: "Personalized Drama"))
+    }
+
+    func testShowsSourceBadgeOnlyForNonPersonalizedItems() async throws {
+        let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
+        MockURLProtocol.handlers["/api/discovery"] = (Data("""
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Personalized Drama", "bucket": "shows", "source": "personalized"},
+            {"title": "Oscar Marathon", "bucket": "movies", "source": "network_pick"}
+        ]}
+        """.utf8), 200)
+        await discoveryViewModel.loadData()
+
+        let view = iOSDiscoveryView()
+            .environmentObject(discoveryViewModel)
+            .environmentObject(guideViewModel)
+
+        XCTAssertNoThrow(try view.inspect().find(text: "Network pick"))
+    }
+
     func testChannelLookupFallsBackToBareChannelWhenGuideHasNoMatch() async throws {
         let (discoveryViewModel, guideViewModel) = makeEnvironmentObjects()
         MockURLProtocol.handlers["/api/guide/channels"] = (Data("""

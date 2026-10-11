@@ -296,3 +296,35 @@ def test_migration_7_drops_devices_and_device_id_columns(tmp_path, monkeypatch):
 
         token_cols = {row[1] for row in conn.execute("PRAGMA table_info(auth_tokens)").fetchall()}
         assert "device_id" not in token_cols
+
+
+def test_migration_14_adds_channels_affiliate_column(tmp_path, monkeypatch):
+    test_db = tmp_path / "migration14_test.db"
+    monkeypatch.setattr(db, "DB_PATH", test_db)
+
+    with sqlite3.connect(test_db) as conn:
+        conn.executescript("""
+            CREATE TABLE channels (
+                id TEXT PRIMARY KEY,
+                channel_number TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                is_hd INTEGER NOT NULL DEFAULT 0,
+                is_favorite INTEGER NOT NULL DEFAULT 0,
+                hidden INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                guide_provider TEXT
+            );
+            INSERT INTO channels (id, channel_number, name) VALUES ('ch1', '4.1', 'WNBC');
+            PRAGMA user_version = 13;
+        """)
+
+    with sqlite3.connect(test_db) as conn:
+        db._apply_migrations(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == len(db._MIGRATIONS)
+
+        channel_cols = {row[1] for row in conn.execute("PRAGMA table_info(channels)").fetchall()}
+        assert "affiliate" in channel_cols
+
+        row = conn.execute("SELECT affiliate FROM channels WHERE id = 'ch1'").fetchone()
+        assert row[0] is None

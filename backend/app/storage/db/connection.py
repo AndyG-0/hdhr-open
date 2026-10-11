@@ -93,7 +93,8 @@ CREATE TABLE IF NOT EXISTS channels (
     is_favorite INTEGER NOT NULL DEFAULT 0,
     hidden INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    guide_provider TEXT
+    guide_provider TEXT,
+    affiliate TEXT
 );
 
 -- A single airing, from whichever guide provider supplied it. Unique per
@@ -501,6 +502,14 @@ CREATE INDEX IF NOT EXISTS idx_sports_tracked_events_favorite ON sports_tracked_
 """
 
 
+def _migration_14(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "channels" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(channels)").fetchall()}
+        if "affiliate" not in cols:
+            conn.execute("ALTER TABLE channels ADD COLUMN affiliate TEXT")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -515,6 +524,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _migration_11,
     _MIGRATION_12,
     _MIGRATION_13,
+    _migration_14,
 )
 
 

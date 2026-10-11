@@ -15,6 +15,19 @@ public struct TVDiscoveryCardView: View {
         self.onSelect = onSelect
     }
 
+    /// Mirrors the web/Android/iOS `discovery.*` source labels - shown on
+    /// every non-"personalized" item so users can see why something was
+    /// recommended.
+    private var sourceBadgeLabel: String? {
+        switch airing.source {
+        case "active_rule": "Active rule"
+        case "favorite_team": "Favorite team"
+        case "network_pick": "Network pick"
+        case "new_and_notable": "New & notable"
+        default: nil
+        }
+    }
+
     public var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
@@ -64,6 +77,16 @@ public struct TVDiscoveryCardView: View {
                             .font(.subheadline)
                             .foregroundColor(Theme.textSecondary)
                             .lineLimit(1)
+                    }
+
+                    if let badgeLabel = sourceBadgeLabel {
+                        Text(badgeLabel)
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.appSurfaceVariant)
+                            .foregroundColor(Theme.textSecondary)
+                            .cornerRadius(4)
                     }
 
                     HStack {

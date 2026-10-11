@@ -101,7 +101,13 @@ def _sync_channels_and_guide(
             continue
         existing = db.get_channel_by_number(number)
         channel_id = existing["id"] if existing else uuid.uuid4().hex
-        db.upsert_channel(channel_id, number, channel.get("name") or number, channel.get("is_hd", False))
+        db.upsert_channel(
+            channel_id,
+            number,
+            channel.get("name") or number,
+            channel.get("is_hd", False),
+            affiliate=channel.get("affiliate"),
+        )
         channel_id_by_number[number] = channel_id
 
     rows_by_channel: dict[str, list[dict[str, Any]]] = {}

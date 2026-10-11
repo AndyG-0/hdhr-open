@@ -10,7 +10,12 @@
 	},
 	"discovery": {
 		"fallback_banner": "New & Notable — record a few shows to get picks tailored to you.",
-		"empty": "No recommendations right now. Check back after the guide updates."
+		"empty": "No recommendations right now. Check back after the guide updates.",
+		"filter_all": "All",
+		"source_active_rule": "Active rule",
+		"source_favorite_team": "Favorite team",
+		"source_network_pick": "Network pick",
+		"source_new_and_notable": "New & notable"
 	},
 	"settings": {
 		"language": {

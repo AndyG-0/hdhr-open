@@ -10,7 +10,12 @@
 	},
 	"discovery": {
 		"fallback_banner": "Novedades y destacados — grava algunos programas para recibir recomendaciones personalizadas.",
-		"empty": "No hay recomendaciones por ahora. Vuelve a comprobarlo después de que se actualice la guía."
+		"empty": "No hay recomendaciones por ahora. Vuelve a comprobarlo después de que se actualice la guía.",
+		"filter_all": "Todos",
+		"source_active_rule": "Regla de grabación activa",
+		"source_favorite_team": "Equipo favorito",
+		"source_network_pick": "Recomendación de cadena",
+		"source_new_and_notable": "Novedades y destacados"
 	},
 	"settings": {
 		"language": {

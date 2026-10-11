@@ -20,6 +20,57 @@ final class DiscoveryViewModelTests: XCTestCase {
         XCTAssertFalse(vm.enabled)
         XCTAssertFalse(vm.isLoading)
         XCTAssertNil(vm.error)
+        XCTAssertEqual(vm.filter, .all)
+        XCTAssertTrue(vm.filteredItems.isEmpty)
+    }
+
+    func testFilteredItemsDefaultsToAllItemsUnfiltered() async {
+        MockURLProtocol.handlers["/api/discovery"] = (Data("""
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Personalized Drama", "bucket": "shows", "source": "personalized"},
+            {"title": "Oscar Marathon", "bucket": "movies", "source": "network_pick"},
+            {"title": "Lakers at Celtics", "bucket": "sports", "source": "favorite_team"}
+        ]}
+        """.utf8), 200)
+
+        let vm = DiscoveryViewModel(apiClient: makeMockedAPIClient())
+        await vm.loadData()
+
+        XCTAssertEqual(vm.items.count, 3)
+        XCTAssertEqual(vm.filteredItems.count, 3)
+    }
+
+    func testSettingFilterNarrowsFilteredItemsToThatBucket() async {
+        MockURLProtocol.handlers["/api/discovery"] = (Data("""
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Personalized Drama", "bucket": "shows", "source": "personalized"},
+            {"title": "Oscar Marathon", "bucket": "movies", "source": "network_pick"},
+            {"title": "Lakers at Celtics", "bucket": "sports", "source": "favorite_team"}
+        ]}
+        """.utf8), 200)
+
+        let vm = DiscoveryViewModel(apiClient: makeMockedAPIClient())
+        await vm.loadData()
+        vm.filter = .sports
+
+        XCTAssertEqual(vm.filteredItems.map(\.title), ["Lakers at Celtics"])
+    }
+
+    func testSwitchingBackToAllRestoresEveryItem() async {
+        MockURLProtocol.handlers["/api/discovery"] = (Data("""
+        {"enabled": true, "has_profile": true, "items": [
+            {"title": "Personalized Drama", "bucket": "shows", "source": "personalized"},
+            {"title": "Oscar Marathon", "bucket": "movies", "source": "network_pick"},
+            {"title": "Lakers at Celtics", "bucket": "sports", "source": "favorite_team"}
+        ]}
+        """.utf8), 200)
+
+        let vm = DiscoveryViewModel(apiClient: makeMockedAPIClient())
+        await vm.loadData()
+        vm.filter = .shows
+        vm.filter = .all
+
+        XCTAssertEqual(vm.filteredItems.count, 3)
     }
 
     func testLoadDataPopulatesStateFromResponse() async {

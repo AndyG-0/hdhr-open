@@ -23,6 +23,8 @@ public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
     public let isNew: Bool?
     public let hasCC: Bool?
     public let audio: String?
+    public let bucket: String?
+    public let source: String?
 
     enum CodingKeys: String, CodingKey {
         case seriesId = "series_id"
@@ -40,6 +42,8 @@ public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
         case isNew = "is_new"
         case hasCC = "has_cc"
         case audio
+        case bucket
+        case source
     }
 
     public init(
@@ -57,7 +61,9 @@ public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
         category: String? = nil,
         isNew: Bool? = nil,
         hasCC: Bool? = nil,
-        audio: String? = nil
+        audio: String? = nil,
+        bucket: String? = nil,
+        source: String? = nil
     ) {
         self.seriesId = seriesId
         self.title = title
@@ -74,6 +80,8 @@ public struct HDHomeRunGuideEntry: Identifiable, Codable, Sendable, Hashable {
         self.isNew = isNew
         self.hasCC = hasCC
         self.audio = audio
+        self.bucket = bucket
+        self.source = source
     }
 
     public var formattedAudio: String? {

@@ -21,6 +21,16 @@ import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
 import org.hdhropen.kit.utilities.TimeFormatting
 
+// Mirrors the web client's discovery.* source labels - shown on every
+// non-"personalized" item so users can see why something was recommended.
+private fun sourceBadgeLabel(source: String?): String? = when (source) {
+    "active_rule" -> "Active rule"
+    "favorite_team" -> "Favorite team"
+    "network_pick" -> "Network pick"
+    "new_and_notable" -> "New & notable"
+    else -> null
+}
+
 // Text-only card for a recommended upcoming airing - no image-loading
 // library exists anywhere in this app (imageUrl is only ever read for
 // Media3 notification artwork), so poster art is explicitly out of scope
@@ -121,6 +131,25 @@ fun DiscoveryCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                }
+
+                val badgeLabel = sourceBadgeLabel(item.source)
+                if (badgeLabel != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = badgeLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 10.sp
+                            )
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

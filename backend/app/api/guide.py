@@ -95,7 +95,14 @@ async def _seed_channels_from_tuner_lineup() -> list[dict[str, Any]]:
                 if num:
                     existing = await asyncio.to_thread(db.get_channel_by_number, num)
                     ch_id = existing["id"] if existing else uuid.uuid4().hex
-                    await asyncio.to_thread(db.upsert_channel, ch_id, num, c.get("name") or num, c.get("is_hd", False))
+                    await asyncio.to_thread(
+                        db.upsert_channel,
+                        ch_id,
+                        num,
+                        c.get("name") or num,
+                        c.get("is_hd", False),
+                        affiliate=c.get("affiliate"),
+                    )
             channels = await asyncio.to_thread(db.list_channels, True)
     except Exception:
         pass

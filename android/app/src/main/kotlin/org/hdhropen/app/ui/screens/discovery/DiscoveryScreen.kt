@@ -1,8 +1,10 @@
 package org.hdhropen.app.ui.screens.discovery
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -18,6 +20,7 @@ import org.hdhropen.app.ui.screens.guide.RecordingOptionsBottomSheet
 import org.hdhropen.app.ui.theme.*
 import org.hdhropen.kit.models.HDHomeRunChannel
 import org.hdhropen.kit.models.HDHomeRunGuideEntry
+import org.hdhropen.kit.viewmodels.DiscoveryBucketFilter
 import org.hdhropen.kit.viewmodels.DiscoveryViewModel
 import org.hdhropen.kit.viewmodels.GuideViewModel
 import org.hdhropen.kit.viewmodels.RecordingsViewModel
@@ -30,6 +33,8 @@ fun DiscoveryScreen(
     recordingsViewModel: RecordingsViewModel
 ) {
     val items by discoveryViewModel.items.collectAsStateWithLifecycle()
+    val filteredItems by discoveryViewModel.filteredItems.collectAsStateWithLifecycle()
+    val filter by discoveryViewModel.filter.collectAsStateWithLifecycle()
     val hasProfile by discoveryViewModel.hasProfile.collectAsStateWithLifecycle()
     val isLoading by discoveryViewModel.isLoading.collectAsStateWithLifecycle()
     val channels by guideViewModel.channels.collectAsStateWithLifecycle()
@@ -74,6 +79,41 @@ fun DiscoveryScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // Bucket filter: a local filter of the single fetch above -
+            // switching buckets never triggers a second network call.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DiscoveryBucketFilter.values().forEach { bucketFilter ->
+                    FilterChip(
+                        selected = filter == bucketFilter,
+                        onClick = { discoveryViewModel.setFilter(bucketFilter) },
+                        label = {
+                            Text(
+                                text = bucketFilter.label,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    color = if (filter == bucketFilter) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BluePrimary,
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = MaterialTheme.colorScheme.outline,
+                            selectedBorderColor = BluePrimary,
+                            enabled = true,
+                            selected = filter == bucketFilter
+                        )
+                    )
+                }
+            }
+
             // Cold-start banner: shown when recommendations aren't personalized
             // yet (no recording history), mirroring the web client's header.
             if (!hasProfile && items.isNotEmpty()) {
@@ -96,7 +136,7 @@ fun DiscoveryScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = BluePrimary)
                 }
-            } else if (items.isEmpty()) {
+            } else if (filteredItems.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No recommendations yet.", color = MaterialTheme.extendedColors.textMuted)
                 }
@@ -108,7 +148,7 @@ fun DiscoveryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
-                    items(items, key = { it.id }) { entry ->
+                    items(filteredItems, key = { it.id }) { entry ->
                         val channel = channels.firstOrNull { it.channelNumber == entry.channelNumber }
                         DiscoveryCard(
                             item = entry,

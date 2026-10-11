@@ -27,6 +27,18 @@ public struct iOSDiscoveryView: View {
             ?? HDHomeRunChannel(channelNumber: number, name: number)
     }
 
+    /// Mirrors the web/Android `discovery.*` source labels - shown on every
+    /// non-"personalized" item so users can see why something was recommended.
+    private func sourceBadgeLabel(_ source: String?) -> String? {
+        switch source {
+        case "active_rule": "Active rule"
+        case "favorite_team": "Favorite team"
+        case "network_pick": "Network pick"
+        case "new_and_notable": "New & notable"
+        default: nil
+        }
+    }
+
     public var body: some View {
         List {
             if !discoveryViewModel.hasProfile, !discoveryViewModel.items.isEmpty {
@@ -38,11 +50,24 @@ public struct iOSDiscoveryView: View {
             }
 
             Section {
-                if discoveryViewModel.items.isEmpty {
+                // Bucket filter: a local filter of the single fetch above -
+                // switching buckets never triggers a second network call.
+                Picker("Filter", selection: $discoveryViewModel.filter) {
+                    ForEach(DiscoveryBucketFilter.allCases, id: \.self) { bucketFilter in
+                        Text(bucketFilter.label).tag(bucketFilter)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .listRowInsets(EdgeInsets())
+                .padding(.vertical, 4)
+            }
+
+            Section {
+                if discoveryViewModel.filteredItems.isEmpty {
                     Text(discoveryViewModel.isLoading ? "Loading…" : "No recommendations right now. Check back after the guide updates.")
                         .foregroundColor(.secondary)
                 } else {
-                    ForEach(discoveryViewModel.items) { airing in
+                    ForEach(discoveryViewModel.filteredItems) { airing in
                         Button {
                             selectedAiring = airing
                         } label: {
@@ -103,6 +128,16 @@ public struct iOSDiscoveryView: View {
                                         Text(cat.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? cat)
                                             .font(.caption2)
                                             .foregroundColor(.secondary)
+                                    }
+
+                                    if let badgeLabel = sourceBadgeLabel(airing.source) {
+                                        Text(badgeLabel)
+                                            .font(.caption2)
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.secondary.opacity(0.15))
+                                            .foregroundColor(.secondary)
+                                            .cornerRadius(3)
                                     }
                                 }
                             }

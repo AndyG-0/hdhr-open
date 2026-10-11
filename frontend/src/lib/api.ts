@@ -96,6 +96,8 @@ export interface HDHomeRunGuideEntry {
 	audio?: string | null;
 	has_cc?: boolean | null;
 	is_hd?: boolean | null;
+	bucket?: string | null;
+	source?: string | null;
 }
 
 export interface InsightsCastMember {

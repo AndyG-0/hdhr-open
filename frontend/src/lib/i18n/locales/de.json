@@ -10,7 +10,12 @@
 	},
 	"discovery": {
 		"fallback_banner": "Neu & beliebt — nimm ein paar Sendungen auf, um Empfehlungen zu erhalten, die auf dich abgestimmt sind.",
-		"empty": "Momentan keine Empfehlungen. Schau nach dem nächsten Guide-Update wieder vorbei."
+		"empty": "Momentan keine Empfehlungen. Schau nach dem nächsten Guide-Update wieder vorbei.",
+		"filter_all": "Alle",
+		"source_active_rule": "Aktive Aufnahmeregel",
+		"source_favorite_team": "Lieblingsteam",
+		"source_network_pick": "Senderempfehlung",
+		"source_new_and_notable": "Neu & beliebt"
 	},
 	"settings": {
 		"language": {

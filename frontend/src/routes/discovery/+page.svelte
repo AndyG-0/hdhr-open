@@ -7,6 +7,8 @@
 	import { _ } from 'svelte-i18n';
 	import { get } from 'svelte/store';
 
+	type BucketFilter = 'all' | 'shows' | 'movies' | 'sports';
+
 	let loading = $state(true);
 	let hasProfile = $state(false);
 	let items = $state<HDHomeRunGuideEntry[]>([]);
@@ -15,6 +17,14 @@
 	let error = $state<string | null>(null);
 	let recordingLoading = $state<string | null>(null);
 	let selectedAiring = $state<HDHomeRunGuideEntry | null>(null);
+	let bucketFilter = $state<BucketFilter>('all');
+
+	// Local filter over the single fetch above - selecting a bucket never
+	// triggers a second network call.
+	const filteredItems = $derived(bucketFilter === 'all' ? items : items.filter((item) => item.bucket === bucketFilter));
+	const showCount = $derived(items.filter((item) => item.bucket === 'shows').length);
+	const movieCount = $derived(items.filter((item) => item.bucket === 'movies').length);
+	const sportsCount = $derived(items.filter((item) => item.bucket === 'sports').length);
 
 	function channelFor(channelNumber?: string | null): HDHomeRunChannel | null {
 		if (!channelNumber) return null;
@@ -109,8 +119,42 @@
 		{#if items.length === 0}
 			<p class="hint">{$_('discovery.empty')}</p>
 		{:else}
+			<div class="server-filter-bar" role="group" aria-label={$_('discovery.filter_all')}>
+				<button
+					type="button"
+					class="filter-chip"
+					class:active={bucketFilter === 'all'}
+					onclick={() => (bucketFilter = 'all')}
+				>
+					{$_('discovery.filter_all')} ({items.length})
+				</button>
+				<button
+					type="button"
+					class="filter-chip"
+					class:active={bucketFilter === 'shows'}
+					onclick={() => (bucketFilter = 'shows')}
+				>
+					📺 {$_('hdhomerun.detail.filter_shows')} ({showCount})
+				</button>
+				<button
+					type="button"
+					class="filter-chip"
+					class:active={bucketFilter === 'movies'}
+					onclick={() => (bucketFilter = 'movies')}
+				>
+					🎬 {$_('hdhomerun.detail.filter_movies')} ({movieCount})
+				</button>
+				<button
+					type="button"
+					class="filter-chip"
+					class:active={bucketFilter === 'sports'}
+					onclick={() => (bucketFilter = 'sports')}
+				>
+					🏆 {$_('hdhomerun.detail.filter_sports')} ({sportsCount})
+				</button>
+			</div>
 			<div class="discovery-grid">
-				{#each items as airing, i (`${airing.series_id ?? airing.title}-${airing.channel_number}-${airing.start}-${i}`)}
+				{#each filteredItems as airing, i (`${airing.series_id ?? airing.title}-${airing.channel_number}-${airing.start}-${i}`)}
 					<DiscoveryCard {airing} onSelect={() => (selectedAiring = airing)} />
 				{/each}
 			</div>
@@ -155,6 +199,35 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
 		gap: 0.75rem;
+	}
+
+	.server-filter-bar {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.filter-chip {
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		color: var(--color-text-muted);
+		border-radius: 2rem;
+		padding: 0.3rem 0.8rem;
+		font-size: 0.82rem;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.filter-chip:hover {
+		color: var(--color-text);
+		border-color: var(--color-text-muted);
+	}
+
+	.filter-chip.active {
+		background: var(--color-accent);
+		color: var(--color-surface);
+		border-color: var(--color-accent);
+		font-weight: 500;
 	}
 
 	.banner.notice {
