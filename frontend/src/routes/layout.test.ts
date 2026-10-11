@@ -19,6 +19,7 @@ vi.mock('$lib/api', () => ({
 		setupStatus,
 		getPreferences,
 		getNetworkIntegration: vi.fn().mockResolvedValue({ settings: {} }),
+		getDiscovery: vi.fn().mockResolvedValue({ enabled: false, has_profile: false, items: [] }),
 	},
 	describeFetchError: (error: unknown) => (error instanceof TypeError ? 'network' : 'server'),
 }));

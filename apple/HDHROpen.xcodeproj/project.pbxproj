@@ -80,6 +80,7 @@
 		F947E4605BF287A047031F81 /* iOSRecordingOptionsSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EDC99C06114263DF9CF7D2F /* iOSRecordingOptionsSheetTests.swift */; };
 		B1DA822042CB60EEB4EB7B6E /* iOSRecordingRulesSheetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED0FF45CB371FFABB6C4FBAC /* iOSRecordingRulesSheetTests.swift */; };
 		C12F6F761EFDCB7B6820FB8A /* iOSRecordingsViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB797E726BF8D1BF68FBCD63 /* iOSRecordingsViewTests.swift */; };
+		3F8D975079C843FFAADF5C3B /* iOSDiscoveryViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74879E128B294995A1EA78E0 /* iOSDiscoveryViewTests.swift */; };
 		D371FD9FA464EBC0606C13D6 /* iOSScrubBarViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 199EC4E2A1A5E6A42B7F4872 /* iOSScrubBarViewTests.swift */; };
 		3F77EA89254980C7D609D9F1 /* iOSServerConnectionFieldsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A192AA500649D5BC88F806E /* iOSServerConnectionFieldsTests.swift */; };
 		3BAC38271C76C9C9DFAC0BEB /* iOSServerSetupViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894AE06341D8730FB76296D /* iOSServerSetupViewTests.swift */; };
@@ -103,6 +104,8 @@
 		EF7A297B7EEF60C2404CCBF1 /* TVProgramCardViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D461FD143BC6F54DA3DF6729 /* TVProgramCardViewTests.swift */; };
 		3592FADA9741C540EEDF7EF3 /* TVProgramDetailModalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3DFAB7E8FCDCD400FC518FE /* TVProgramDetailModalTests.swift */; };
 		08AF405990634BA9F5FB056B /* TVRecordingCardViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 678DDEA44B5E987818AE2DF0 /* TVRecordingCardViewTests.swift */; };
+		C5A82E648C2343C39151A643 /* TVDiscoveryCardViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2276A5123E3549F0BF33C8AD /* TVDiscoveryCardViewTests.swift */; };
+		C842824C6A0F4CABBCC4225A /* TVDiscoveryViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D17E16904A294A159D9CFB58 /* TVDiscoveryViewTests.swift */; };
 		B288A5F132F6E6BE400B14EA /* TVRecordingDetailViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60F509B05F9257D40B96260E /* TVRecordingDetailViewTests.swift */; };
 		CF32B7C087BCCAF052B26150 /* TVRecordingOptionsModalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD02F7589DECF7B3A14AE032 /* TVRecordingOptionsModalTests.swift */; };
 		8DC4FEB71B38B981F650419F /* TVRecordingRulesViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D433009955B792CC6A71E1 /* TVRecordingRulesViewTests.swift */; };
@@ -214,6 +217,7 @@
 		0EDC99C06114263DF9CF7D2F /* iOSRecordingOptionsSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingOptionsSheetTests.swift"; sourceTree = "<group>"; };
 		ED0FF45CB371FFABB6C4FBAC /* iOSRecordingRulesSheetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingRulesSheetTests.swift"; sourceTree = "<group>"; };
 		AB797E726BF8D1BF68FBCD63 /* iOSRecordingsViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSRecordingsViewTests.swift"; sourceTree = "<group>"; };
+		74879E128B294995A1EA78E0 /* iOSDiscoveryViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSDiscoveryViewTests.swift"; sourceTree = "<group>"; };
 		199EC4E2A1A5E6A42B7F4872 /* iOSScrubBarViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSScrubBarViewTests.swift"; sourceTree = "<group>"; };
 		2A192AA500649D5BC88F806E /* iOSServerConnectionFieldsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerConnectionFieldsTests.swift"; sourceTree = "<group>"; };
 		5894AE06341D8730FB76296D /* iOSServerSetupViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOSServerSetupViewTests.swift"; sourceTree = "<group>"; };
@@ -237,6 +241,8 @@
 		D461FD143BC6F54DA3DF6729 /* TVProgramCardViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVProgramCardViewTests.swift"; sourceTree = "<group>"; };
 		C3DFAB7E8FCDCD400FC518FE /* TVProgramDetailModalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVProgramDetailModalTests.swift"; sourceTree = "<group>"; };
 		678DDEA44B5E987818AE2DF0 /* TVRecordingCardViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingCardViewTests.swift"; sourceTree = "<group>"; };
+		2276A5123E3549F0BF33C8AD /* TVDiscoveryCardViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVDiscoveryCardViewTests.swift"; sourceTree = "<group>"; };
+		D17E16904A294A159D9CFB58 /* TVDiscoveryViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVDiscoveryViewTests.swift"; sourceTree = "<group>"; };
 		60F509B05F9257D40B96260E /* TVRecordingDetailViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingDetailViewTests.swift"; sourceTree = "<group>"; };
 		FD02F7589DECF7B3A14AE032 /* TVRecordingOptionsModalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingOptionsModalTests.swift"; sourceTree = "<group>"; };
 		B6D433009955B792CC6A71E1 /* TVRecordingRulesViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVRecordingRulesViewTests.swift"; sourceTree = "<group>"; };
@@ -583,6 +589,7 @@
 				EE9CDB351A6C474257D043E4 /* RootiOSViewTests.swift */,
 				D883A29D3297EF81AB19E0F2 /* TestSupport */,
 				AFE4845949BCF04A934E33E9 /* iOSAIAssistantSheetTests.swift */,
+				74879E128B294995A1EA78E0 /* iOSDiscoveryViewTests.swift */,
 				D22E3E1FC39D7EB1F8CFD81D /* iOSGuideGridViewTests.swift */,
 				0F759E18B2A2381F102F205E /* iOSGuideViewTests.swift */,
 				EB59138B77C71F716AEE5E7F /* iOSKeywordRuleSheetTests.swift */,
@@ -621,6 +628,8 @@
 				385BDC449F3668DDC44F6C2B /* TVAIAssistantModalTests.swift */,
 				137126ED46B010A5C314A6D6 /* TVChannelRowViewTests.swift */,
 				32B00A729F0DC008DCC124C6 /* TVChannelSwitcherOverlayTests.swift */,
+				2276A5123E3549F0BF33C8AD /* TVDiscoveryCardViewTests.swift */,
+				D17E16904A294A159D9CFB58 /* TVDiscoveryViewTests.swift */,
 				564F73F26F780BBD70A15061 /* TVGuideViewTests.swift */,
 				7AA46CAC1F4A56A37BD9B4BD /* TVKeywordRuleModalTests.swift */,
 				E64ECB81257E080CA8FFB8D8 /* TVMultiPlayerViewTests.swift */,
@@ -883,6 +892,7 @@
 				F947E4605BF287A047031F81 /* in Sources */,
 				B1DA822042CB60EEB4EB7B6E /* in Sources */,
 				C12F6F761EFDCB7B6820FB8A /* in Sources */,
+				3F8D975079C843FFAADF5C3B /* in Sources */,
 				D371FD9FA464EBC0606C13D6 /* in Sources */,
 				3F77EA89254980C7D609D9F1 /* in Sources */,
 				3BAC38271C76C9C9DFAC0BEB /* in Sources */,
@@ -913,6 +923,8 @@
 				EF7A297B7EEF60C2404CCBF1 /* in Sources */,
 				3592FADA9741C540EEDF7EF3 /* in Sources */,
 				08AF405990634BA9F5FB056B /* in Sources */,
+				C5A82E648C2343C39151A643 /* in Sources */,
+				C842824C6A0F4CABBCC4225A /* in Sources */,
 				B288A5F132F6E6BE400B14EA /* in Sources */,
 				CF32B7C087BCCAF052B26150 /* in Sources */,
 				8DC4FEB71B38B981F650419F /* in Sources */,
