@@ -17,6 +17,9 @@
 	import TimezoneSection from '$lib/components/settings/TimezoneSection.svelte';
 	import SportsExtensionSection from '$lib/components/settings/SportsExtensionSection.svelte';
 	import ComskipSection from '$lib/components/settings/ComskipSection.svelte';
+	import DiscoverySection from '$lib/components/settings/DiscoverySection.svelte';
+	import FavoriteTeamsSection from '$lib/components/settings/FavoriteTeamsSection.svelte';
+	import UnresolvedNetworksSection from '$lib/components/settings/UnresolvedNetworksSection.svelte';
 	import HDHomeRunNetworkSection from '$lib/components/settings/HDHomeRunNetworkSection.svelte';
 	import PlaybackSection from '$lib/components/settings/PlaybackSection.svelte';
 	import XmltvFeedSection from '$lib/components/settings/XmltvFeedSection.svelte';
@@ -281,6 +284,16 @@
 			/>
 
 			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
+
+			<DiscoverySection initialEnabled={settings?.discovery_enabled ?? null} />
+
+			<FavoriteTeamsSection
+				initialEnabled={settings?.sports_autorecord_enabled ?? null}
+				initialTop25Enabled={settings?.sports_autorecord_top25_enabled ?? null}
+				initialPostseasonEnabled={settings?.sports_autorecord_postseason_enabled ?? null}
+			/>
+
+			<UnresolvedNetworksSection />
 
 			<PriorityList
 				heading={$_('network_settings.dvr_priority_heading')}

@@ -21,6 +21,7 @@ vi.mock('$lib/api', () => ({
 		getHDHomeRunChannels: vi.fn().mockResolvedValue({ channels: [] }),
 		getTunerInfo: vi.fn().mockResolvedValue(null),
 		getTunerStatus: vi.fn().mockResolvedValue([]),
+		getDiscovery: vi.fn().mockResolvedValue({ enabled: false, has_profile: false, items: [] }),
 	},
 	describeFetchError: (error: unknown) => (error instanceof TypeError ? 'network' : 'server'),
 }));

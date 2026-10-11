@@ -51,7 +51,7 @@ class ChannelSettingsUpdateRequest(BaseModel):
 
 
 
-def _row_to_airing(row: dict[str, Any], channel_number: str) -> dict[str, Any]:
+def row_to_airing(row: dict[str, Any], channel_number: str) -> dict[str, Any]:
     episode_number = row["episode_number"]
     if row["season_number"] is not None and episode_number is not None:
         episode_number_str = f"{row['season_number']}.{episode_number}"
@@ -129,7 +129,7 @@ async def get_guide(start: float | None = None, end: float | None = None):
             {
                 "channel_number": channel["channel_number"],
                 "channel_name": channel["name"],
-                "airings": [_row_to_airing(row, channel["channel_number"]) for row in channel_rows],
+                "airings": [row_to_airing(row, channel["channel_number"]) for row in channel_rows],
             }
         )
     cache.set(cache_key, result, _GUIDE_CACHE_TTL_SECONDS)
@@ -171,9 +171,9 @@ async def get_channels():
         current = next_up = None
         for row in channel_rows:
             if row["start_ts"] <= now < row["end_ts"]:
-                current = _row_to_airing(row, channel["channel_number"])
+                current = row_to_airing(row, channel["channel_number"])
             elif row["start_ts"] > now and next_up is None:
-                next_up = _row_to_airing(row, channel["channel_number"])
+                next_up = row_to_airing(row, channel["channel_number"])
         channel["now"], channel["next"] = current, next_up
 
     return {"channels": channels, "guide_available": guide_available}

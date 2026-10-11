@@ -13,12 +13,14 @@ from app import hls_streaming, jobs
 from app.api import admin as admin_api
 from app.api import admin_jobs as admin_jobs_api
 from app.api import ai as ai_api
+from app.api import discovery as discovery_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
 from app.api import hls as hls_api
 from app.api import network_settings as network_settings_api
 from app.api import settings as settings_api
 from app.api import setup as setup_api
+from app.api import sports as sports_api
 from app.api import streaming as streaming_api
 from app.api import syncplay as syncplay_api
 from app.api import theme as theme_api
@@ -28,7 +30,7 @@ from app.api import watch as watch_api
 from app.config import DB_PATH, SECRET_KEY_PATH, settings
 from app.dvr.builtin import comskip as comskip_sweep
 from app.dvr.builtin import engine as dvr_engine
-from app.dvr.builtin import sports_extension
+from app.dvr.builtin import sports_autorecord, sports_extension
 from app.dvr.builtin.capture import CAPTION_EXTRACTION_JOB_ID
 from app.guide import cleanup as guide_cleanup
 from app.guide import schedules_direct as schedules_direct_guide
@@ -75,6 +77,7 @@ async def lifespan(app: FastAPI):
     guide_cleanup.register(scheduler)
     dvr_engine.register(scheduler)
     sports_extension.register(scheduler)
+    sports_autorecord.register(scheduler)
     hdhomerun_series_watch.register(scheduler)
     comskip_sweep.register(scheduler)
     await hls_streaming.sweep_session_dir_on_startup()
@@ -151,8 +154,10 @@ app.include_router(streaming_api.router)
 app.include_router(guide_api.router)
 app.include_router(hls_api.router)
 app.include_router(dvr_api.router)
+app.include_router(discovery_api.router)
 app.include_router(network_settings_api.router)
 app.include_router(settings_api.router)
+app.include_router(sports_api.router)
 app.include_router(users_api.router)
 app.include_router(setup_api.router)
 app.include_router(admin_api.router)

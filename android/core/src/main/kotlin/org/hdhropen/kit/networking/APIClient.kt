@@ -217,6 +217,9 @@ class APIClient(
         requestRaw(APIEndpoints.refreshGuide(), method = "POST")
     }
 
+    suspend fun getDiscovery(): DiscoveryResponse =
+        request(APIEndpoints.discovery())
+
     // MARK: - DVR APIs
 
     suspend fun getDvrInfo(): HDHomeRunDvrInfo =

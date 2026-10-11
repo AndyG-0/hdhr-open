@@ -482,6 +482,20 @@ final class APIClientTests: XCTestCase {
         XCTAssertTrue(info.isBuiltin ?? false)
     }
 
+    func testGetDiscoveryDecodes() async throws {
+        let body = """
+        {"enabled": true, "has_profile": false, "items": [{"title": "Show A", "channel_number": "4.1"}]}
+        """
+        MockURLProtocol.handlers["/api/discovery"] = (Data(body.utf8), 200)
+        let client = makeMockedAPIClient()
+
+        let discovery = try await client.getDiscovery()
+
+        XCTAssertTrue(discovery.enabled)
+        XCTAssertFalse(discovery.hasProfile)
+        XCTAssertEqual(discovery.items.map(\.title), ["Show A"])
+    }
+
     func testListRecordingsDecodesArray() async throws {
         let body = """
         [{"title": "Show A", "recording_id": "rec1"}, {"title": "Show B", "recording_id": "rec2"}]

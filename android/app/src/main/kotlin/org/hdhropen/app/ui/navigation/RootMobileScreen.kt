@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.launch
 import org.hdhropen.app.ui.screens.auth.ProfilePickerScreen
+import org.hdhropen.app.ui.screens.discovery.DiscoveryScreen
 import org.hdhropen.app.ui.screens.guide.GuideScreen
 import org.hdhropen.app.ui.screens.player.PlayerScreen
 import org.hdhropen.app.ui.screens.recordings.RecordingsScreen
@@ -31,10 +32,30 @@ fun RootMobileScreen(
     val playerViewModel = appEnvironment.playerViewModel
     val activeChannel by playerViewModel.activeChannel.collectAsStateWithLifecycle()
     val activeRecording by playerViewModel.activeRecording.collectAsStateWithLifecycle()
+    val discoveryViewModel = appEnvironment.discoveryViewModel
+    val discoveryEnabled by discoveryViewModel.enabled.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableStateOf(AppTab.GUIDE) }
 
     val isPlayerActive = activeChannel != null || activeRecording != null
+
+    // The Discovery tab's visibility comes from GET /api/discovery's `enabled`
+    // field (the admin's web-only Settings toggle), not a settings flag read
+    // locally - so it needs loading as soon as there's a signed-in user,
+    // independent of whether the Discovery tab is ever selected.
+    LaunchedEffect(currentUser) {
+        if (currentUser != null) {
+            discoveryViewModel.loadData()
+        }
+    }
+
+    // If Discovery becomes unavailable while selected (e.g. the flag flips
+    // off after a refresh), fall back to a tab that's always shown.
+    LaunchedEffect(discoveryEnabled) {
+        if (!discoveryEnabled && selectedTab == AppTab.DISCOVERY) {
+            selectedTab = AppTab.GUIDE
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (currentUser == null) {
@@ -56,7 +77,7 @@ fun RootMobileScreen(
                         containerColor = MaterialTheme.colorScheme.surface,
                         contentColor = MaterialTheme.colorScheme.onSurface
                     ) {
-                        AppTab.values().forEach { tab ->
+                        AppTab.values().filter { it != AppTab.DISCOVERY || discoveryEnabled }.forEach { tab ->
                             NavigationBarItem(
                                 selected = selectedTab == tab,
                                 onClick = { selectedTab = tab },
@@ -100,6 +121,11 @@ fun RootMobileScreen(
                             recordingsViewModel = appEnvironment.recordingsViewModel,
                             guideViewModel = appEnvironment.guideViewModel,
                             playerViewModel = playerViewModel
+                        )
+                        AppTab.DISCOVERY -> DiscoveryScreen(
+                            discoveryViewModel = discoveryViewModel,
+                            guideViewModel = appEnvironment.guideViewModel,
+                            recordingsViewModel = appEnvironment.recordingsViewModel
                         )
                         AppTab.TUNERS -> TunerStatusScreen(
                             tunerViewModel = appEnvironment.tunerViewModel

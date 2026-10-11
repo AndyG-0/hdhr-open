@@ -12,6 +12,20 @@ export interface AppSettings {
 	sports_extension_enabled: string;
 	sports_extension_max_minutes: string;
 	comskip_mode: string;
+	discovery_enabled: string;
+	sports_autorecord_enabled: string;
+	sports_autorecord_top25_enabled: string;
+	sports_autorecord_postseason_enabled: string;
+}
+
+// GET /api/discovery — see backend/app/api/discovery.py and
+// app/dvr/builtin/discovery.py. `enabled` lets any household member (not
+// just admins, who are the only ones who can read /api/settings) decide
+// whether to show the Discovery nav link/tab.
+export interface DiscoveryResponse {
+	enabled: boolean;
+	has_profile: boolean;
+	items: HDHomeRunGuideEntry[];
 }
 
 // A Google Cast receiver device fetches this playlist directly over HTTP
@@ -210,6 +224,37 @@ export interface HDHomeRunChannelSetting {
 export interface XMLTVFeedChannel {
 	xmltv_channel_id: string;
 	display_names: string[];
+}
+
+// Sports auto-recording — see backend/app/api/sports.py and
+// app/dvr/builtin/sports_autorecord.py.
+export interface SportsTeam {
+	id: string;
+	display_name: string;
+	abbreviation: string;
+	logo_url: string | null;
+}
+
+export interface SportsFavorite {
+	id: string;
+	kind: string;
+	league: string;
+	espn_team_id: string | null;
+	team_display_name: string | null;
+	enabled: boolean;
+	created_at: string;
+}
+
+export interface UnresolvedNetwork {
+	network_name: string;
+	upcoming_count: number;
+}
+
+export interface NetworkMapEntry {
+	network_name: string;
+	channel_id: string;
+	channel_number: string | null;
+	channel_name: string | null;
 }
 
 export interface XMLTVStats {
@@ -931,6 +976,7 @@ export const api = {
 		return getJSON<HDHomeRunFullGuideChannel[]>(`/api/guide${query ? `?${query}` : ''}`);
 	},
 	getHDHomeRunChannels: () => getJSON<HDHomeRunChannelsResponse>('/api/guide/channels'),
+	getDiscovery: () => getJSON<DiscoveryResponse>('/api/discovery'),
 	getDvrInfo: () => getJSON<HDHomeRunDvrInfo>('/api/dvr/info'),
 	listRecordings: (params?: { search?: string; limit?: number; offset?: number }) => {
 		const query = new URLSearchParams();
@@ -1033,6 +1079,25 @@ export const api = {
 	getXmltvFeedChannels: () => getJSON<XMLTVFeedChannel[]>('/api/guide/xmltv-feed-channels'),
 	getXmltvStats: () => getJSON<XMLTVStats>('/api/guide/xmltv/stats'),
 	reloadXmltvGuide: () => postJSON<{ ok: boolean; stats: XMLTVStats; message: string }>('/api/guide/xmltv/reload'),
+
+	getSportsLeagues: () => getJSON<{ leagues: string[] }>('/api/sports/leagues'),
+	getSportsLeagueTeams: (league: string) =>
+		getJSON<{ teams: SportsTeam[] }>(`/api/sports/leagues/${encodeURIComponent(league)}/teams`),
+	getSportsFavorites: () => getJSON<{ favorites: SportsFavorite[] }>('/api/sports/favorites'),
+	addSportsFavorite: (payload: { league: string; espn_team_id: string; team_display_name?: string | null }) =>
+		postJSON<SportsFavorite>('/api/sports/favorites', payload as Record<string, unknown>),
+	updateSportsFavorite: (favoriteId: string, enabled: boolean) =>
+		patchJSON<SportsFavorite>(`/api/sports/favorites/${favoriteId}`, { enabled }),
+	deleteSportsFavorite: (favoriteId: string) => deleteJSON<void>(`/api/sports/favorites/${favoriteId}`),
+	getUnresolvedSportsNetworks: () =>
+		getJSON<{ unresolved_networks: UnresolvedNetwork[] }>('/api/sports/unresolved-networks'),
+	getSportsNetworkMap: () => getJSON<{ network_map: NetworkMapEntry[] }>('/api/sports/network-map'),
+	saveSportsNetworkMapEntry: (networkName: string, channelId: string) =>
+		putJSON<NetworkMapEntry>(`/api/sports/network-map/${encodeURIComponent(networkName)}`, {
+			channel_id: channelId,
+		}),
+	deleteSportsNetworkMapEntry: (networkName: string) =>
+		deleteJSON<void>(`/api/sports/network-map/${encodeURIComponent(networkName)}`),
 	getSchedulesDirectStations: () => getJSON<SchedulesDirectStation[]>('/api/guide/schedules-direct-stations'),
 	refreshGuide: () => postJSON<{ status: string; message: string }>('/api/guide/refresh'),
 	// Auto-starts (or attaches to an already-running) hidden recording behind

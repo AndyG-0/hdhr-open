@@ -28,4 +28,8 @@ final class APIEndpointsTests: XCTestCase {
     func testRecordingsWithSearchAppendsQueryString() {
         XCTAssertEqual(APIEndpoints.recordings(search: "the office"), "/api/dvr/recordings?search=the%20office")
     }
+
+    func testDiscovery() {
+        XCTAssertEqual(APIEndpoints.discovery(), "/api/discovery")
+    }
 }

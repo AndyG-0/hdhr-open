@@ -260,6 +260,12 @@ public actor APIClient {
         _ = try await requestRaw(path: APIEndpoints.stopHLSSession(sessionId: sessionId), method: "POST")
     }
 
+    // MARK: - Discovery APIs
+
+    public func getDiscovery() async throws -> DiscoveryResponse {
+        try await request(path: APIEndpoints.discovery())
+    }
+
     // MARK: - Tuner APIs
 
     public func getTunerStatus() async throws -> [HDHomeRunTuner] {

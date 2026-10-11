@@ -230,6 +230,12 @@ public enum APIEndpoints {
         return "/api/syncplay/ws/\(roomCode)\(q)"
     }
 
+    // MARK: - Discovery APIs
+
+    public static func discovery() -> String {
+        "/api/discovery"
+    }
+
     // MARK: - AI Assistant APIs
 
     public static func aiChat() -> String {

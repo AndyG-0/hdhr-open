@@ -7,6 +7,8 @@ object APIEndpoints {
     fun guide(): String = "/api/guide"
     fun refreshGuide(): String = "/api/guide/refresh"
 
+    fun discovery(): String = "/api/discovery"
+
     fun dvrInfo(): String = "/api/dvr/info"
     fun recordings(search: String? = null): String {
         val query = mutableListOf<String>()

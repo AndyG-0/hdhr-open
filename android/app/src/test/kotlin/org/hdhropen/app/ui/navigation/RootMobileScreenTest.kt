@@ -1,9 +1,11 @@
 package org.hdhropen.app.ui.navigation
 
 import android.content.Context
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.media3.common.util.UnstableApi
 import org.hdhropen.app.ui.theme.HDHROpenTheme
@@ -64,6 +66,11 @@ class RootMobileScreenTest {
         composeTestRule.onNodeWithText("Recordings").assertIsDisplayed()
         composeTestRule.onNodeWithText("Tuners").assertIsDisplayed()
         composeTestRule.onNodeWithText("Settings").assertIsDisplayed()
+
+        // Discovery tab is gated on GET /api/discovery's `enabled` field, not
+        // shown unconditionally like the other 4 tabs - with no reachable
+        // server in this test, the load fails and the tab stays hidden.
+        composeTestRule.onAllNodesWithText("Discovery").assertCountEquals(0)
 
         // Tab switching to Tuners
         composeTestRule.onNodeWithText("Tuners").performClick()

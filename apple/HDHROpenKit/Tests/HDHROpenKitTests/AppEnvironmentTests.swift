@@ -93,6 +93,12 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertEqual(env.multiPlayerViewModel.activeSlotIndex, 0)
         XCTAssertEqual(env.multiPlayerViewModel.layout, .sideBySide)
         XCTAssertFalse(env.multiPlayerViewModel.isMultiViewActive)
+
+        XCTAssertTrue(env.discoveryViewModel.items.isEmpty)
+        XCTAssertFalse(env.discoveryViewModel.hasProfile)
+        XCTAssertFalse(env.discoveryViewModel.enabled)
+        XCTAssertFalse(env.discoveryViewModel.isLoading)
+        XCTAssertNil(env.discoveryViewModel.error)
     }
 
     func testEachAppEnvironmentInstanceGetsItsOwnObjectGraph() {
@@ -103,5 +109,6 @@ final class AppEnvironmentTests: XCTestCase {
         XCTAssertFalse(envA.authManager === envB.authManager)
         XCTAssertFalse(envA.themeManager === envB.themeManager)
         XCTAssertFalse(envA.multiPlayerViewModel === envB.multiPlayerViewModel)
+        XCTAssertFalse(envA.discoveryViewModel === envB.discoveryViewModel)
     }
 }

@@ -5,7 +5,12 @@
 		"nav_guide": "Guide",
 		"nav_recordings": "Aufnahmen",
 		"nav_settings": "Einstellungen",
-		"nav_ask_ai": "KI fragen"
+		"nav_ask_ai": "KI fragen",
+		"nav_discovery": "Entdecken"
+	},
+	"discovery": {
+		"fallback_banner": "Neu & beliebt — nimm ein paar Sendungen auf, um Empfehlungen zu erhalten, die auf dich abgestimmt sind.",
+		"empty": "Momentan keine Empfehlungen. Schau nach dem nächsten Guide-Update wieder vorbei."
 	},
 	"settings": {
 		"language": {
