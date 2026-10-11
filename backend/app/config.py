@@ -107,6 +107,18 @@ class Settings(BaseSettings):
     # recording scope.
     discovery_enabled: str = "false"
 
+    # Household-wide on/off switch for sports auto-recording (see
+    # app.dvr.builtin.sports_autorecord) - resolves favorited teams'
+    # upcoming games to a local channel and creates one-time recording
+    # rules for them. top25_enabled widens scope to auto-detect currently
+    # AP-Top-25-ranked teams in college football/basketball (on top of any
+    # explicitly favorited team); postseason_enabled widens scope to
+    # non-favorited teams' playoff games - a favorited team's own
+    # postseason games always record regardless of this toggle.
+    sports_autorecord_enabled: str = "false"
+    sports_autorecord_top25_enabled: str = "false"
+    sports_autorecord_postseason_enabled: str = "false"
+
     @property
     def cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origin.split(",") if origin.strip()]
@@ -124,6 +136,9 @@ APP_SETTINGS_KEYS = (
     "sports_extension_max_minutes",
     "comskip_mode",
     "discovery_enabled",
+    "sports_autorecord_enabled",
+    "sports_autorecord_top25_enabled",
+    "sports_autorecord_postseason_enabled",
 )
 
 # The subset of APP_SETTINGS_KEYS that hold credentials/tokens rather than
@@ -199,4 +214,22 @@ def resolve_comskip_mode(raw_value: str | None = None) -> str:
 def resolve_discovery_enabled(raw_value: str | None = None) -> bool:
     if raw_value is None:
         raw_value = effective_settings().get("discovery_enabled", "false")
+    return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def resolve_sports_autorecord_enabled(raw_value: str | None = None) -> bool:
+    if raw_value is None:
+        raw_value = effective_settings().get("sports_autorecord_enabled", "false")
+    return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def resolve_sports_autorecord_top25_enabled(raw_value: str | None = None) -> bool:
+    if raw_value is None:
+        raw_value = effective_settings().get("sports_autorecord_top25_enabled", "false")
+    return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def resolve_sports_autorecord_postseason_enabled(raw_value: str | None = None) -> bool:
+    if raw_value is None:
+        raw_value = effective_settings().get("sports_autorecord_postseason_enabled", "false")
     return str(raw_value).strip().lower() in ("true", "1", "yes", "on")

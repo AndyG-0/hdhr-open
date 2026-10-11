@@ -465,6 +465,42 @@ CREATE TABLE IF NOT EXISTS hdhomerun_comskip_status (
 """
 
 
+# Sports auto-recording (see app.dvr.builtin.sports_autorecord): favorited
+# teams/leagues, the broadcast-network-to-local-channel map that resolves
+# their games to a recordable channel, and the ESPN-event-to-recording-rule
+# tracking needed to dedupe and detect reschedules.
+_MIGRATION_13 = """
+CREATE TABLE IF NOT EXISTS sports_favorites (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL DEFAULT 'team',
+    league TEXT NOT NULL,
+    espn_team_id TEXT,
+    team_display_name TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sports_favorites_league ON sports_favorites (league);
+
+CREATE TABLE IF NOT EXISTS sports_network_channel_map (
+    network_name TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sports_tracked_events (
+    espn_event_id TEXT PRIMARY KEY,
+    favorite_id TEXT NOT NULL,
+    recording_rule_id TEXT,
+    league TEXT NOT NULL,
+    start_ts REAL NOT NULL,
+    network_name TEXT,
+    title_resolved INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sports_tracked_events_favorite ON sports_tracked_events (favorite_id);
+"""
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -478,6 +514,7 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _migration_10,
     _migration_11,
     _MIGRATION_12,
+    _MIGRATION_13,
 )
 
 

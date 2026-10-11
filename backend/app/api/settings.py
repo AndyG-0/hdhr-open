@@ -25,6 +25,9 @@ class UpdateSettingsRequest(BaseModel):
     sports_extension_max_minutes: str | None = None
     comskip_mode: str | None = None
     discovery_enabled: str | None = None
+    sports_autorecord_enabled: str | None = None
+    sports_autorecord_top25_enabled: str | None = None
+    sports_autorecord_postseason_enabled: str | None = None
 
 
 assert set(UpdateSettingsRequest.model_fields) == set(APP_SETTINGS_KEYS), (
@@ -43,6 +46,9 @@ def _public_shape(current: dict[str, Any]) -> dict[str, Any]:
         "sports_extension_max_minutes": current.get("sports_extension_max_minutes", "240"),
         "comskip_mode": current.get("comskip_mode", "all"),
         "discovery_enabled": current.get("discovery_enabled", "false"),
+        "sports_autorecord_enabled": current.get("sports_autorecord_enabled", "false"),
+        "sports_autorecord_top25_enabled": current.get("sports_autorecord_top25_enabled", "false"),
+        "sports_autorecord_postseason_enabled": current.get("sports_autorecord_postseason_enabled", "false"),
         **{f"has_{key}": bool(current.get(key)) for key in SECRET_APP_SETTINGS_KEYS},
     }
 
