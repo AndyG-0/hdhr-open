@@ -9,6 +9,7 @@
 		type HDHomeRunRecordingAudioInfo,
 		type HDHomeRunRecordingRule,
 		type HDHomeRunTranscodeInfo,
+		type InsightsResponse,
 		type RecordingRuleOptions,
 		type SyncPlayContent,
 		type SyncPlayRoom,
@@ -34,6 +35,7 @@
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
 	import LoadingQuipOverlay from './player/LoadingQuipOverlay.svelte';
 	import SyncPlayModal from './player/SyncPlayModal.svelte';
+	import InsightsModal from './player/InsightsModal.svelte';
 	import PlayerChannelDrawer from './player/PlayerChannelDrawer.svelte';
 	import MiniPlayer from './player/MiniPlayer.svelte';
 	import { openPopoutPlayer } from '$lib/popout';
@@ -203,6 +205,10 @@
 	let showOptionsDialog = $state(false);
 	let showSyncPlayModal = $state(false);
 	let showChannelDrawer = $state(false);
+	let showInsights = $state(false);
+	let insightsData = $state<InsightsResponse | null>(null);
+	let insightsLoading = $state(false);
+	let insightsError = $state<string | null>(null);
 	let syncPlayRoom = $state<SyncPlayRoom | null>(null);
 	let syncPlayStatus = $state<SyncPlayStatus>('disconnected');
 	let syncPlayPingMs = $state(0);
@@ -264,6 +270,32 @@
 		}
 		return null;
 	});
+
+	$effect(() => {
+		void effectiveAiring?.title;
+		insightsData = null;
+		insightsError = null;
+	});
+
+	async function toggleInsights() {
+		showInsights = !showInsights;
+		if (!showInsights || insightsData || insightsLoading) return;
+		insightsLoading = true;
+		insightsError = null;
+		try {
+			insightsData = await api.getProgramInsights({
+				title: effectiveAiring?.title ?? title,
+				episodeTitle: effectiveAiring?.episode_title,
+				seasonNumber: effectiveAiring?.season_number,
+				category: effectiveAiring?.category,
+				startTs: effectiveAiring?.start,
+			});
+		} catch (err: unknown) {
+			insightsError = err instanceof Error ? err.message : $_('insights.error', { default: "Couldn't load insights." });
+		} finally {
+			insightsLoading = false;
+		}
+	}
 
 	const channelNumber = $derived(channel?.channel_number ?? effectiveAiring?.channel_number);
 	const channelName = $derived(channel?.name ?? channelNumber ?? title);
@@ -944,7 +976,8 @@
 			showSettingsMenu ||
 			showPlaybackInfo ||
 			showSyncPlayModal ||
-			showChannelDrawer;
+			showChannelDrawer ||
+			showInsights;
 
 		if (!videoPaused && !hasActiveMenu) {
 			autoHideTimer = setTimeout(() => {
@@ -974,6 +1007,8 @@
 		if (e.key === 'Escape') {
 			if (showChannelDrawer) {
 				showChannelDrawer = false;
+			} else if (showInsights) {
+				showInsights = false;
 			} else if (showSyncPlayModal) {
 				showSyncPlayModal = false;
 			} else if (showPlaybackInfo) {
@@ -1536,6 +1571,7 @@
 			syncPlayParticipantsCount={syncPlayRoom?.participants?.length ?? 0}
 			onToggleSyncPlay={() => (showSyncPlayModal = !showSyncPlayModal)}
 			onTogglePlaybackInfo={() => (showPlaybackInfo = !showPlaybackInfo)}
+			onToggleInsights={toggleInsights}
 			{channelSwitcherAvailable}
 			onToggleChannelDrawer={() => (showChannelDrawer = !showChannelDrawer)}
 		/>
@@ -1692,6 +1728,19 @@
 			onTransferHost={(targetId) => syncPlayController.transferHost(targetId)}
 			onClose={() => {
 				showSyncPlayModal = false;
+			}}
+		/>
+	{/if}
+
+	<!-- Insights -->
+	{#if showInsights}
+		<InsightsModal
+			show={showInsights}
+			data={insightsData}
+			loading={insightsLoading}
+			error={insightsError}
+			onClose={() => {
+				showInsights = false;
 			}}
 		/>
 	{/if}

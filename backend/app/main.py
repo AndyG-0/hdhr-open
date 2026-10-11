@@ -17,6 +17,7 @@ from app.api import discovery as discovery_api
 from app.api import dvr as dvr_api
 from app.api import guide as guide_api
 from app.api import hls as hls_api
+from app.api import insights as insights_api
 from app.api import network_settings as network_settings_api
 from app.api import settings as settings_api
 from app.api import setup as setup_api
@@ -158,6 +159,7 @@ app.include_router(discovery_api.router)
 app.include_router(network_settings_api.router)
 app.include_router(settings_api.router)
 app.include_router(sports_api.router)
+app.include_router(insights_api.router)
 app.include_router(users_api.router)
 app.include_router(setup_api.router)
 app.include_router(admin_api.router)

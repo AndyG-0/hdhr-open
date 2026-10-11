@@ -10,6 +10,7 @@ import logging
 import re
 import urllib.parse
 from datetime import date, datetime
+from typing import Any
 
 import httpx
 
@@ -127,14 +128,28 @@ _FINISHED_STATUSES = {"MATCH FINISHED", "FINISHED", "FT", "AOT", "AET"}
 _SCHEDULED_STATUSES = {"NS"}
 
 
-async def get_event_status(team_a: str, team_b: str, event_date: date | None = None) -> str | None:
-    """Best-effort live status lookup for a matchup between two teams.
+_EVENT_DATE_TOLERANCE_DAYS = 1
 
-    Returns "scheduled", "live", or "finished", or None if the event can't be
-    confidently identified. Deliberately not cached (unlike poster art) since
-    status changes over the lifetime of a broadcast and a stale cached value
-    could permanently hide a "finished" or "live" transition.
+
+async def _find_event(team_a: str, team_b: str, event_date: date | None = None) -> dict[str, Any] | None:
+    """Find the TheSportsDB event dict for a matchup between two teams, or `None`.
+
+    Tries both name orderings ("A vs B" and "B vs A") since broadcast titles
+    don't reliably put the home team first. A rivalry between the same two
+    teams recurs every season, and which ordering returns results can vary
+    by year (home/away alternates), so both orderings are always searched
+    and their results pooled rather than stopping at the first non-empty one
+    - otherwise a season's game can be missed entirely because the *other*
+    year's game matched first.
+
+    When `event_date` is given, only a candidate within
+    `_EVENT_DATE_TOLERANCE_DAYS` of it is returned - a wrong-year score is
+    worse than no score, so an unconfirmed match yields `None` instead of
+    silently falling back to an unrelated past meeting. Without an
+    `event_date` there's nothing to disambiguate with, so the first result
+    found is returned as before.
     """
+    candidates: list[dict[str, Any]] = []
     for first, second in ((team_a, team_b), (team_b, team_a)):
         query = f"{first}_vs_{second}".replace(" ", "_")
         url = f"{API_BASE_URL}/searchevents.php?e={urllib.parse.quote(query)}"
@@ -151,32 +166,100 @@ async def get_event_status(team_a: str, team_b: str, event_date: date | None = N
         if not events or not isinstance(events, list):
             continue
 
-        event = events[0]
-        if event_date is not None and len(events) > 1:
-            best_event = None
-            best_delta = None
-            for candidate in events:
-                raw_date = candidate.get("dateEvent")
-                if not raw_date:
-                    continue
-                try:
-                    parsed = datetime.strptime(raw_date, "%Y-%m-%d").date()
-                except ValueError:
-                    continue
-                delta = abs((parsed - event_date).days)
-                if best_delta is None or delta < best_delta:
-                    best_event, best_delta = candidate, delta
-            if best_event is not None and best_delta is not None and best_delta <= 1:
-                event = best_event
+        if event_date is None:
+            return events[0]
 
-        status = (event.get("strStatus") or "").strip()
-        if not status:
-            return None
-        status_upper = status.upper()
-        if status_upper in _FINISHED_STATUSES:
-            return "finished"
-        if status_upper in _SCHEDULED_STATUSES:
-            return "scheduled"
-        return "live"
+        candidates.extend(events)
+
+    if not candidates:
+        return None
+    assert event_date is not None  # candidates is only populated on the event_date-given path above
+
+    best_event = None
+    best_delta = None
+    for candidate in candidates:
+        raw_date = candidate.get("dateEvent")
+        if not raw_date:
+            continue
+        try:
+            parsed = datetime.strptime(raw_date, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        delta = abs((parsed - event_date).days)
+        if best_delta is None or delta < best_delta:
+            best_event, best_delta = candidate, delta
+
+    if best_event is not None and best_delta is not None and best_delta <= _EVENT_DATE_TOLERANCE_DAYS:
+        return best_event
 
     return None
+
+
+def _status_from_event(event: dict[str, Any]) -> str | None:
+    status = (event.get("strStatus") or "").strip()
+    if not status:
+        return None
+    status_upper = status.upper()
+    if status_upper in _FINISHED_STATUSES:
+        return "finished"
+    if status_upper in _SCHEDULED_STATUSES:
+        return "scheduled"
+    return "live"
+
+
+async def get_event_status(team_a: str, team_b: str, event_date: date | None = None) -> str | None:
+    """Best-effort live status lookup for a matchup between two teams.
+
+    Returns "scheduled", "live", or "finished", or None if the event can't be
+    confidently identified. Deliberately not cached (unlike poster art) since
+    status changes over the lifetime of a broadcast and a stale cached value
+    could permanently hide a "finished" or "live" transition.
+    """
+    event = await _find_event(team_a, team_b, event_date)
+    if event is None:
+        return None
+    return _status_from_event(event)
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def get_event_details(team_a: str, team_b: str, event_date: date | None = None) -> dict[str, Any] | None:
+    """Fuller best-effort event data for Insights: status + score + venue +
+    teams, or `None` if no matchup could be identified.
+
+    Deliberately never cached, for the same reason as `get_event_status`: a
+    cached "finished" status or stale score would be wrong the next time the
+    modal opens mid-broadcast.
+
+    The free TheSportsDB tier doesn't push in-progress scores in real time -
+    its event record for a live game can lag the actual broadcast by many
+    minutes, which is worse than showing nothing (a wrong "live" score reads
+    as more authoritative than it is). So while `status == "live"`, scores
+    are deliberately omitted; a `"finished"` score is a stable fact by the
+    time it's reported and is shown as-is.
+    """
+    event = await _find_event(team_a, team_b, event_date)
+    if event is None:
+        return None
+    status = _status_from_event(event)
+    home_score = _int_or_none(event.get("intHomeScore"))
+    away_score = _int_or_none(event.get("intAwayScore"))
+    if status == "live":
+        home_score = None
+        away_score = None
+    return {
+        "status": status,
+        "home_team": event.get("strHomeTeam"),
+        "away_team": event.get("strAwayTeam"),
+        "home_score": home_score,
+        "away_score": away_score,
+        "venue": event.get("strVenue"),
+        "league": event.get("strLeague"),
+        "date_event": event.get("dateEvent"),
+        "time": event.get("strTime"),
+    }
