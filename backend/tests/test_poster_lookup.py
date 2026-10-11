@@ -186,7 +186,12 @@ async def test_cleanup_expired_poster_cache_only_purges_confirmed_misses(tmp_db)
     old = (datetime.now(UTC) - timedelta(days=31)).isoformat()
     db.upsert_poster_cache(
         [
-            {"cache_key": "movies:oldhit", "category": "movies", "poster_url": "https://example.com/hit.jpg", "looked_up_at": old},
+            {
+                "cache_key": "movies:oldhit",
+                "category": "movies",
+                "poster_url": "https://example.com/hit.jpg",
+                "looked_up_at": old,
+            },
             {"cache_key": "movies:oldmiss", "category": "movies", "poster_url": None, "looked_up_at": old},
         ]
     )

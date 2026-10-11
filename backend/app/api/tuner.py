@@ -233,7 +233,7 @@ async def terminate_tuner(index: int, user: dict[str, Any] = Depends(get_current
         # normalized-format match, since the hardware's live VctNumber and a
         # capture's stored channel_number can differ only in formatting and
         # silently defeat a plain dict lookup.
-        capture = await capture_pipeline.get_active_capture_by_channel(ch_num)
+        capture = await capture_pipeline.get_active_capture_by_channel(ch_num) if ch_num else None
         if capture is None:
             for candidate in await capture_pipeline.list_active_captures():
                 if _normalize_channel_number(candidate.channel_number) == norm_ch_num:
