@@ -441,7 +441,7 @@ print_completion() {
   printf 'Manage services: sudo systemctl status hdhr-open-backend hdhr-open-frontend\n'
   printf 'View logs:       journalctl -u hdhr-open-backend -u hdhr-open-frontend -f\n'
   printf 'Configuration:   %s/backend/.env and %s/frontend/.env\n' "$INSTALL_DIR" "$INSTALL_DIR"
-  printf 'Hardware transcoding: disabled by default — see deploy/README.md.\n'
+  printf 'Hardware transcoding: disabled by default — see https://andyg-0.github.io/hdhr-open/hardware-acceleration/\n'
   printf 'Rerun this installer later to fast-forward, rebuild, and restart HDHR Open.\n'
 }
 
