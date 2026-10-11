@@ -278,7 +278,10 @@ def _take_favorite_team(
 
     by_channel: dict[str, list[dict[str, Any]]] = {}
     for prog in candidates:
-        by_channel.setdefault(prog.get("channel_id"), []).append(prog)
+        channel_id = prog.get("channel_id")
+        if channel_id is None:
+            continue
+        by_channel.setdefault(channel_id, []).append(prog)
 
     taken = 0
     for event in sorted(tracked, key=lambda e: e["start_ts"]):
@@ -347,6 +350,8 @@ def _take_fresh(
         if key in chosen_keys:
             continue
         channel_id = prog.get("channel_id")
+        if channel_id is None:
+            continue
         if per_channel.get(channel_id, 0) >= _FALLBACK_MAX_PER_CHANNEL:
             continue
         chosen_keys.add(key)
