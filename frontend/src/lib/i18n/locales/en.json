@@ -15,7 +15,10 @@
 		"source_active_rule": "Active rule",
 		"source_favorite_team": "Favorite team",
 		"source_network_pick": "Network pick",
-		"source_new_and_notable": "New & notable"
+		"source_new_and_notable": "New & notable",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {

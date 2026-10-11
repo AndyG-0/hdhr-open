@@ -19,6 +19,8 @@ from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app.config import resolve_poster_backfill_enabled
+from app.dvr.builtin import poster_lookup
 from app.integrations import hdhomerun_client
 from app.integrations.hdhomerun_client import HDHomeRunError
 from app.storage import db
@@ -93,7 +95,7 @@ def _airing_to_row(channel_id: str, airing: dict[str, Any]) -> dict[str, Any] | 
 
 def _sync_channels_and_guide(
     lineup: list[dict[str, Any]], full_guide: list[dict[str, Any]], job_start_ts: float
-) -> None:
+) -> dict[str, list[dict[str, Any]]]:
     channel_id_by_number: dict[str, str] = {}
     for channel in lineup:
         number = channel["channel_number"]
@@ -131,6 +133,8 @@ def _sync_channels_and_guide(
         db.delete_future_guide_programs(channel_id, SOURCE_PROVIDER, delete_from_ts)
         db.upsert_guide_programs(rows)
 
+    return rows_by_channel
+
 
 async def refresh_hdhomerun_guide() -> None:
     """Scheduler job: pull SiliconDust's cloud guide and persist it."""
@@ -150,10 +154,21 @@ async def refresh_hdhomerun_guide() -> None:
         logger.info("HDHomeRun cloud guide unavailable this cycle (no subscription / fetch failed)")
         return
 
-    await asyncio.to_thread(_sync_channels_and_guide, lineup, full_guide, job_start_ts)
+    rows_by_channel = await asyncio.to_thread(_sync_channels_and_guide, lineup, full_guide, job_start_ts)
     await asyncio.to_thread(db.save_guide_provider_state, SOURCE_PROVIDER, datetime.now(UTC).isoformat())
     cache.delete_prefix("guide:")
     logger.info("Refreshed HDHomeRun cloud guide (%d channels)", len(full_guide))
+
+    if resolve_poster_backfill_enabled():
+        all_rows = [row for rows in rows_by_channel.values() for row in rows]
+
+        async def _write_back(row: dict[str, Any], poster_url: str) -> None:
+            await asyncio.to_thread(
+                db.update_guide_program_image, row["channel_id"], row["source_provider"], row["start_ts"], poster_url
+            )
+
+        await poster_lookup.backfill_missing_images(all_rows, write_back=_write_back)
+        await poster_lookup.cleanup_expired_poster_cache()
 
     # New guide data just landed - retry any builtin rules that fell back
     # from the official DVR for lack of a resolvable SeriesID, in case this

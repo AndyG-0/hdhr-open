@@ -51,7 +51,7 @@ async def _backfill_poster(
     recording's image_url, but only if nothing else has set one in the
     meantime (a guide-sourced image_url always wins over this fallback)."""
     try:
-        poster_url = await poster_lookup.find_poster_for_program(
+        poster_url = await poster_lookup.find_poster_cached(
             title=title,
             episode_title=episode_title,
             season_number=season_number,

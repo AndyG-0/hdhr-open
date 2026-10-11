@@ -47,6 +47,7 @@ from .guide import (
     resolve_guide_programs,
     save_guide_provider_state,
     update_channel,
+    update_guide_program_image,
     upsert_channel,
     upsert_guide_programs,
     upsert_sd_program_cache,
@@ -57,6 +58,11 @@ from .jobs import (
     create_job_run,
     finish_job_run,
     list_job_runs,
+)
+from .poster_cache import (
+    delete_expired_poster_cache,
+    get_cached_posters,
+    upsert_poster_cache,
 )
 from .recordings import (
     create_recording,
@@ -190,6 +196,10 @@ __all__ = [
     "get_cached_sd_programs",
     "delete_expired_sd_program_cache",
     "resolve_guide_programs",
+    "update_guide_program_image",
+    "get_cached_posters",
+    "upsert_poster_cache",
+    "delete_expired_poster_cache",
     "create_recording_rule",
     "list_recording_rules",
     "get_recording_rule",

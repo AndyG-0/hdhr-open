@@ -90,6 +90,87 @@ describe('discovery +page.svelte', () => {
 		expect(getDiscovery).toHaveBeenCalledTimes(1);
 	});
 
+	it('groups items under category headings in the all view, and hides headings for a single-bucket filter', async () => {
+		getDiscovery.mockResolvedValue({
+			enabled: true,
+			has_profile: true,
+			items: [
+				{
+					title: 'Personalized Drama',
+					bucket: 'shows',
+					source: 'personalized',
+					channel_number: '4.1',
+					start: null,
+					end: null,
+					episode_title: null,
+				},
+				{
+					title: 'Oscar Marathon',
+					bucket: 'movies',
+					source: 'network_pick',
+					channel_number: '5.1',
+					start: null,
+					end: null,
+					episode_title: null,
+				},
+				{
+					title: 'Lakers at Celtics',
+					bucket: 'sports',
+					source: 'favorite_team',
+					channel_number: '6.1',
+					start: null,
+					end: null,
+					episode_title: null,
+				},
+			],
+		});
+
+		const { container } = render(Page);
+
+		await screen.findByText('Personalized Drama');
+		const headingTexts = () =>
+			Array.from(container.querySelectorAll('h3.category-heading')).map((el) => el.textContent);
+		expect(headingTexts()).toEqual(['📺 Shows (1)', '🎬 Movies (1)', '🏆 Sports (1)']);
+
+		await fireEvent.click(screen.getByRole('button', { name: /Sports/ }));
+
+		expect(headingTexts()).toEqual([]);
+		expect(screen.getByText('Lakers at Celtics')).toBeInTheDocument();
+	});
+
+	it('preserves recommended order within a category section', async () => {
+		getDiscovery.mockResolvedValue({
+			enabled: true,
+			has_profile: true,
+			items: [
+				{
+					title: 'Top Pick Show',
+					bucket: 'shows',
+					source: 'personalized',
+					channel_number: '4.1',
+					start: null,
+					end: null,
+					episode_title: null,
+				},
+				{
+					title: 'Second Pick Show',
+					bucket: 'shows',
+					source: 'network_pick',
+					channel_number: '4.2',
+					start: null,
+					end: null,
+					episode_title: null,
+				},
+			],
+		});
+
+		render(Page);
+
+		await screen.findByText('Top Pick Show');
+		const titles = screen.getAllByText(/Pick Show$/).map((el) => el.textContent);
+		expect(titles).toEqual(['Top Pick Show', 'Second Pick Show']);
+	});
+
 	it('shows the why-recommended badge only for non-personalized items', async () => {
 		getDiscovery.mockResolvedValue({
 			enabled: true,

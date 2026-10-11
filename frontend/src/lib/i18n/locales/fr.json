@@ -15,7 +15,10 @@
 		"source_active_rule": "Règle d'enregistrement active",
 		"source_favorite_team": "Équipe favorite",
 		"source_network_pick": "Sélection de la chaîne",
-		"source_new_and_notable": "Nouveautés et incontournables"
+		"source_new_and_notable": "Nouveautés et incontournables",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {

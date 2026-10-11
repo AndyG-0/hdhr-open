@@ -18,6 +18,7 @@
 	import SportsExtensionSection from '$lib/components/settings/SportsExtensionSection.svelte';
 	import ComskipSection from '$lib/components/settings/ComskipSection.svelte';
 	import DiscoverySection from '$lib/components/settings/DiscoverySection.svelte';
+	import PosterBackfillSection from '$lib/components/settings/PosterBackfillSection.svelte';
 	import FavoriteTeamsSection from '$lib/components/settings/FavoriteTeamsSection.svelte';
 	import UnresolvedNetworksSection from '$lib/components/settings/UnresolvedNetworksSection.svelte';
 	import HDHomeRunNetworkSection from '$lib/components/settings/HDHomeRunNetworkSection.svelte';
@@ -286,6 +287,8 @@
 			<ComskipSection initialMode={settings?.comskip_mode ?? null} />
 
 			<DiscoverySection initialEnabled={settings?.discovery_enabled ?? null} />
+
+			<PosterBackfillSection initialEnabled={settings?.poster_backfill_enabled ?? null} />
 
 			<FavoriteTeamsSection
 				initialEnabled={settings?.sports_autorecord_enabled ?? null}

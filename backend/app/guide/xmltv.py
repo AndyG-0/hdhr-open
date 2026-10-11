@@ -28,7 +28,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from defusedxml import ElementTree as DefusedElementTree
 from defusedxml.common import DefusedXmlException
 
-from app.config import effective_settings, resolve_timezone
+from app.config import effective_settings, resolve_poster_backfill_enabled, resolve_timezone
+from app.dvr.builtin import poster_lookup
 from app.storage import db
 
 logger = logging.getLogger(__name__)
@@ -398,6 +399,18 @@ async def reload_xmltv_guide() -> dict[str, Any]:
         sum(len(rows) for rows in rows_by_channel.values()),
         skipped,
     )
+
+    if resolve_poster_backfill_enabled():
+        all_rows = [row for rows in rows_by_channel.values() for row in rows]
+
+        async def _write_back(row: dict[str, Any], poster_url: str) -> None:
+            await asyncio.to_thread(
+                db.update_guide_program_image, row["channel_id"], row["source_provider"], row["start_ts"], poster_url
+            )
+
+        await poster_lookup.backfill_missing_images(all_rows, write_back=_write_back)
+        await poster_lookup.cleanup_expired_poster_cache()
+
     return await asyncio.to_thread(db.get_xmltv_guide_stats)
 
 

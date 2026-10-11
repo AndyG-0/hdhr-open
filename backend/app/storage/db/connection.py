@@ -147,6 +147,21 @@ CREATE TABLE IF NOT EXISTS sd_program_cache (
     fetched_at TEXT NOT NULL
 );
 
+-- Resolved TMDb/TheSportsDB poster lookups, keyed by a bucket-qualified
+-- normalized (title, episode_title) pair so the same program is never
+-- looked up twice across guide refreshes, discovery requests, or recordings.
+-- poster_url IS NULL means "looked up, confirmed no artwork found" - a
+-- known miss, distinct from the row being entirely absent ("never looked
+-- up"). Confirmed hits are kept forever (posters don't change); only
+-- confirmed misses expire, to occasionally retry newly-added titles.
+CREATE TABLE IF NOT EXISTS poster_url_cache (
+    cache_key TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    poster_url TEXT,
+    looked_up_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_poster_url_cache_looked_up_at ON poster_url_cache (looked_up_at);
+
 -- Bookkeeping per guide provider: last refresh time, plus a cursor/etag/md5
 -- string whose meaning is provider-specific (e.g. Schedules Direct's
 -- schedule-md5 diffing).

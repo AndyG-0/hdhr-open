@@ -84,6 +84,18 @@ def upsert_guide_programs(programs: list[dict[str, Any]]) -> None:
             _upsert(conn, "guide_programs", row, ("channel_id", "source_provider", "start_ts"))
 
 
+def update_guide_program_image(channel_id: str, source_provider: str, start_ts: float, image_url: str) -> None:
+    """Backfill a poster URL resolved after the initial upsert (see
+    app.dvr.builtin.poster_lookup). The `image_url IS NULL` guard prevents
+    clobbering a real value set by a concurrent fresher upsert."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE guide_programs SET image_url = ? "
+            "WHERE channel_id = ? AND source_provider = ? AND start_ts = ? AND image_url IS NULL",
+            (image_url, channel_id, source_provider, start_ts),
+        )
+
+
 def list_guide_programs(channel_ids: list[str], start_ts: float, end_ts: float) -> list[dict[str, Any]]:
     if not channel_ids:
         return []

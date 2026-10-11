@@ -15,7 +15,10 @@
 		"source_active_rule": "Aktive Aufnahmeregel",
 		"source_favorite_team": "Lieblingsteam",
 		"source_network_pick": "Senderempfehlung",
-		"source_new_and_notable": "Neu & beliebt"
+		"source_new_and_notable": "Neu & beliebt",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {

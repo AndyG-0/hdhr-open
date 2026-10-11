@@ -15,7 +15,10 @@
 		"source_active_rule": "Regla de grabación activa",
 		"source_favorite_team": "Equipo favorito",
 		"source_network_pick": "Recomendación de cadena",
-		"source_new_and_notable": "Novedades y destacados"
+		"source_new_and_notable": "Novedades y destacados",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {

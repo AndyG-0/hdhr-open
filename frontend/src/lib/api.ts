@@ -13,6 +13,7 @@ export interface AppSettings {
 	sports_extension_max_minutes: string;
 	comskip_mode: string;
 	discovery_enabled: string;
+	poster_backfill_enabled: string;
 	sports_autorecord_enabled: string;
 	sports_autorecord_top25_enabled: string;
 	sports_autorecord_postseason_enabled: string;

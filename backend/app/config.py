@@ -107,6 +107,14 @@ class Settings(BaseSettings):
     # recording scope.
     discovery_enabled: str = "false"
 
+    # Household-wide on/off switch for the poster-lookup backfill that fills
+    # in missing guide/discovery artwork via TMDb/TheSportsDB (see
+    # app.dvr.builtin.poster_lookup). On by default, unlike discovery_enabled
+    # above, since it's a quality-of-life fix for an existing feature rather
+    # than new scope - but still toggleable since it adds outbound network
+    # calls on every guide refresh and Discovery page load.
+    poster_backfill_enabled: str = "true"
+
     # Household-wide on/off switch for sports auto-recording (see
     # app.dvr.builtin.sports_autorecord) - resolves favorited teams'
     # upcoming games to a local channel and creates one-time recording
@@ -136,6 +144,7 @@ APP_SETTINGS_KEYS = (
     "sports_extension_max_minutes",
     "comskip_mode",
     "discovery_enabled",
+    "poster_backfill_enabled",
     "sports_autorecord_enabled",
     "sports_autorecord_top25_enabled",
     "sports_autorecord_postseason_enabled",
@@ -214,6 +223,12 @@ def resolve_comskip_mode(raw_value: str | None = None) -> str:
 def resolve_discovery_enabled(raw_value: str | None = None) -> bool:
     if raw_value is None:
         raw_value = effective_settings().get("discovery_enabled", "false")
+    return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
+
+
+def resolve_poster_backfill_enabled(raw_value: str | None = None) -> bool:
+    if raw_value is None:
+        raw_value = effective_settings().get("poster_backfill_enabled", "true")
     return str(raw_value).strip().lower() in ("true", "1", "yes", "on")
 
 
