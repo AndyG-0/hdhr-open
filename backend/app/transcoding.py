@@ -65,7 +65,7 @@ DEFAULT_FFMPEG_LOGLEVEL = "warning"
 # deployment via the `max_bitrate_mbps` HDHomeRun setting (alongside
 # `hwaccel`/`custom_ffmpeg_args`), since "sane" depends on what's upstream of
 # the server (a Pi on a home LAN vs. a VPS serving remote viewers).
-DEFAULT_MAX_BITRATE_MBPS = 5.0
+DEFAULT_MAX_BITRATE_MBPS = 8.0
 
 # Manual quality tiers (frontend: PlayerSettingsMenu's "Quality" selector) -
 # (scale_height, bitrate_cap_mbps). `scale_height=None` leaves the source
@@ -160,7 +160,7 @@ TRANSCODE_PRESETS: dict[str, TranscodePreset] = {
         # the player library), producing a blank video despite a healthy 200
         # response and real bytes flowing. Confirmed against a real
         # HDHomeRun tuner via mpegts.js's SourceBuffer error trace.
-        output_args=["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-ac", "2"],
+        output_args=["-c:v", "libx264", "-preset", "fast", "-c:a", "aac", "-ac", "2"],
     ),
     "software_lowpower": TranscodePreset(
         label="Software, low-power (for Raspberry Pi / ARM SBCs)",
@@ -258,7 +258,7 @@ TRANSCODE_PRESETS: dict[str, TranscodePreset] = {
             "-c:v",
             "h264_qsv",
             "-preset",
-            "veryfast",
+            "fast",
             "-c:a",
             "aac",
             "-ac",
@@ -302,7 +302,7 @@ TRANSCODE_PRESETS: dict[str, TranscodePreset] = {
         description="Hardware encode on machines with an NVIDIA GPU and current drivers installed.",
         hardware=True,
         input_args=["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"],
-        output_args=["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll", "-c:a", "aac", "-ac", "2"],
+        output_args=["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-c:a", "aac", "-ac", "2"],
     ),
     "custom": TranscodePreset(
         label="Custom",

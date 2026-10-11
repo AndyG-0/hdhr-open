@@ -20,17 +20,17 @@ def test_build_ffmpeg_args_defaults_to_software_preset():
         "-c:v",
         "libx264",
         "-preset",
-        "veryfast",
+        "fast",
         "-c:a",
         "aac",
         "-ac",
         "2",
         "-b:v",
-        "5M",
+        "8M",
         "-maxrate",
-        "5M",
+        "8M",
         "-bufsize",
-        "10M",
+        "16M",
         "-f",
         "mpegts",
         "pipe:1",
@@ -350,9 +350,9 @@ def test_bitrate_ceiling_applies_to_every_non_custom_preset():
         if preset_id == "custom":
             continue
         args = transcoding.build_ffmpeg_args({"hwaccel": preset_id}, "url")
-        assert args[args.index("-b:v") + 1] == "5M", preset_id
-        assert args[args.index("-maxrate") + 1] == "5M", preset_id
-        assert args[args.index("-bufsize") + 1] == "10M", preset_id
+        assert args[args.index("-b:v") + 1] == "8M", preset_id
+        assert args[args.index("-maxrate") + 1] == "8M", preset_id
+        assert args[args.index("-bufsize") + 1] == "16M", preset_id
 
 
 def test_bitrate_ceiling_is_configurable_via_settings():
@@ -365,7 +365,7 @@ def test_bitrate_ceiling_is_configurable_via_settings():
 def test_bitrate_ceiling_falls_back_to_default_for_bad_settings_values():
     for bad in (None, "", "not-a-number", -1, 0):
         args = transcoding.build_ffmpeg_args({"max_bitrate_mbps": bad}, "url")
-        assert args[args.index("-b:v") + 1] == "5M", bad
+        assert args[args.index("-b:v") + 1] == "8M", bad
 
 
 def test_custom_preset_is_exempt_from_bitrate_ceiling():
@@ -437,7 +437,7 @@ def test_videotoolbox_no_longer_hardcodes_its_own_bitrate():
 
     args = transcoding.build_ffmpeg_args({"hwaccel": "videotoolbox"}, "url")
     assert args.count("-b:v") == 1
-    assert args[args.index("-b:v") + 1] == "5M"
+    assert args[args.index("-b:v") + 1] == "8M"
 
 
 def test_build_ffmpeg_args_hls_keep_segments_mode_omits_delete_segments():
