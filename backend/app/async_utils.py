@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
+import signal
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +34,44 @@ async def terminate_process(process: asyncio.subprocess.Process, *, timeout: flo
         # here) shouldn't take down the caller.
         with contextlib.suppress(Exception):
             await process.wait()
+
+
+def pid_is_alive(pid: int | None) -> bool:
+    """Checks a bare OS pid (not an asyncio.subprocess.Process we own) is still
+    running - used to find a recording's ffmpeg writer across a backend restart,
+    when CapturePipeline's in-memory tracking has been wiped but the orphaned
+    process itself is still alive.
+    """
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists, just not ours to signal with 0 (e.g. owned by a different
+        # user) - still means it's alive.
+        return True
+    return True
+
+
+async def terminate_pid(pid: int, *, timeout: float, poll_interval: float = 0.2) -> None:
+    """SIGTERM a bare OS pid, wait up to `timeout`, then SIGKILL if it hasn't
+    exited. The bare-pid counterpart to `terminate_process`, for a writer
+    found via a durably-persisted pid rather than a live asyncio.subprocess.Process
+    (see app.api.tuner.terminate_tuner's orphan-recording fallback).
+    """
+    if not pid_is_alive(pid):
+        return
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGTERM)
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while pid_is_alive(pid) and loop.time() < deadline:
+        await asyncio.sleep(poll_interval)
+    if pid_is_alive(pid):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
 
 
 async def drain_stderr_tail(

@@ -139,6 +139,41 @@ def test_get_channels_merges_lineup_and_guide_with_playback_url(client, tmp_db, 
     assert body["channels"][0]["now"]["title"] == "Some Show"
 
 
+def test_get_channels_excludes_hidden_channel(client, tmp_db, monkeypatch):
+    _configure_tuner(tmp_db)
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True, is_drm=True)
+    assert db.get_channel(channel_id)["hidden"] == 1
+
+    channels = [
+        {
+            "channel_number": "4.1",
+            "name": "WNBC",
+            "is_hd": True,
+            "is_drm": True,
+            "stream_url": "http://hdhomerun.local:80/auto/v4.1",
+        }
+    ]
+    monkeypatch.setattr(guide_api.hdhomerun_client, "fetch_lineup", AsyncMock(return_value=channels))
+
+    response = client.get("/api/guide/channels")
+
+    assert response.status_code == 200
+    assert response.json()["channels"] == []
+
+
+def test_get_guide_excludes_hidden_channel(client, tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True, is_drm=True)
+    now = time.time()
+    db.upsert_guide_programs([_program_row(channel_id, "hdhomerun_cloud", now, "Some Show")])
+
+    response = client.get("/api/guide")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def _program_row(channel_id: str, provider: str, start_ts: float, title: str) -> dict:
     return {
         "channel_id": channel_id,
@@ -345,7 +380,7 @@ def test_get_channel_settings_empty(client, tmp_db):
 
 def test_get_channel_settings_with_channels_and_mapping(client, tmp_db):
     channel_id = uuid.uuid4().hex
-    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    db.upsert_channel(channel_id, "4.1", "WNBC", True, affiliate="NBC")
     db.update_channel(channel_id, guide_provider="xmltv", is_favorite=1)
     db.upsert_xmltv_channel_map(channel_id, "wnbc.us", "NBC New York")
 
@@ -359,9 +394,25 @@ def test_get_channel_settings_with_channels_and_mapping(client, tmp_db):
     assert body[0]["is_hd"] is True
     assert body[0]["is_favorite"] is True
     assert body[0]["hidden"] is False
+    assert body[0]["is_drm"] is False
+    assert body[0]["hidden_is_manual"] is False
+    assert body[0]["affiliate"] == "NBC"
     assert body[0]["guide_provider"] == "xmltv"
     assert body[0]["xmltv_channel_id"] == "wnbc.us"
     assert body[0]["xmltv_display_name"] == "NBC New York"
+
+
+def test_get_channel_settings_includes_drm_restricted_channel(client, tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "101.1", "Restricted Network", True, is_drm=True)
+
+    response = client.get("/api/guide/channels/settings")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["is_drm"] is True
+    assert body[0]["hidden"] is True
+    assert body[0]["hidden_is_manual"] is False
 
 
 def test_update_channel_settings_as_admin(admin_client, tmp_db):
@@ -393,6 +444,30 @@ def test_update_channel_settings_as_admin(admin_client, tmp_db):
     db_map = db.get_xmltv_channel_map(channel_id)
     assert db_map["xmltv_channel_id"] == "I10.1.wnbc.com"
     assert db_map["display_name"] == "NBC 4 HD"
+
+
+def test_update_channel_settings_hidden_marks_manual_override(admin_client, tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "101.1", "Restricted Network", True, is_drm=True)
+    assert db.get_channel(channel_id)["hidden"] == 1
+
+    response = admin_client.patch(
+        f"/api/guide/channels/{channel_id}",
+        json={"hidden": False},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["hidden"] is False
+    assert body["hidden_is_manual"] is True
+    assert body["is_drm"] is True
+
+    db_ch = db.get_channel(channel_id)
+    assert db_ch["hidden"] == 0
+    assert db_ch["hidden_is_manual"] == 1
+
+    # A subsequent resync still reports DRM but must not clobber the override.
+    db.upsert_channel(channel_id, "101.1", "Restricted Network", True, is_drm=True)
+    assert db.get_channel(channel_id)["hidden"] == 0
 
 
 def test_update_channel_settings_clear_xmltv_mapping(admin_client, tmp_db):

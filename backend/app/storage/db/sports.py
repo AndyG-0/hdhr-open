@@ -63,6 +63,9 @@ def list_network_channel_map() -> list[dict[str, Any]]:
 
 
 def save_network_channel_map_entry(network_name: str, channel_id: str) -> None:
+    """Explicit admin action (PUT /api/sports/network-map/{name}) - always
+    recorded as `source='manual'`, which always wins over the OTA
+    auto-resolution in app.dvr.builtin.sports_autorecord."""
     with _connect() as conn:
         _upsert(
             conn,
@@ -70,6 +73,25 @@ def save_network_channel_map_entry(network_name: str, channel_id: str) -> None:
             {
                 "network_name": network_name,
                 "channel_id": channel_id,
+                "source": "manual",
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+            key_columns=("network_name",),
+        )
+
+
+def auto_assign_network_channel_map_entry(network_name: str, channel_id: str) -> None:
+    """Auto-resolved OTA match (see app.dvr.builtin.sports_autorecord) -
+    recorded as `source='auto'` so it's distinguishable from (and never
+    overwrites) an explicit admin mapping."""
+    with _connect() as conn:
+        _upsert(
+            conn,
+            "sports_network_channel_map",
+            {
+                "network_name": network_name,
+                "channel_id": channel_id,
+                "source": "auto",
                 "updated_at": datetime.now(UTC).isoformat(),
             },
             key_columns=("network_name",),
@@ -79,6 +101,33 @@ def save_network_channel_map_entry(network_name: str, channel_id: str) -> None:
 def delete_network_channel_map_entry(network_name: str) -> None:
     with _connect() as conn:
         conn.execute("DELETE FROM sports_network_channel_map WHERE network_name = ?", (network_name,))
+
+
+def get_network_watch_link(network_name: str) -> str | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT url FROM sports_network_watch_link_map WHERE network_name = ?", (network_name,)
+        ).fetchone()
+    return None if row is None else row["url"]
+
+
+def save_network_watch_link(network_name: str, url: str) -> None:
+    with _connect() as conn:
+        _upsert(
+            conn,
+            "sports_network_watch_link_map",
+            {
+                "network_name": network_name,
+                "url": url,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+            key_columns=("network_name",),
+        )
+
+
+def delete_network_watch_link(network_name: str) -> None:
+    with _connect() as conn:
+        conn.execute("DELETE FROM sports_network_watch_link_map WHERE network_name = ?", (network_name,))
 
 
 def list_tracked_events() -> list[dict[str, Any]]:
@@ -113,6 +162,7 @@ def upsert_tracked_event(event: dict[str, Any]) -> None:
                 "league": event["league"],
                 "start_ts": event["start_ts"],
                 "network_name": event.get("network_name"),
+                "matchup_title": event.get("matchup_title"),
                 "title_resolved": int(event.get("title_resolved", False)),
                 "updated_at": event.get("updated_at") or datetime.now(UTC).isoformat(),
             },

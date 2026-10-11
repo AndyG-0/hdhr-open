@@ -11,6 +11,9 @@
 
 	let imageFailed = $state(false);
 
+	const placeholderIcon: Record<string, string> = { movies: '🎬', sports: '🏆' };
+	const placeholderEmoji = $derived(placeholderIcon[airing.bucket ?? ''] ?? '📺');
+
 	// Mirrors the Android/iOS/tvOS `discovery.*` source labels - shown on
 	// every non-"personalized" item so users can see why something was
 	// recommended.
@@ -50,7 +53,7 @@
 	{#if airing.image_url && !imageFailed}
 		<img class="discovery-thumb" src={airing.image_url} alt="" onerror={() => (imageFailed = true)} />
 	{:else}
-		<div class="discovery-thumb discovery-thumb-placeholder" aria-hidden="true">📺</div>
+		<div class="discovery-thumb discovery-thumb-placeholder" aria-hidden="true">{placeholderEmoji}</div>
 	{/if}
 	<div class="discovery-info">
 		<span class="discovery-title">{airing.title}</span>

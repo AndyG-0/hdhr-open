@@ -12,45 +12,92 @@ from typing import Any
 from app.storage.db.connection import _connect, _upsert, _validate_update_columns
 
 _CHANNEL_UPDATABLE_COLUMNS = frozenset(
-    {"name", "is_hd", "is_favorite", "hidden", "sort_order", "guide_provider"}
+    {"name", "is_hd", "is_favorite", "hidden", "hidden_is_manual", "sort_order", "guide_provider"}
 )
 
 
+def _channel_sort_key(channel_number: str) -> tuple[float, float, str]:
+    """Numeric-aware sort key for "<major>.<minor>" channel numbers (e.g.
+    "15.1" before "145.1"), since the column is TEXT and a plain SQL sort
+    is lexicographic. Anything that doesn't parse sorts last, by raw
+    string, instead of raising."""
+    major, _, minor = channel_number.partition(".")
+    try:
+        return (float(major), float(minor) if minor else 0.0, channel_number)
+    except ValueError:
+        return (float("inf"), float("inf"), channel_number)
+
+
 def upsert_channel(
-    id: str, channel_number: str, name: str, is_hd: bool, sort_order: int = 0, affiliate: str | None = None
+    id: str,
+    channel_number: str,
+    name: str,
+    is_hd: bool,
+    sort_order: int = 0,
+    affiliate: str | None = None,
+    is_drm: bool = False,
 ) -> None:
     """Create the channel if new; on an existing id, only refresh the
-    tuner-sourced fields (number/name/HD flag/affiliate) and leave
-    user-editable fields (favorite, hidden, sort_order, guide_provider)
-    untouched. `affiliate` uses COALESCE so a resync that doesn't know it
-    (e.g. a channel seeded from the guide rather than the tuner lineup)
-    never clobbers a previously-captured value with NULL."""
+    tuner-sourced fields (number/name/HD flag/affiliate/DRM flag) and leave
+    user-editable fields (favorite, sort_order, guide_provider) untouched.
+    `affiliate` uses COALESCE so a resync that doesn't know it (e.g. a
+    channel seeded from the guide rather than the tuner lineup) never
+    clobbers a previously-captured value with NULL.
+
+    `hidden` is kept in sync with the detected `is_drm` status unless the
+    user has manually overridden it (`hidden_is_manual = 1`), so a
+    broadcaster-restricted channel is auto-hidden from the guide, a
+    channel whose restriction is lifted is auto-unhidden, and a channel the
+    user has explicitly shown/hidden stays as they left it."""
     with _connect() as conn:
         existing = conn.execute("SELECT 1 FROM channels WHERE id = ?", (id,)).fetchone()
         if existing:
             conn.execute(
                 "UPDATE channels SET channel_number = ?, name = ?, is_hd = ?, "
-                "affiliate = COALESCE(?, affiliate) WHERE id = ?",
-                (channel_number, name, int(is_hd), affiliate, id),
+                "affiliate = COALESCE(?, affiliate), is_drm = ? WHERE id = ?",
+                (channel_number, name, int(is_hd), affiliate, int(is_drm), id),
             )
         else:
             conn.execute(
                 "INSERT INTO channels "
-                "(id, channel_number, name, is_hd, is_favorite, hidden, sort_order, guide_provider, affiliate) "
-                "VALUES (?, ?, ?, ?, 0, 0, ?, NULL, ?)",
-                (id, channel_number, name, int(is_hd), sort_order, affiliate),
+                "(id, channel_number, name, is_hd, is_favorite, hidden, sort_order, guide_provider, affiliate, is_drm) "
+                "VALUES (?, ?, ?, ?, 0, 0, ?, NULL, ?, ?)",
+                (id, channel_number, name, int(is_hd), sort_order, affiliate, int(is_drm)),
+            )
+        conn.execute(
+            "UPDATE channels SET hidden = ? WHERE id = ? AND hidden_is_manual = 0",
+            (int(is_drm), id),
+        )
+
+
+def backfill_channel_affiliates(entries: list[dict[str, Any]]) -> None:
+    """Fills in `channels.affiliate` for existing channels only when it's
+    still NULL, keyed by `channel_number`. Used to pick up HDHomeRun's
+    `lineup.json` `Affiliate` field (no cloud-guide subscription required)
+    even when `hdhomerun_cloud` isn't the active guide provider, without
+    touching `name`/`is_hd` (which stay tuner-sourced-only for that
+    provider) - see app.guide.service.refresh_hdhomerun_guide."""
+    with _connect() as conn:
+        for entry in entries:
+            number = entry.get("channel_number")
+            affiliate = entry.get("affiliate")
+            if not number or not affiliate:
+                continue
+            conn.execute(
+                "UPDATE channels SET affiliate = ? WHERE channel_number = ? AND affiliate IS NULL",
+                (affiliate, number),
             )
 
 
 def list_channels(include_hidden: bool = False) -> list[dict[str, Any]]:
     with _connect() as conn:
         if include_hidden:
-            rows = conn.execute("SELECT * FROM channels ORDER BY sort_order, channel_number").fetchall()
+            rows = conn.execute("SELECT * FROM channels").fetchall()
         else:
-            rows = conn.execute(
-                "SELECT * FROM channels WHERE hidden = 0 ORDER BY sort_order, channel_number"
-            ).fetchall()
-    return [dict(row) for row in rows]
+            rows = conn.execute("SELECT * FROM channels WHERE hidden = 0").fetchall()
+    channels = [dict(row) for row in rows]
+    channels.sort(key=lambda c: (c["sort_order"], _channel_sort_key(c["channel_number"])))
+    return channels
 
 
 def get_channel(channel_id: str) -> dict[str, Any] | None:
@@ -82,6 +129,18 @@ def upsert_guide_programs(programs: list[dict[str, Any]]) -> None:
         for program in programs:
             row = {**program, "id": program.get("id") or uuid.uuid4().hex}
             _upsert(conn, "guide_programs", row, ("channel_id", "source_provider", "start_ts"))
+
+
+def update_guide_program_image(channel_id: str, source_provider: str, start_ts: float, image_url: str) -> None:
+    """Backfill a poster URL resolved after the initial upsert (see
+    app.dvr.builtin.poster_lookup). The `image_url IS NULL` guard prevents
+    clobbering a real value set by a concurrent fresher upsert."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE guide_programs SET image_url = ? "
+            "WHERE channel_id = ? AND source_provider = ? AND start_ts = ? AND image_url IS NULL",
+            (image_url, channel_id, source_provider, start_ts),
+        )
 
 
 def list_guide_programs(channel_ids: list[str], start_ts: float, end_ts: float) -> list[dict[str, Any]]:

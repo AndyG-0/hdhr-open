@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -49,8 +50,12 @@ TUNERS_FREE = [{"in_use": False}, {"in_use": False}]
 TUNERS_BUSY = [{"in_use": True}, {"in_use": True}]
 
 
+_next_mock_pid = itertools.count(424242)
+
+
 def _mock_process() -> MagicMock:
     proc = MagicMock()
+    proc.pid = next(_next_mock_pid)
     proc.returncode = None
     proc.terminate = MagicMock()
     proc.wait = AsyncMock(return_value=0)

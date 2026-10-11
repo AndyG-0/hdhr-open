@@ -18,7 +18,7 @@
 	let hwaccelDeviceInput = $state('/dev/dri/renderD128');
 	let ffmpegDebugInput = $state(false);
 	let thumbnailsEnabledInput = $state(true);
-	let maxBitrateMbpsInput = $state('5');
+	let maxBitrateMbpsInput = $state('8');
 	const playbackState = new SaveState();
 
 	loadOnceWhen(
@@ -31,7 +31,7 @@
 			ffmpegDebugInput = (initialSettings!.ffmpeg_debug as boolean) ?? false;
 			thumbnailsEnabledInput = (initialSettings!.thumbnails_enabled as boolean) ?? true;
 			const savedBitrate = initialSettings!.max_bitrate_mbps;
-			maxBitrateMbpsInput = savedBitrate === undefined || savedBitrate === null ? '5' : String(savedBitrate);
+			maxBitrateMbpsInput = savedBitrate === undefined || savedBitrate === null ? '8' : String(savedBitrate);
 		},
 	);
 
@@ -91,7 +91,7 @@
 		}
 		if (!isRawCustomArgs) {
 			const parsed = parseFloat(maxBitrateMbpsInput);
-			const mbps = Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
+			const mbps = Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
 			const bitrate = `${mbps}M`;
 			outputArgs = [...outputArgs, '-b:v', bitrate, '-maxrate', bitrate, '-bufsize', `${mbps * 2}M`];
 		}
@@ -139,7 +139,7 @@
 			hwaccel_device: hwaccelDeviceInput.trim(),
 			ffmpeg_debug: ffmpegDebugInput,
 			thumbnails_enabled: thumbnailsEnabledInput,
-			max_bitrate_mbps: Number.isFinite(parsedBitrate) && parsedBitrate > 0 ? parsedBitrate : 5,
+			max_bitrate_mbps: Number.isFinite(parsedBitrate) && parsedBitrate > 0 ? parsedBitrate : 8,
 		};
 	}
 
@@ -199,7 +199,7 @@
 
 		<label>
 			{$_('hdhomerun.detail.max_bitrate_label')}
-			<input type="number" min="0.5" step="0.5" bind:value={maxBitrateMbpsInput} placeholder="5" />
+			<input type="number" min="0.5" step="0.5" bind:value={maxBitrateMbpsInput} placeholder="8" />
 		</label>
 		<p class="hint">{$_('hdhomerun.detail.max_bitrate_hint')}</p>
 

@@ -15,6 +15,8 @@ from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app.config import resolve_poster_backfill_enabled
+from app.dvr.builtin import poster_lookup
 from app.integrations import schedules_direct
 from app.integrations.schedules_direct import SchedulesDirectError
 from app.storage import db
@@ -307,3 +309,14 @@ async def refresh_schedules_direct_guide() -> None:
         len(rows_by_channel),
         sum(len(r) for r in rows_by_channel.values()),
     )
+
+    if resolve_poster_backfill_enabled():
+        all_rows = [row for rows in rows_by_channel.values() for row in rows]
+
+        async def _write_back(row: dict[str, Any], poster_url: str) -> None:
+            await asyncio.to_thread(
+                db.update_guide_program_image, row["channel_id"], row["source_provider"], row["start_ts"], poster_url
+            )
+
+        await poster_lookup.backfill_missing_images(all_rows, write_back=_write_back)
+        await poster_lookup.cleanup_expired_poster_cache()

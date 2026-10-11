@@ -1,20 +1,46 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app import async_utils
 from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.auth import get_current_user
 from app.dvr.builtin import watch
-from app.dvr.builtin.capture import capture_pipeline
+from app.dvr.builtin.capture import MIN_RECORDING_BYTES, capture_pipeline
 from app.dvr.builtin.tuner_allocator import tuner_allocator
 from app.integrations import hdhomerun_client
+from app.storage import db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tuner", tags=["tuner"], dependencies=[Depends(get_current_user)])
+
+# Gives the hardware a moment to actually update status.json (and, for a
+# recording we just killed by pid, gives that process's exit a moment to
+# register) before terminate_tuner re-checks whether the tuner is actually
+# idle now, rather than trusting an immediate re-fetch that can race ahead
+# of the hardware's own state update.
+_TERMINATE_CONFIRM_DELAY_SECONDS = 1.0
+
+
+def _normalize_channel_number(value: str | None) -> str | None:
+    """Normalizes a channel number for comparison across sources that can
+    format the same channel differently - the live hardware status.json's
+    VctNumber vs. what a capture/recording was started/stored with (e.g.
+    "4" vs "4.0").
+    """
+    if not value:
+        return None
+    try:
+        return f"{float(value):g}"
+    except ValueError:
+        return value.strip()
 
 
 async def _enrich_tuner_status(
@@ -195,25 +221,104 @@ async def terminate_tuner(index: int, user: dict[str, Any] = Depends(get_current
 
     raw_statuses = await hdhomerun_client.fetch_tuner_status(settings)
     matching_tuner = next((t for t in raw_statuses if t["index"] == index), None)
-
     ch_num = matching_tuner.get("channel_number") if matching_tuner else None
-    if ch_num:
-        capture = await capture_pipeline.get_active_capture_by_channel(ch_num)
+    norm_ch_num = _normalize_channel_number(ch_num)
+
+    action: str | None = None
+    detail = ""
+
+    if norm_ch_num:
+        # 1. In-memory capture tracked by this process - try the direct
+        # channel-number lookup first, then fall back to scanning for a
+        # normalized-format match, since the hardware's live VctNumber and a
+        # capture's stored channel_number can differ only in formatting and
+        # silently defeat a plain dict lookup.
+        capture = await capture_pipeline.get_active_capture_by_channel(ch_num) if ch_num else None
+        if capture is None:
+            for candidate in await capture_pipeline.list_active_captures():
+                if _normalize_channel_number(candidate.channel_number) == norm_ch_num:
+                    capture = candidate
+                    break
+
         if capture is not None:
             if capture.is_temporary:
-                await watch.finalize_capture_release(capture.recording_id, ch_num)
+                await watch.finalize_capture_release(capture.recording_id, capture.channel_number)
+                action, detail = "stopped_live_watch", capture.channel_name or capture.channel_number
             else:
                 await capture_pipeline.stop_capture(capture.recording_id)
                 await tuner_allocator.release_tuner(capture.recording_id)
+                action, detail = "stopped_recording", capture.title
+        else:
+            # 2. Durable orphan lookup - nothing is tracked in memory, but this
+            # server may have started a recording on this channel in a prior
+            # process (restart orphaned the ffmpeg writer but it kept running
+            # and holding the tuner). Its pid was persisted at capture-start
+            # time specifically so it can still be found and killed here.
+            all_recs = await asyncio.to_thread(db.list_recordings)
+            orphan = next(
+                (
+                    r
+                    for r in all_recs
+                    if r.get("status") == "recording"
+                    and _normalize_channel_number(r.get("channel_id")) == norm_ch_num
+                ),
+                None,
+            )
+            if orphan is not None and async_utils.pid_is_alive(orphan.get("pid")):
+                pid = orphan["pid"]
+                await async_utils.terminate_pid(pid, timeout=5)
+                file_path = orphan.get("file_path")
+                file_size = 0
+                if file_path:
+                    p = Path(file_path)
+                    if p.exists():
+                        file_size = p.stat().st_size
+                rec_status = "completed" if file_size >= MIN_RECORDING_BYTES else "failed"
+                await asyncio.to_thread(
+                    db.update_recording,
+                    orphan["id"],
+                    status=rec_status,
+                    end_ts=time.time(),
+                    file_size_bytes=file_size,
+                )
+                if orphan.get("scheduled_recording_id"):
+                    await asyncio.to_thread(
+                        db.update_scheduled_recording_status, orphan["scheduled_recording_id"], rec_status
+                    )
+                action, detail = "killed_orphan_pid", str(pid)
 
-    # Release on physical hardware
-    await hdhomerun_client.release_hardware_tuner(settings, index)
+    # 3. Hardware release - always attempted as a last-resort/belt-and-suspenders
+    # step, since it's the only lever available for a genuine external client
+    # or official app (neither of which this server tracks). Its result now
+    # actually factors into the response instead of being discarded.
+    hw_ok = await hdhomerun_client.release_hardware_tuner(settings, index)
 
-    # Return refreshed and enriched status
+    # 4. Confirm, don't assume: give the hardware/process a moment to settle
+    # before trusting a re-fetched status - an immediate re-fetch can race
+    # ahead of the hardware's own internal state update.
+    await asyncio.sleep(_TERMINATE_CONFIRM_DELAY_SECONDS)
     refreshed_raw = await hdhomerun_client.fetch_tuner_status(settings)
+    refreshed_tuner = next((t for t in refreshed_raw if t["index"] == index), None)
+    still_in_use = bool(refreshed_tuner and refreshed_tuner.get("in_use"))
+
+    ok = bool(action or hw_ok) and not still_in_use
+    if action == "stopped_recording":
+        message = f"Stopped and saved recording '{detail}'."
+    elif action == "stopped_live_watch":
+        message = f"Disconnected live viewers from '{detail}'."
+    elif action == "killed_orphan_pid":
+        message = f"Killed orphaned recording process (pid {detail}) left over from a prior restart."
+    elif ok:
+        message = f"Released hardware tuner {index}."
+    else:
+        message = (
+            f"Tuner {index} still reports in use after the termination attempt; "
+            "it may be held by another client or need a power cycle."
+        )
+
     refreshed_enriched = await _enrich_tuner_status(refreshed_raw, settings)
     return {
-        "ok": True,
-        "message": f"Tuner {index} released successfully.",
+        "ok": ok,
+        "message": message,
         "tuners": refreshed_enriched,
     }

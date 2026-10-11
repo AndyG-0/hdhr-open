@@ -94,7 +94,9 @@ CREATE TABLE IF NOT EXISTS channels (
     hidden INTEGER NOT NULL DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     guide_provider TEXT,
-    affiliate TEXT
+    affiliate TEXT,
+    is_drm INTEGER NOT NULL DEFAULT 0,
+    hidden_is_manual INTEGER NOT NULL DEFAULT 0
 );
 
 -- A single airing, from whichever guide provider supplied it. Unique per
@@ -146,6 +148,21 @@ CREATE TABLE IF NOT EXISTS sd_program_cache (
     metadata TEXT NOT NULL,
     fetched_at TEXT NOT NULL
 );
+
+-- Resolved TMDb/TheSportsDB poster lookups, keyed by a bucket-qualified
+-- normalized (title, episode_title) pair so the same program is never
+-- looked up twice across guide refreshes, discovery requests, or recordings.
+-- poster_url IS NULL means "looked up, confirmed no artwork found" - a
+-- known miss, distinct from the row being entirely absent ("never looked
+-- up"). Confirmed hits are kept forever (posters don't change); only
+-- confirmed misses expire, to occasionally retry newly-added titles.
+CREATE TABLE IF NOT EXISTS poster_url_cache (
+    cache_key TEXT PRIMARY KEY,
+    category TEXT NOT NULL,
+    poster_url TEXT,
+    looked_up_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_poster_url_cache_looked_up_at ON poster_url_cache (looked_up_at);
 
 -- Bookkeeping per guide provider: last refresh time, plus a cursor/etag/md5
 -- string whose meaning is provider-specific (e.g. Schedules Direct's
@@ -510,6 +527,61 @@ def _migration_14(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE channels ADD COLUMN affiliate TEXT")
 
 
+def _migration_15(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "channels" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(channels)").fetchall()}
+        if "is_drm" not in cols:
+            conn.execute("ALTER TABLE channels ADD COLUMN is_drm INTEGER NOT NULL DEFAULT 0")
+        if "hidden_is_manual" not in cols:
+            conn.execute("ALTER TABLE channels ADD COLUMN hidden_is_manual INTEGER NOT NULL DEFAULT 0")
+
+
+# Lets sports auto-recording auto-resolve OTA broadcast networks (CBS/NBC/
+# etc.) to a local channel via channels.affiliate, distinguish an
+# auto-detected mapping from an explicit admin one, and show per-game detail
+# (not just a network-name count) for events still unresolved.
+def _migration_16(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "sports_network_channel_map" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sports_network_channel_map)").fetchall()}
+        if "source" not in cols:
+            conn.execute("ALTER TABLE sports_network_channel_map ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'")
+    if "sports_tracked_events" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sports_tracked_events)").fetchall()}
+        if "matchup_title" not in cols:
+            conn.execute("ALTER TABLE sports_tracked_events ADD COLUMN matchup_title TEXT")
+
+
+# Lets the user save a custom "watch" URL for a cable/streaming broadcast
+# network (ESPN, TNT, ...) that has no local tunable channel, separate from
+# sports_network_channel_map's channel_id - a network can have one, both, or
+# neither, so this is its own table rather than a new nullable column there.
+def _migration_17(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sports_network_watch_link_map (
+            network_name TEXT PRIMARY KEY,
+            url TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+# Persists the ffmpeg writer's PID for an in-progress recording so a force
+# "terminate tuner" (app.api.tuner) or startup recovery (DVREngine.
+# recover_on_startup) can still find and kill it after a backend process
+# restart orphans it - in-memory tracking in CapturePipeline is wiped on
+# every restart, but the orphaned ffmpeg keeps running and holding the tuner.
+def _migration_18(conn: sqlite3.Connection) -> None:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "recordings" in tables:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        if "pid" not in cols:
+            conn.execute("ALTER TABLE recordings ADD COLUMN pid INTEGER")
+
+
 _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_1,
     _MIGRATION_2,
@@ -525,6 +597,10 @@ _MIGRATIONS: tuple[str | Callable[[sqlite3.Connection], None], ...] = (
     _MIGRATION_12,
     _MIGRATION_13,
     _migration_14,
+    _migration_15,
+    _migration_16,
+    _migration_17,
+    _migration_18,
 )
 
 

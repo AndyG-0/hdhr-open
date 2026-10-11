@@ -42,6 +42,7 @@ _RECORDING_UPDATABLE_COLUMNS = frozenset(
         "last_heartbeat_at",
         "comskip_status",
         "comskip_attempts",
+        "pid",
     }
 )
 
@@ -156,9 +157,22 @@ def update_scheduled_recording_status(scheduled_id: str, status: str) -> None:
         conn.execute("UPDATE scheduled_recordings SET status = ? WHERE id = ?", (status, scheduled_id))
 
 
-def mark_in_progress_scheduled_recordings_interrupted() -> None:
+def mark_in_progress_scheduled_recordings_interrupted(exclude_ids: set[str] | None = None) -> None:
+    """Marks every dangling 'in_progress' scheduled recording 'interrupted', except
+    `exclude_ids` - used by DVREngine.recover_on_startup() to skip recordings whose
+    orphaned ffmpeg writer was found to still be alive and still recording, which
+    are genuinely still in progress rather than interrupted.
+    """
     with _connect() as conn:
-        conn.execute("UPDATE scheduled_recordings SET status = 'interrupted' WHERE status = 'in_progress'")
+        if not exclude_ids:
+            conn.execute("UPDATE scheduled_recordings SET status = 'interrupted' WHERE status = 'in_progress'")
+        else:
+            placeholders = ", ".join("?" * len(exclude_ids))
+            conn.execute(
+                "UPDATE scheduled_recordings SET status = 'interrupted' "
+                f"WHERE status = 'in_progress' AND id NOT IN ({placeholders})",
+                tuple(exclude_ids),
+            )
 
 
 def create_recording(recording: dict[str, Any]) -> None:

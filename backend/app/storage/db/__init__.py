@@ -26,6 +26,7 @@ from .connection import (
 )
 from .guide import (
     DEFAULT_GUIDE_PROVIDER_PRIORITY,
+    backfill_channel_affiliates,
     delete_expired_sd_program_cache,
     delete_future_guide_programs,
     delete_guide_programs_by_provider,
@@ -47,6 +48,7 @@ from .guide import (
     resolve_guide_programs,
     save_guide_provider_state,
     update_channel,
+    update_guide_program_image,
     upsert_channel,
     upsert_guide_programs,
     upsert_sd_program_cache,
@@ -57,6 +59,11 @@ from .jobs import (
     create_job_run,
     finish_job_run,
     list_job_runs,
+)
+from .poster_cache import (
+    delete_expired_poster_cache,
+    get_cached_posters,
+    upsert_poster_cache,
 )
 from .recordings import (
     create_recording,
@@ -92,10 +99,13 @@ from .settings import (
     save_network_integration,
 )
 from .sports import (
+    auto_assign_network_channel_map_entry,
     create_sports_favorite,
     delete_network_channel_map_entry,
+    delete_network_watch_link,
     delete_sports_favorite,
     delete_tracked_event,
+    get_network_watch_link,
     get_sports_favorite,
     list_network_channel_map,
     list_sports_favorites,
@@ -103,6 +113,7 @@ from .sports import (
     list_tracked_events_for_favorite,
     list_unresolved_tracked_events,
     save_network_channel_map_entry,
+    save_network_watch_link,
     update_sports_favorite,
     upsert_tracked_event,
 )
@@ -165,6 +176,7 @@ __all__ = [
     "get_user_preferences",
     "save_user_preferences",
     "upsert_channel",
+    "backfill_channel_affiliates",
     "list_channels",
     "get_channel",
     "get_channel_by_number",
@@ -190,6 +202,10 @@ __all__ = [
     "get_cached_sd_programs",
     "delete_expired_sd_program_cache",
     "resolve_guide_programs",
+    "update_guide_program_image",
+    "get_cached_posters",
+    "upsert_poster_cache",
+    "delete_expired_poster_cache",
     "create_recording_rule",
     "list_recording_rules",
     "get_recording_rule",
@@ -220,9 +236,13 @@ __all__ = [
     "get_sports_favorite",
     "update_sports_favorite",
     "delete_sports_favorite",
+    "auto_assign_network_channel_map_entry",
     "list_network_channel_map",
     "save_network_channel_map_entry",
     "delete_network_channel_map_entry",
+    "get_network_watch_link",
+    "save_network_watch_link",
+    "delete_network_watch_link",
     "list_tracked_events",
     "list_unresolved_tracked_events",
     "list_tracked_events_for_favorite",

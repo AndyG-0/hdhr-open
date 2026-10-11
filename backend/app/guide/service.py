@@ -19,6 +19,8 @@ from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app.config import resolve_poster_backfill_enabled
+from app.dvr.builtin import poster_lookup
 from app.integrations import hdhomerun_client
 from app.integrations.hdhomerun_client import HDHomeRunError
 from app.storage import db
@@ -91,24 +93,39 @@ def _airing_to_row(channel_id: str, airing: dict[str, Any]) -> dict[str, Any] | 
     }
 
 
+def sync_channel_from_lineup_entry(entry: dict[str, Any]) -> str | None:
+    """Get-or-create the channel row for one `fetch_lineup()` entry and
+    refresh its tuner-sourced fields, including `is_drm` (which in turn
+    drives auto-hiding broadcaster-restricted channels from the guide, see
+    `db.upsert_channel`). Returns the channel id, or None if the entry has
+    no channel number."""
+    number = entry.get("channel_number")
+    if not number:
+        return None
+    existing = db.get_channel_by_number(number)
+    channel_id = existing["id"] if existing else uuid.uuid4().hex
+    db.upsert_channel(
+        channel_id,
+        number,
+        entry.get("name") or number,
+        entry.get("is_hd", False),
+        affiliate=entry.get("affiliate"),
+        is_drm=entry.get("is_drm", False),
+    )
+    return channel_id
+
+
 def _sync_channels_and_guide(
     lineup: list[dict[str, Any]], full_guide: list[dict[str, Any]], job_start_ts: float
-) -> None:
+) -> dict[str, list[dict[str, Any]]]:
     channel_id_by_number: dict[str, str] = {}
     for channel in lineup:
         number = channel["channel_number"]
         if not number:
             continue
-        existing = db.get_channel_by_number(number)
-        channel_id = existing["id"] if existing else uuid.uuid4().hex
-        db.upsert_channel(
-            channel_id,
-            number,
-            channel.get("name") or number,
-            channel.get("is_hd", False),
-            affiliate=channel.get("affiliate"),
-        )
-        channel_id_by_number[number] = channel_id
+        channel_id = sync_channel_from_lineup_entry(channel)
+        if channel_id is not None:
+            channel_id_by_number[number] = channel_id
 
     rows_by_channel: dict[str, list[dict[str, Any]]] = {}
     for channel in full_guide:
@@ -131,6 +148,8 @@ def _sync_channels_and_guide(
         db.delete_future_guide_programs(channel_id, SOURCE_PROVIDER, delete_from_ts)
         db.upsert_guide_programs(rows)
 
+    return rows_by_channel
+
 
 async def refresh_hdhomerun_guide() -> None:
     """Scheduler job: pull SiliconDust's cloud guide and persist it."""
@@ -145,15 +164,33 @@ async def refresh_hdhomerun_guide() -> None:
         logger.info("Tuner unreachable; skipping guide refresh this cycle", exc_info=True)
         return
 
+    # `lineup.json`'s `Affiliate` field needs no cloud-guide subscription -
+    # backfill it for any household's channels (even one whose active guide
+    # provider is xmltv/schedules_direct, not hdhomerun_cloud) regardless of
+    # whether the full cloud guide below is available this cycle. Narrow:
+    # only fills a NULL affiliate, never touches name/is_hd.
+    await asyncio.to_thread(db.backfill_channel_affiliates, lineup)
+
     full_guide = await hdhomerun_client.fetch_full_guide(settings, "hdhomerun")
     if full_guide is None:
         logger.info("HDHomeRun cloud guide unavailable this cycle (no subscription / fetch failed)")
         return
 
-    await asyncio.to_thread(_sync_channels_and_guide, lineup, full_guide, job_start_ts)
+    rows_by_channel = await asyncio.to_thread(_sync_channels_and_guide, lineup, full_guide, job_start_ts)
     await asyncio.to_thread(db.save_guide_provider_state, SOURCE_PROVIDER, datetime.now(UTC).isoformat())
     cache.delete_prefix("guide:")
     logger.info("Refreshed HDHomeRun cloud guide (%d channels)", len(full_guide))
+
+    if resolve_poster_backfill_enabled():
+        all_rows = [row for rows in rows_by_channel.values() for row in rows]
+
+        async def _write_back(row: dict[str, Any], poster_url: str) -> None:
+            await asyncio.to_thread(
+                db.update_guide_program_image, row["channel_id"], row["source_provider"], row["start_ts"], poster_url
+            )
+
+        await poster_lookup.backfill_missing_images(all_rows, write_back=_write_back)
+        await poster_lookup.cleanup_expired_poster_cache()
 
     # New guide data just landed - retry any builtin rules that fell back
     # from the official DVR for lack of a resolvable SeriesID, in case this

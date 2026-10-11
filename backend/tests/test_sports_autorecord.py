@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -53,6 +53,16 @@ def _enable_autorecord(**overrides):
     settings = {"sports_autorecord_enabled": "true"}
     settings.update(overrides)
     db.save_app_settings(settings)
+
+
+def test_register_runs_sync_immediately_on_startup():
+    scheduler = MagicMock()
+
+    sports_autorecord.register(scheduler)
+
+    assert scheduler.add_job.called
+    _, kwargs = scheduler.add_job.call_args
+    assert "next_run_time" in kwargs  # don't wait a full SYNC_INTERVAL_SECONDS after a fresh restart
 
 
 @pytest.mark.asyncio
@@ -112,6 +122,7 @@ async def test_mapped_network_creates_rule_and_tracked_row(favorite, mapped_chan
     assert tracked[0]["recording_rule_id"] == rule["id"]
     # No guide listing exists yet, so the title falls back and isn't "resolved".
     assert tracked[0]["title_resolved"] == 0
+    assert tracked[0]["matchup_title"] == game["matchup_title"]
 
 
 @pytest.mark.asyncio
@@ -144,6 +155,92 @@ async def test_near_air_falls_back_to_matchup_title_contains_match(favorite, map
     rule = db.list_recording_rules(provider="builtin")[0]
     assert rule["title"] == game["matchup_title"]
     assert rule["title_match_mode"] == "contains"
+
+
+@pytest.mark.asyncio
+async def test_ota_network_auto_resolves_to_single_affiliate_match(favorite, monkeypatch):
+    _enable_autorecord()
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "7.1", "KCBS", True, affiliate="CBS")
+    game = _make_game()  # broadcast_network="CBS", no manual mapping exists
+    monkeypatch.setattr(sports_autorecord.espn, "get_team_schedule", AsyncMock(return_value=[game]))
+
+    await sports_autorecord.sync_sports_autorecord()
+
+    rules = db.list_recording_rules(provider="builtin")
+    assert len(rules) == 1
+    assert rules[0]["channel_id"] == "7.1"
+
+    network_map = {row["network_name"]: row for row in db.list_network_channel_map()}
+    assert network_map["CBS"]["channel_id"] == channel_id
+    assert network_map["CBS"]["source"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_ota_network_with_no_local_affiliate_stays_unresolved(favorite, monkeypatch):
+    _enable_autorecord()
+    game = _make_game()  # broadcast_network="CBS", no channel has a CBS affiliate
+    monkeypatch.setattr(sports_autorecord.espn, "get_team_schedule", AsyncMock(return_value=[game]))
+
+    await sports_autorecord.sync_sports_autorecord()
+
+    assert db.list_recording_rules() == []
+    tracked = db.list_tracked_events()
+    assert len(tracked) == 1
+    assert tracked[0]["network_name"] == "CBS"
+    assert tracked[0]["matchup_title"] == game["matchup_title"]
+    assert db.list_network_channel_map() == []
+
+
+@pytest.mark.asyncio
+async def test_ota_network_with_ambiguous_affiliate_match_stays_unresolved(favorite, monkeypatch):
+    _enable_autorecord()
+    db.upsert_channel(uuid.uuid4().hex, "7.1", "KCBS", True, affiliate="CBS")
+    db.upsert_channel(uuid.uuid4().hex, "7.2", "KCBS-2", True, affiliate="CBS")
+    game = _make_game()
+    monkeypatch.setattr(sports_autorecord.espn, "get_team_schedule", AsyncMock(return_value=[game]))
+
+    await sports_autorecord.sync_sports_autorecord()
+
+    assert db.list_recording_rules() == []
+    assert db.list_network_channel_map() == []
+    tracked = db.list_tracked_events()
+    assert len(tracked) == 1
+    assert tracked[0]["network_name"] == "CBS"
+
+
+@pytest.mark.asyncio
+async def test_manual_mapping_takes_precedence_over_ota_auto_resolution(favorite, monkeypatch):
+    _enable_autorecord()
+    auto_channel_id = uuid.uuid4().hex
+    db.upsert_channel(auto_channel_id, "7.1", "KCBS", True, affiliate="CBS")
+    manual_channel_id = uuid.uuid4().hex
+    db.upsert_channel(manual_channel_id, "9.1", "KCBS Alt", True)
+    db.save_network_channel_map_entry("CBS", manual_channel_id)
+    game = _make_game()
+    monkeypatch.setattr(sports_autorecord.espn, "get_team_schedule", AsyncMock(return_value=[game]))
+
+    await sports_autorecord.sync_sports_autorecord()
+
+    rules = db.list_recording_rules(provider="builtin")
+    assert len(rules) == 1
+    assert rules[0]["channel_id"] == "9.1"
+    assert db.list_network_channel_map()[0]["source"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_cable_network_never_auto_resolves(favorite, monkeypatch):
+    _enable_autorecord()
+    db.upsert_channel(uuid.uuid4().hex, "7.1", "KCBS", True, affiliate="CBS")
+    game = _make_game(broadcast_network="ESPN")
+    monkeypatch.setattr(sports_autorecord.espn, "get_team_schedule", AsyncMock(return_value=[game]))
+
+    await sports_autorecord.sync_sports_autorecord()
+
+    assert db.list_recording_rules() == []
+    assert db.list_network_channel_map() == []
+    tracked = db.list_tracked_events()
+    assert tracked[0]["network_name"] == "ESPN"
 
 
 @pytest.mark.asyncio

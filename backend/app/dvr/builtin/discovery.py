@@ -29,13 +29,13 @@ the `source` tier that produced it, so clients can filter locally and show
 
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from app.api.guide import row_to_airing
 from app.config import resolve_guide_provider_priority
+from app.dvr.builtin.network_affiliates import is_major_network
 from app.dvr.builtin.poster_lookup import classify_category
 from app.dvr.builtin.rule_expander import DEFAULT_LOOKAHEAD_SECONDS, _match_airing, normalize_title
 from app.storage import db
@@ -57,29 +57,6 @@ _FAVORITE_TEAM_MATCH_WINDOW_SECONDS = 30 * 60
 # tiers (3/4/5 all draw from "new/first-run" airings).
 _FALLBACK_MAX_PER_CHANNEL = 3
 
-# "Major network" (tier 4) affiliate matching. HDHomeRun's lineup.json
-# `Affiliate` field isn't a clean enum - format varies by market/firmware -
-# so this takes the leading alphabetic run of the field (strips trailing
-# digits/"-DT"/"HD" suffixes) and explicitly denylists cable lookalikes
-# rather than trying to allowlist every real-world variant.
-_MAJOR_NETWORKS = {"NBC", "CBS", "ABC", "FOX", "CW"}
-_MAJOR_NETWORK_DENYLIST = {
-    "FOXNEWS",
-    "FOXBUSINESS",
-    "FOXSPORTS",
-    "FOXSPORTS1",
-    "FOXSPORTS2",
-    "FS1",
-    "FS2",
-    "NBCSN",
-    "NBCSPORTS",
-    "NBCUNIVERSO",
-    "NBCNEWS",
-    "ABCNEWS",
-    "CWSEED",
-}
-
-
 @dataclass
 class TasteProfile:
     has_data: bool
@@ -98,18 +75,6 @@ def _bucket_of(prog: dict[str, Any]) -> str:
     return classify_category(
         title=prog.get("title") or "", episode_title=prog.get("episode_title"), category=prog.get("category")
     )
-
-
-def _is_major_network(affiliate: str | None) -> bool:
-    if not affiliate:
-        return False
-    match = re.match(r"[A-Za-z]+", affiliate.strip())
-    if not match:
-        return False
-    token = match.group(0).upper()
-    if token in _MAJOR_NETWORK_DENYLIST:
-        return False
-    return token in _MAJOR_NETWORKS
 
 
 def build_taste_profile(now: float | None = None) -> TasteProfile:
@@ -313,7 +278,7 @@ def _take_network_pick(
     if limit <= 0:
         return 0
     fresh = sorted(
-        (c for c in candidates if c.get("is_new") and _is_major_network(c.get("_affiliate"))),
+        (c for c in candidates if c.get("is_new") and is_major_network(c.get("_affiliate"))),
         key=lambda c: c["start_ts"],
     )
     return _take_fresh(fresh, bucket, "network_pick", chosen_keys, picks, per_channel, limit)

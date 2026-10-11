@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -54,6 +55,96 @@ async def test_recover_on_startup(tmp_db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_recover_on_startup_leaves_a_still_alive_orphan_alone(tmp_db, tmp_path):
+    """A dangling recording whose ffmpeg writer survived a backend restart
+    (file still growing AND pid still alive) must be left as status
+    "recording" with its pid intact - force-terminate needs that pid later,
+    and turning it into a "completed" row prematurely would make a later
+    force-terminate no-op against a now-untracked process."""
+    video_file = tmp_path / "still_alive.ts"
+    video_file.write_bytes(b"DATA" * 3000)
+
+    proc = subprocess.Popen(["sleep", "30"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        db.create_recording(
+            {
+                "id": "rec_alive",
+                "scheduled_recording_id": "sched_alive",
+                "title": "Still Recording",
+                "channel_id": "4.1",
+                "channel_name_snapshot": "WNBC",
+                "start_ts": 1000.0,
+                "end_ts": 2000.0,
+                "file_path": str(video_file),
+                "status": "recording",
+                "pid": proc.pid,
+            }
+        )
+        with db._connect() as conn:
+            conn.execute(
+                "INSERT INTO scheduled_recordings (id, channel_id, title, start_ts, end_ts, status, recording_id) "
+                "VALUES ('sched_alive', '4.1', 'Still Recording', 1000.0, 2000.0, 'in_progress', 'rec_alive')"
+            )
+
+        engine = DVREngine()
+        await engine.recover_on_startup()
+
+        rec = db.get_recording("rec_alive")
+        assert rec["status"] == "recording"
+        assert rec["pid"] == proc.pid
+
+        with db._connect() as conn:
+            row = conn.execute("SELECT status FROM scheduled_recordings WHERE id = 'sched_alive'").fetchone()
+            assert row[0] == "in_progress"
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+@pytest.mark.asyncio
+async def test_recover_on_startup_finalizes_when_pid_is_dead_even_if_file_growing(tmp_db, tmp_path):
+    """A still-growing file alone isn't enough to count as a genuine orphan -
+    if the persisted pid is dead, it must still be finalized like today's
+    behavior (proves the file-growing-AND-pid-alive check is an AND, not an
+    OR)."""
+    video_file = tmp_path / "dead_pid.ts"
+    video_file.write_bytes(b"DATA" * 3000)
+
+    proc = subprocess.Popen(["true"])
+    proc.wait()  # reap it so the pid is actually dead, not a zombie
+
+    db.create_recording(
+        {
+            "id": "rec_dead_pid",
+            "scheduled_recording_id": "sched_dead_pid",
+            "title": "Dead Writer",
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": str(video_file),
+            "status": "recording",
+            "pid": proc.pid,
+        }
+    )
+    with db._connect() as conn:
+        conn.execute(
+            "INSERT INTO scheduled_recordings (id, channel_id, title, start_ts, end_ts, status, recording_id) "
+            "VALUES ('sched_dead_pid', '4.1', 'Dead Writer', 1000.0, 2000.0, 'in_progress', 'rec_dead_pid')"
+        )
+
+    engine = DVREngine()
+    await engine.recover_on_startup()
+
+    rec = db.get_recording("rec_dead_pid")
+    assert rec["status"] == "completed"
+
+    with db._connect() as conn:
+        row = conn.execute("SELECT status FROM scheduled_recordings WHERE id = 'sched_dead_pid'").fetchone()
+        assert row[0] == "interrupted"
+
+
+@pytest.mark.asyncio
 async def test_dvr_engine_tick_starts_scheduled_recording(tmp_db, monkeypatch):
     db.save_network_integration(
         "hdhomerun", "hdhomerun", "HDHomeRun", {"tuner_host": "hdhomerun.local", "tuner_port": 80}
@@ -100,6 +191,7 @@ async def test_scheduled_recording_attaches_to_existing_live_watch_capture(tmp_d
 
     def _mock_process() -> MagicMock:
         proc = MagicMock()
+        proc.pid = 424242
         proc.returncode = None
         proc.terminate = MagicMock()
         proc.wait = AsyncMock(return_value=0)
@@ -177,6 +269,7 @@ async def test_scheduled_recording_races_live_watch_without_double_tuner(tmp_db,
 
     def _mock_process() -> MagicMock:
         proc = MagicMock()
+        proc.pid = 424242
         proc.returncode = None
         proc.terminate = MagicMock()
         proc.wait = AsyncMock(return_value=0)

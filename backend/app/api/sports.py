@@ -18,6 +18,8 @@ from pydantic import BaseModel
 
 from app.async_utils import run_in_background
 from app.auth import get_current_admin, get_current_user
+from app.dvr.builtin.network_affiliates import normalize_major_network_token
+from app.dvr.builtin.network_watch_links import known_watch_link
 from app.dvr.builtin.sports_autorecord import sync_sports_autorecord
 from app.integrations import espn
 from app.storage import db
@@ -37,6 +39,10 @@ class UpdateFavoriteRequest(BaseModel):
 
 class SaveNetworkMapRequest(BaseModel):
     channel_id: str
+
+
+class SaveNetworkWatchLinkRequest(BaseModel):
+    url: str
 
 
 @router.get("/leagues")
@@ -109,8 +115,35 @@ async def list_unresolved_networks():
         network = event["network_name"]
         if network is None:
             continue
-        entry = by_network.setdefault(network, {"network_name": network, "upcoming_count": 0})
-        entry["upcoming_count"] += 1
+        entry = by_network.setdefault(
+            network,
+            {
+                "network_name": network,
+                # True means this is a recognized OTA major network (CBS,
+                # NBC, ABC, FOX, CW, PBS) that still has no local affiliate
+                # match in the channel lineup - distinct from a
+                # cable/streaming network (ESPN, TNT, ...), which always
+                # requires a manual channel mapping.
+                "is_ota": normalize_major_network_token(network) is not None,
+                "games": [],
+            },
+        )
+        entry["games"].append(
+            {
+                "espn_event_id": event["espn_event_id"],
+                "league": event["league"],
+                "start_ts": event["start_ts"],
+                "matchup_title": event.get("matchup_title"),
+            }
+        )
+    for entry in by_network.values():
+        entry["games"].sort(key=lambda g: g["start_ts"])
+        # A saved custom link (explicit user choice) always wins over the
+        # curated default, same precedence as manual-over-auto channel
+        # mapping above.
+        custom_watch_url = await asyncio.to_thread(db.get_network_watch_link, entry["network_name"])
+        entry["custom_watch_url"] = custom_watch_url
+        entry["watch_url"] = custom_watch_url or known_watch_link(entry["network_name"])
     return {"unresolved_networks": sorted(by_network.values(), key=lambda e: e["network_name"])}
 
 
@@ -127,6 +160,7 @@ async def list_network_map():
                 "channel_id": row["channel_id"],
                 "channel_number": channel["channel_number"] if channel else None,
                 "channel_name": channel["name"] if channel else None,
+                "source": row["source"],
             }
         )
     return {"network_map": result}
@@ -147,3 +181,19 @@ async def save_network_map_entry(
 @router.delete("/network-map/{network_name}", status_code=204)
 async def delete_network_map_entry(network_name: str, admin: dict[str, Any] = Depends(get_current_admin)):
     await asyncio.to_thread(db.delete_network_channel_map_entry, network_name)
+
+
+@router.put("/network-watch-link/{network_name}")
+async def save_network_watch_link(
+    network_name: str, payload: SaveNetworkWatchLinkRequest, admin: dict[str, Any] = Depends(get_current_admin)
+):
+    url = payload.url.strip()
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=422, detail="url must be a non-empty http(s) URL")
+    await asyncio.to_thread(db.save_network_watch_link, network_name, url)
+    return {"network_name": network_name, "url": url}
+
+
+@router.delete("/network-watch-link/{network_name}", status_code=204)
+async def delete_network_watch_link(network_name: str, admin: dict[str, Any] = Depends(get_current_admin)):
+    await asyncio.to_thread(db.delete_network_watch_link, network_name)

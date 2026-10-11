@@ -15,7 +15,10 @@
 		"source_active_rule": "Règle d'enregistrement active",
 		"source_favorite_team": "Équipe favorite",
 		"source_network_pick": "Sélection de la chaîne",
-		"source_new_and_notable": "Nouveautés et incontournables"
+		"source_new_and_notable": "Nouveautés et incontournables",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {
@@ -502,8 +505,17 @@
 		"sd_station_id_label": "Station Schedules Direct",
 		"sd_station_id_placeholder": "Sélectionner ou saisir l'ID de station",
 		"no_channels": "Aucune chaîne de tuner découverte pour l'instant. Vérifiez la connexion HDHomeRun ci-dessus.",
+		"no_channels_match_filter": "Aucune chaîne ne correspond à ce filtre.",
+		"channel_filter_all": "Toutes",
+		"channel_filter_mapped": "Mappées",
+		"channel_filter_unmapped": "Non mappées",
 		"channel_saved": "Enregistré.",
 		"channel_save_error": "Impossible d'enregistrer le mappage de la chaîne.",
+		"drm_badge": "Restreinte",
+		"hidden_from_guide_label": "Masquée du guide",
+		"drm_auto_hidden_hint": "Masquée automatiquement — le diffuseur a appliqué des restrictions d'utilisation, cette chaîne ne peut donc généralement pas être lue via ce tuner.",
+		"drm_manual_override_hint": "Des restrictions d'utilisation du diffuseur s'appliquent — rendue visible manuellement, la lecture peut donc tout de même échouer.",
+		"drm_manually_hidden_hint": "Masquée manuellement du guide.",
 		"guide_priority_heading": "Priorité par défaut des sources de guide",
 		"guide_priority_hint": "Lorsque les chaînes utilisent la source de guide 'Par défaut', les programmes proviennent de la source prioritaire ayant des données disponibles.",
 		"guide_priority_save": "Enregistrer la priorité du guide",

@@ -15,7 +15,10 @@
 		"source_active_rule": "Regla de grabación activa",
 		"source_favorite_team": "Equipo favorito",
 		"source_network_pick": "Recomendación de cadena",
-		"source_new_and_notable": "Novedades y destacados"
+		"source_new_and_notable": "Novedades y destacados",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {
@@ -502,8 +505,17 @@
 		"sd_station_id_label": "Estación de Schedules Direct",
 		"sd_station_id_placeholder": "Seleccionar o ingresar ID de estación",
 		"no_channels": "Aún no se han descubierto canales del sintonizador. Asegúrate de que la conexión HDHomeRun esté configurada arriba.",
+		"no_channels_match_filter": "Ningún canal coincide con este filtro.",
+		"channel_filter_all": "Todos",
+		"channel_filter_mapped": "Mapeados",
+		"channel_filter_unmapped": "Sin mapear",
 		"channel_saved": "Guardado.",
 		"channel_save_error": "No se pudo guardar el mapeo del canal.",
+		"drm_badge": "Restringido",
+		"hidden_from_guide_label": "Oculto de la guía",
+		"drm_auto_hidden_hint": "Oculto automáticamente: la emisora ​​ha aplicado restricciones de uso, por lo que este canal normalmente no se puede reproducir con este receptor.",
+		"drm_manual_override_hint": "Se aplican restricciones de uso de la emisora: se mantuvo visible manualmente, por lo que la reproducción puede fallar igualmente.",
+		"drm_manually_hidden_hint": "Oculto manualmente de la guía.",
 		"guide_priority_heading": "Prioridad de fuentes de guía predeterminada",
 		"guide_priority_hint": "Cuando los canales usan la fuente de guía 'Predeterminado', la información se extraerá de la fuente con mayor prioridad que tenga datos.",
 		"guide_priority_save": "Guardar prioridad de guía",

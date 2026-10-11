@@ -13,6 +13,7 @@ export interface AppSettings {
 	sports_extension_max_minutes: string;
 	comskip_mode: string;
 	discovery_enabled: string;
+	poster_backfill_enabled: string;
 	sports_autorecord_enabled: string;
 	sports_autorecord_top25_enabled: string;
 	sports_autorecord_postseason_enabled: string;
@@ -267,6 +268,10 @@ export interface HDHomeRunChannelSetting {
 	is_hd: boolean;
 	is_favorite: boolean;
 	hidden: boolean;
+	is_drm: boolean;
+	hidden_is_manual: boolean;
+	/** From the tuner's lineup.json `Affiliate` field (e.g. "CBS", "NBC") - null if unknown. */
+	affiliate: string | null;
 	guide_provider: 'hdhomerun_cloud' | 'xmltv' | 'schedules_direct' | null;
 	xmltv_channel_id: string | null;
 	xmltv_display_name: string | null;
@@ -298,9 +303,28 @@ export interface SportsFavorite {
 	created_at: string;
 }
 
+export interface UnresolvedNetworkGame {
+	espn_event_id: string;
+	league: string;
+	start_ts: number;
+	matchup_title: string | null;
+}
+
 export interface UnresolvedNetwork {
 	network_name: string;
-	upcoming_count: number;
+	/** True for a recognized over-the-air network (CBS, NBC, ABC, FOX, CW, PBS)
+	 * that still has no matching local affiliate channel - false for a
+	 * cable/streaming-only network (ESPN, TNT, ...), which always needs a
+	 * manual channel mapping. */
+	is_ota: boolean;
+	games: UnresolvedNetworkGame[];
+	/** Effective watch URL to show next to the network name - the user's
+	 * saved custom link if any, else the curated well-known-network default,
+	 * else null. */
+	watch_url: string | null;
+	/** The user's saved custom link, raw (null if never set) - used to seed
+	 * the edit control, distinct from the curated default in `watch_url`. */
+	custom_watch_url: string | null;
 }
 
 export interface NetworkMapEntry {
@@ -308,6 +332,7 @@ export interface NetworkMapEntry {
 	channel_id: string;
 	channel_number: string | null;
 	channel_name: string | null;
+	source: 'manual' | 'auto';
 }
 
 export interface XMLTVStats {
@@ -1169,6 +1194,13 @@ export const api = {
 		}),
 	deleteSportsNetworkMapEntry: (networkName: string) =>
 		deleteJSON<void>(`/api/sports/network-map/${encodeURIComponent(networkName)}`),
+	saveSportsNetworkWatchLink: (networkName: string, url: string) =>
+		putJSON<{ network_name: string; url: string }>(
+			`/api/sports/network-watch-link/${encodeURIComponent(networkName)}`,
+			{ url },
+		),
+	deleteSportsNetworkWatchLink: (networkName: string) =>
+		deleteJSON<void>(`/api/sports/network-watch-link/${encodeURIComponent(networkName)}`),
 	getSchedulesDirectStations: () => getJSON<SchedulesDirectStation[]>('/api/guide/schedules-direct-stations'),
 	refreshGuide: () => postJSON<{ status: string; message: string }>('/api/guide/refresh'),
 	// Auto-starts (or attaches to an already-running) hidden recording behind

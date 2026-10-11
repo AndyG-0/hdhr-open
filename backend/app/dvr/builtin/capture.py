@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 CAPTION_EXTRACTION_JOB_ID = "caption_extraction"
 
 _FFMPEG_TERMINATE_TIMEOUT_SECONDS = 5
-_MIN_RECORDING_BYTES = 10 * 1024  # at least 10KB to consider non-empty
+MIN_RECORDING_BYTES = 10 * 1024  # at least 10KB to consider non-empty
 _FILENAME_SAFE_RE = re.compile(r"[^\w]+")
 
 
@@ -51,7 +51,7 @@ async def _backfill_poster(
     recording's image_url, but only if nothing else has set one in the
     meantime (a guide-sourced image_url always wins over this fallback)."""
     try:
-        poster_url = await poster_lookup.find_poster_for_program(
+        poster_url = await poster_lookup.find_poster_cached(
             title=title,
             episode_title=episode_title,
             season_number=season_number,
@@ -300,6 +300,7 @@ class CapturePipeline:
             "image_url": image_url,
             "has_captions": 0,
             "is_temporary": 1 if is_temporary else 0,
+            "pid": process.pid,
         }
         await asyncio.to_thread(db.create_recording, rec_row)
         if scheduled_id:
@@ -424,6 +425,10 @@ class CapturePipeline:
             capture.stderr_tail = new_stderr_tail
             capture.stderr_drain_done = new_stderr_drain_done
             capture.capture_quality = None
+        # Keep the durable pid in sync with the new writer - otherwise a startup
+        # or force-terminate orphan check would try to signal the old (already
+        # terminated) writer's pid instead of the one actually still running.
+        await asyncio.to_thread(db.update_recording, recording_id, pid=new_process.pid)
         return True
 
     async def stop_capture(self, recording_id: str) -> dict[str, Any] | None:
@@ -452,7 +457,7 @@ class CapturePipeline:
             file_size = capture.file_path.stat().st_size
 
         duration = max(0.0, now - capture.start_ts)
-        is_success = file_size >= _MIN_RECORDING_BYTES
+        is_success = file_size >= MIN_RECORDING_BYTES
         final_status = "completed" if is_success else "failed"
 
         # Media probe extraction for completed recordings

@@ -15,7 +15,10 @@
 		"source_active_rule": "Aktive Aufnahmeregel",
 		"source_favorite_team": "Lieblingsteam",
 		"source_network_pick": "Senderempfehlung",
-		"source_new_and_notable": "Neu & beliebt"
+		"source_new_and_notable": "Neu & beliebt",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {
@@ -502,8 +505,17 @@
 		"sd_station_id_label": "Schedules Direct Sender",
 		"sd_station_id_placeholder": "Sender-ID auswählen oder eingeben",
 		"no_channels": "Noch keine Tuner-Kanäle gefunden. Stellen Sie sicher, dass die HDHomeRun-Verbindung oben eingerichtet ist.",
+		"no_channels_match_filter": "Keine Kanäle entsprechen diesem Filter.",
+		"channel_filter_all": "Alle",
+		"channel_filter_mapped": "Zugeordnet",
+		"channel_filter_unmapped": "Nicht zugeordnet",
 		"channel_saved": "Gespeichert.",
 		"channel_save_error": "Kanalzuordnung konnte nicht gespeichert werden.",
+		"drm_badge": "Eingeschränkt",
+		"hidden_from_guide_label": "Im Programmführer ausgeblendet",
+		"drm_auto_hidden_hint": "Automatisch ausgeblendet – der Sender hat Nutzungsbeschränkungen festgelegt, daher kann dieser Kanal über diesen Tuner in der Regel nicht wiedergegeben werden.",
+		"drm_manual_override_hint": "Nutzungsbeschränkungen des Senders gelten – manuell sichtbar gehalten, die Wiedergabe kann daher trotzdem fehlschlagen.",
+		"drm_manually_hidden_hint": "Manuell im Programmführer ausgeblendet.",
 		"guide_priority_heading": "Standard-Priorität der Programmquellen",
 		"guide_priority_hint": "Wenn Kanäle die Programmquelle 'Standard' verwenden, werden Einträge von der höchstpriorisierten verfügbaren Quelle bezogen.",
 		"guide_priority_save": "Programmquellen-Priorität speichern",

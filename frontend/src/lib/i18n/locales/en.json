@@ -15,7 +15,10 @@
 		"source_active_rule": "Active rule",
 		"source_favorite_team": "Favorite team",
 		"source_network_pick": "Network pick",
-		"source_new_and_notable": "New & notable"
+		"source_new_and_notable": "New & notable",
+		"heading_shows": "Shows",
+		"heading_movies": "Movies",
+		"heading_sports": "Sports"
 	},
 	"settings": {
 		"language": {
@@ -502,8 +505,17 @@
 		"sd_station_id_label": "Schedules Direct Station",
 		"sd_station_id_placeholder": "Select or enter station ID",
 		"no_channels": "No tuner channels discovered yet. Make sure your HDHomeRun tuner connection is configured above.",
+		"no_channels_match_filter": "No channels match this filter.",
+		"channel_filter_all": "All",
+		"channel_filter_mapped": "Mapped",
+		"channel_filter_unmapped": "Unmapped",
 		"channel_saved": "Saved.",
 		"channel_save_error": "Could not save channel mapping.",
+		"drm_badge": "Restricted",
+		"hidden_from_guide_label": "Hidden from guide",
+		"drm_auto_hidden_hint": "Automatically hidden — the broadcaster has applied usage restrictions, so this channel usually can't be played through this tuner.",
+		"drm_manual_override_hint": "Broadcaster usage restrictions apply — manually kept visible, so playback may still fail.",
+		"drm_manually_hidden_hint": "Manually hidden from the guide.",
 		"guide_priority_heading": "Default Guide Source Priority",
 		"guide_priority_hint": "When channels use 'Default' guide source, listings will be pulled from the highest-priority provider that has data.",
 		"guide_priority_save": "Save Guide Priority",

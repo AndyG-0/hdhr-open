@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -91,18 +90,7 @@ async def _seed_channels_from_tuner_lineup() -> list[dict[str, Any]]:
         if hdhomerun_client.is_tuner_configured(settings):
             lineup = await hdhomerun_client.fetch_lineup(settings)
             for c in lineup:
-                num = c.get("channel_number")
-                if num:
-                    existing = await asyncio.to_thread(db.get_channel_by_number, num)
-                    ch_id = existing["id"] if existing else uuid.uuid4().hex
-                    await asyncio.to_thread(
-                        db.upsert_channel,
-                        ch_id,
-                        num,
-                        c.get("name") or num,
-                        c.get("is_hd", False),
-                        affiliate=c.get("affiliate"),
-                    )
+                await asyncio.to_thread(service.sync_channel_from_lineup_entry, c)
             channels = await asyncio.to_thread(db.list_channels, True)
     except Exception:
         pass
@@ -123,6 +111,7 @@ async def get_guide(start: float | None = None, end: float | None = None):
         return cached
 
     channels = await _seed_channels_from_tuner_lineup()
+    channels = [c for c in channels if not c.get("hidden")]
 
     channels_by_id = {channel["id"]: channel for channel in channels}
     rows = await asyncio.to_thread(db.list_guide_programs, list(channels_by_id), window_start, window_end)
@@ -159,6 +148,7 @@ async def get_channels():
     db_channels_by_number = {
         channel["channel_number"]: channel for channel in await asyncio.to_thread(db.list_channels, True)
     }
+    channels = [c for c in channels if not (db_channels_by_number.get(c["channel_number"]) or {}).get("hidden")]
     channel_ids = [channel["id"] for channel in db_channels_by_number.values()]
     rows = await asyncio.to_thread(db.list_guide_programs, channel_ids, now - 6 * 3600, now + 6 * 3600)
     priority = resolve_guide_provider_priority()
@@ -204,6 +194,9 @@ async def get_channel_settings(user: dict[str, Any] = Depends(get_current_user))
                 "is_hd": bool(c.get("is_hd", 0)),
                 "is_favorite": bool(c.get("is_favorite", 0)),
                 "hidden": bool(c.get("hidden", 0)),
+                "is_drm": bool(c.get("is_drm", 0)),
+                "hidden_is_manual": bool(c.get("hidden_is_manual", 0)),
+                "affiliate": c.get("affiliate"),
                 "guide_provider": c.get("guide_provider"),
                 "xmltv_channel_id": xm["xmltv_channel_id"] if xm else None,
                 "xmltv_display_name": xm["display_name"] if xm else None,
@@ -229,6 +222,14 @@ async def update_channel_settings(
         fields_to_update["is_favorite"] = int(bool(payload.is_favorite))
     if "hidden" in payload.model_fields_set:
         fields_to_update["hidden"] = int(bool(payload.hidden))
+        # The settings page's Save button always includes `hidden` in the
+        # request body, even when the user never touched that checkbox (it
+        # saves the whole card). Only flag this as a deliberate manual
+        # override when the value actually changes from what's stored -
+        # otherwise every unrelated save (e.g. a mapping edit) would freeze
+        # auto-hide/unhide for that channel from then on.
+        if bool(payload.hidden) != bool(channel.get("hidden", 0)):
+            fields_to_update["hidden_is_manual"] = 1
 
     if fields_to_update:
         await asyncio.to_thread(db.update_channel, channel_id, **fields_to_update)
@@ -270,6 +271,8 @@ async def update_channel_settings(
         "is_hd": bool(updated_channel.get("is_hd", 0)),
         "is_favorite": bool(updated_channel.get("is_favorite", 0)),
         "hidden": bool(updated_channel.get("hidden", 0)),
+        "is_drm": bool(updated_channel.get("is_drm", 0)),
+        "hidden_is_manual": bool(updated_channel.get("hidden_is_manual", 0)),
         "guide_provider": updated_channel.get("guide_provider"),
         "xmltv_channel_id": xm["xmltv_channel_id"] if xm else None,
         "xmltv_display_name": xm["display_name"] if xm else None,

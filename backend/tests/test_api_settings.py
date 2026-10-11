@@ -27,6 +27,7 @@ def test_get_settings_returns_env_default(client, tmp_db):
         "sports_extension_max_minutes": "240",
         "comskip_mode": "all",
         "discovery_enabled": "false",
+        "poster_backfill_enabled": "true",
         "sports_autorecord_enabled": "false",
         "sports_autorecord_top25_enabled": "false",
         "sports_autorecord_postseason_enabled": "false",

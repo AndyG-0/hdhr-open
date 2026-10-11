@@ -126,28 +126,119 @@ def test_unresolved_networks_grouped(admin_client, tmp_db):
     db.create_sports_favorite({"id": "fav_1", "league": "nfl", "espn_team_id": "6"})
     db.upsert_tracked_event(
         {
-            "espn_event_id": "evt_1",
-            "favorite_id": "fav_1",
-            "recording_rule_id": None,
-            "league": "nfl",
-            "start_ts": 1234567890.0,
-            "network_name": "FOX",
-        }
-    )
-    db.upsert_tracked_event(
-        {
             "espn_event_id": "evt_2",
             "favorite_id": "fav_1",
             "recording_rule_id": None,
             "league": "nfl",
             "start_ts": 1234567891.0,
             "network_name": "FOX",
+            "matchup_title": "Eagles at Giants",
+        }
+    )
+    db.upsert_tracked_event(
+        {
+            "espn_event_id": "evt_1",
+            "favorite_id": "fav_1",
+            "recording_rule_id": None,
+            "league": "nfl",
+            "start_ts": 1234567890.0,
+            "network_name": "FOX",
+            "matchup_title": "Cowboys at Cardinals",
+        }
+    )
+    db.upsert_tracked_event(
+        {
+            "espn_event_id": "evt_3",
+            "favorite_id": "fav_1",
+            "recording_rule_id": None,
+            "league": "nfl",
+            "start_ts": 1234567892.0,
+            "network_name": "ESPN",
+            "matchup_title": "Chiefs at Raiders",
         }
     )
 
     response = admin_client.get("/api/sports/unresolved-networks")
     unresolved = response.json()["unresolved_networks"]
-    assert unresolved == [{"network_name": "FOX", "upcoming_count": 2}]
+    assert unresolved == [
+        {
+            "network_name": "ESPN",
+            "is_ota": False,
+            "games": [
+                {
+                    "espn_event_id": "evt_3",
+                    "league": "nfl",
+                    "start_ts": 1234567892.0,
+                    "matchup_title": "Chiefs at Raiders",
+                }
+            ],
+            "custom_watch_url": None,
+            "watch_url": "https://www.espn.com/watch/",
+        },
+        {
+            "network_name": "FOX",
+            "is_ota": True,
+            "games": [
+                {
+                    "espn_event_id": "evt_1",
+                    "league": "nfl",
+                    "start_ts": 1234567890.0,
+                    "matchup_title": "Cowboys at Cardinals",
+                },
+                {
+                    "espn_event_id": "evt_2",
+                    "league": "nfl",
+                    "start_ts": 1234567891.0,
+                    "matchup_title": "Eagles at Giants",
+                },
+            ],
+            "custom_watch_url": None,
+            "watch_url": None,
+        },
+    ]
+
+
+def test_unresolved_networks_custom_watch_link_overrides_curated_default(admin_client, tmp_db):
+    db.create_sports_favorite({"id": "fav_1", "league": "nfl", "espn_team_id": "6"})
+    db.upsert_tracked_event(
+        {
+            "espn_event_id": "evt_1",
+            "favorite_id": "fav_1",
+            "recording_rule_id": None,
+            "league": "nfl",
+            "start_ts": 1234567890.0,
+            "network_name": "ESPN",
+            "matchup_title": "Chiefs at Raiders",
+        }
+    )
+    db.save_network_watch_link("ESPN", "https://example.com/custom-espn")
+
+    unresolved = admin_client.get("/api/sports/unresolved-networks").json()["unresolved_networks"]
+    assert unresolved[0]["custom_watch_url"] == "https://example.com/custom-espn"
+    assert unresolved[0]["watch_url"] == "https://example.com/custom-espn"
+
+
+def test_save_network_watch_link_rejects_invalid_url(admin_client, tmp_db):
+    response = admin_client.put("/api/sports/network-watch-link/TNT", json={"url": "not-a-url"})
+    assert response.status_code == 422
+
+
+def test_save_and_delete_network_watch_link(admin_client, tmp_db):
+    response = admin_client.put("/api/sports/network-watch-link/TNT", json={"url": "https://example.com/tnt"})
+    assert response.status_code == 200
+    assert db.get_network_watch_link("TNT") == "https://example.com/tnt"
+
+    response = admin_client.delete("/api/sports/network-watch-link/TNT")
+    assert response.status_code == 204
+    assert db.get_network_watch_link("TNT") is None
+
+
+def test_network_watch_link_routes_require_admin(member_client, tmp_db):
+    response = member_client.put("/api/sports/network-watch-link/TNT", json={"url": "https://example.com/tnt"})
+    assert response.status_code == 403
+
+    response = member_client.delete("/api/sports/network-watch-link/TNT")
+    assert response.status_code == 403
 
 
 def test_save_network_map_rejects_unknown_channel(admin_client, tmp_db):
@@ -164,7 +255,13 @@ def test_save_and_list_network_map(admin_client, tmp_db):
 
     listed = admin_client.get("/api/sports/network-map").json()["network_map"]
     assert listed == [
-        {"network_name": "CBS", "channel_id": channel_id, "channel_number": "7.1", "channel_name": "KCBS"}
+        {
+            "network_name": "CBS",
+            "channel_id": channel_id,
+            "channel_number": "7.1",
+            "channel_name": "KCBS",
+            "source": "manual",
+        }
     ]
 
 

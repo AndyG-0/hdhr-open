@@ -328,3 +328,43 @@ def test_migration_14_adds_channels_affiliate_column(tmp_path, monkeypatch):
 
         row = conn.execute("SELECT affiliate FROM channels WHERE id = 'ch1'").fetchone()
         assert row[0] is None
+
+
+def test_migration_18_adds_recordings_pid_column(tmp_path, monkeypatch):
+    test_db = tmp_path / "migration18_test.db"
+    monkeypatch.setattr(db, "DB_PATH", test_db)
+
+    with sqlite3.connect(test_db) as conn:
+        conn.executescript("""
+            CREATE TABLE recordings (
+                id TEXT PRIMARY KEY,
+                scheduled_recording_id TEXT,
+                title TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                channel_name_snapshot TEXT NOT NULL,
+                start_ts REAL NOT NULL,
+                end_ts REAL,
+                file_path TEXT NOT NULL,
+                file_size_bytes INTEGER,
+                status TEXT NOT NULL DEFAULT 'recording'
+            );
+            INSERT INTO recordings (id, title, channel_id, channel_name_snapshot, start_ts, file_path)
+            VALUES ('rec1', 'Late Night', '4.1', 'WNBC', 1000.0, '/recordings/rec1.ts');
+            PRAGMA user_version = 17;
+        """)
+
+    with sqlite3.connect(test_db) as conn:
+        db._apply_migrations(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == len(db._MIGRATIONS)
+
+        recording_cols = {row[1] for row in conn.execute("PRAGMA table_info(recordings)").fetchall()}
+        assert "pid" in recording_cols
+
+        row = conn.execute("SELECT pid FROM recordings WHERE id = 'rec1'").fetchone()
+        assert row[0] is None
+
+    # Re-running migrations against an already-migrated DB must not error
+    # (guarded by the PRAGMA table_info check before ALTER TABLE).
+    with sqlite3.connect(test_db) as conn:
+        db._apply_migrations(conn)

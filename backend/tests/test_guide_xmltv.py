@@ -21,6 +21,16 @@ def _xmltv_time(ts: float) -> str:
     return time.strftime("%Y%m%d%H%M%S +0000", time.gmtime(ts))
 
 
+def test_list_channels_sorts_channel_number_numerically(tmp_db):
+    db.upsert_channel("ch145", "145.1", "Channel 145", False)
+    db.upsert_channel("ch15", "15.1", "Channel 15", False)
+    db.upsert_channel("ch2", "2.1", "Channel 2", False)
+
+    channels = db.list_channels(True)
+
+    assert [c["channel_number"] for c in channels] == ["2.1", "15.1", "145.1"]
+
+
 async def test_refresh_noops_when_unconfigured(tmp_db):
     await guide_xmltv.refresh_xmltv_guide()
 
@@ -65,6 +75,50 @@ async def test_refresh_auto_maps_channel_by_exact_number_match(tmp_db, monkeypat
     assert len(rows) == 1
     assert rows[0]["title"] == "Some Show"
     assert rows[0]["source_provider"] == "xmltv"
+
+
+async def test_refresh_backfills_missing_poster_via_poster_lookup(tmp_db, monkeypatch):
+    db.upsert_channel("ch1", "4.1", "WNBC", True)
+    _configure_xmltv()
+    now = time.time()
+    xml = f"""<tv>
+        <channel id="wnbc.us"><display-name>4.1</display-name><display-name>NBC New York</display-name></channel>
+        <programme channel="wnbc.us" start="{_xmltv_time(now)}" stop="{_xmltv_time(now + 1800)}">
+            <title>Some Show</title>
+        </programme>
+    </tv>"""
+    monkeypatch.setattr(guide_xmltv, "_fetch_xmltv_root", AsyncMock(return_value=_root(xml)))
+    find_cached = AsyncMock(return_value="https://example.com/backfilled.jpg")
+    monkeypatch.setattr(guide_xmltv.poster_lookup, "find_poster_cached", find_cached)
+    monkeypatch.setattr(guide_xmltv.poster_lookup, "cleanup_expired_poster_cache", AsyncMock())
+
+    await guide_xmltv.refresh_xmltv_guide()
+
+    find_cached.assert_awaited_once()
+    rows = db.list_guide_programs(["ch1"], now - 10, now + 3600)
+    assert rows[0]["image_url"] == "https://example.com/backfilled.jpg"
+
+
+async def test_refresh_skips_backfill_when_disabled(tmp_db, monkeypatch):
+    db.upsert_channel("ch1", "4.1", "WNBC", True)
+    _configure_xmltv()
+    now = time.time()
+    xml = f"""<tv>
+        <channel id="wnbc.us"><display-name>4.1</display-name><display-name>NBC New York</display-name></channel>
+        <programme channel="wnbc.us" start="{_xmltv_time(now)}" stop="{_xmltv_time(now + 1800)}">
+            <title>Some Show</title>
+        </programme>
+    </tv>"""
+    monkeypatch.setattr(guide_xmltv, "_fetch_xmltv_root", AsyncMock(return_value=_root(xml)))
+    monkeypatch.setattr(guide_xmltv, "resolve_poster_backfill_enabled", lambda: False)
+    find_cached = AsyncMock(return_value="https://example.com/backfilled.jpg")
+    monkeypatch.setattr(guide_xmltv.poster_lookup, "find_poster_cached", find_cached)
+
+    await guide_xmltv.refresh_xmltv_guide()
+
+    find_cached.assert_not_awaited()
+    rows = db.list_guide_programs(["ch1"], now - 10, now + 3600)
+    assert rows[0]["image_url"] is None
 
 
 async def test_refresh_skips_unmapped_channels(tmp_db, monkeypatch):

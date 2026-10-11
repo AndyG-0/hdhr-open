@@ -13,6 +13,7 @@ from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app import async_utils
 from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
 from app.dvr.builtin.retention import delete_local_recording, enforce_rule_retention_sync, run_full_retention_pass
@@ -45,6 +46,17 @@ def _capture_file_is_still_growing(file_path: str | None) -> bool:
     return (time.time() - p.stat().st_mtime) < ORPHAN_CAPTURE_GRACE_SECONDS
 
 
+def _orphan_capture_is_still_alive(file_path: str | None, pid: int | None) -> bool:
+    """A dangling 'recording' row is a genuinely still-running orphan (ffmpeg
+    survived this backend process's restart and kept the tuner) only if BOTH
+    its file is still growing AND its persisted writer pid is still alive -
+    mtime alone can't tell a real orphan from a coincidentally-recent touch,
+    and a live pid alone can't tell a real orphan from an unrelated process
+    that happens to have been given a reused pid.
+    """
+    return _capture_file_is_still_growing(file_path) and async_utils.pid_is_alive(pid)
+
+
 class DVREngine:
     """Coordinates scheduled recordings, active captures, and retention."""
 
@@ -56,6 +68,7 @@ class DVREngine:
         """Clean up dangling in-progress DB records from prior process crashes."""
         all_recs = await asyncio.to_thread(db.list_recordings)
         dangling_recs = [r for r in all_recs if r.get("status") == "recording"]
+        still_alive_scheduled_ids: set[str] = set()
         for r in dangling_recs:
             rec_id = r["id"]
             if r.get("is_temporary"):
@@ -72,6 +85,23 @@ class DVREngine:
                     rec_id, reason="startup recovery: orphaned live-watch capture from a prior process crash"
                 )
                 continue
+
+            if _orphan_capture_is_still_alive(r.get("file_path"), r.get("pid")):
+                # The ffmpeg writer survived this backend process's restart and
+                # is still actively recording to this file - leave the DB row
+                # as-is (status="recording", pid intact) rather than finalizing
+                # it as if it had stopped. This is intentional: restart survival
+                # is a feature, and a force-terminate (app.api.tuner) needs the
+                # still-accurate pid to be able to find and kill it later.
+                logger.info(
+                    "Startup recovery: leaving recording [%s] alone - orphaned ffmpeg (pid=%s) still writing",
+                    rec_id,
+                    r.get("pid"),
+                )
+                if r.get("scheduled_recording_id"):
+                    still_alive_scheduled_ids.add(r["scheduled_recording_id"])
+                continue
+
             file_path = r.get("file_path")
             file_size = 0
             if file_path:
@@ -88,7 +118,9 @@ class DVREngine:
                 file_size_bytes=file_size,
             )
 
-        await asyncio.to_thread(db.mark_in_progress_scheduled_recordings_interrupted)
+        await asyncio.to_thread(
+            db.mark_in_progress_scheduled_recordings_interrupted, still_alive_scheduled_ids
+        )
 
     async def tick(self) -> None:
         """Main engine tick: stops finished captures and launches ready scheduled recordings."""

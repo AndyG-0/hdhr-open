@@ -26,6 +26,18 @@
 	const movieCount = $derived(items.filter((item) => item.bucket === 'movies').length);
 	const sportsCount = $derived(items.filter((item) => item.bucket === 'sports').length);
 
+	// Filtering (rather than re-sorting) preserves each bucket's existing
+	// relative order, which already reflects the backend's recommended order.
+	const showItems = $derived(items.filter((item) => item.bucket === 'shows'));
+	const movieItems = $derived(items.filter((item) => item.bucket === 'movies'));
+	const sportsItems = $derived(items.filter((item) => item.bucket === 'sports'));
+
+	const categorySections = $derived([
+		{ id: 'shows', emoji: '📺', headingKey: 'discovery.heading_shows', items: showItems },
+		{ id: 'movies', emoji: '🎬', headingKey: 'discovery.heading_movies', items: movieItems },
+		{ id: 'sports', emoji: '🏆', headingKey: 'discovery.heading_sports', items: sportsItems },
+	]);
+
 	function channelFor(channelNumber?: string | null): HDHomeRunChannel | null {
 		if (!channelNumber) return null;
 		return channels.find((c) => c.channel_number === channelNumber) ?? null;
@@ -153,11 +165,24 @@
 					🏆 {$_('hdhomerun.detail.filter_sports')} ({sportsCount})
 				</button>
 			</div>
-			<div class="discovery-grid">
-				{#each filteredItems as airing, i (`${airing.series_id ?? airing.title}-${airing.channel_number}-${airing.start}-${i}`)}
-					<DiscoveryCard {airing} onSelect={() => (selectedAiring = airing)} />
+			{#if bucketFilter === 'all'}
+				{#each categorySections as cat (cat.id)}
+					{#if cat.items.length > 0}
+						<h3 class="category-heading">{cat.emoji} {$_(cat.headingKey)} ({cat.items.length})</h3>
+						<div class="discovery-grid">
+							{#each cat.items as airing, i (`${airing.series_id ?? airing.title}-${airing.channel_number}-${airing.start}-${i}`)}
+								<DiscoveryCard {airing} onSelect={() => (selectedAiring = airing)} />
+							{/each}
+						</div>
+					{/if}
 				{/each}
-			</div>
+			{:else}
+				<div class="discovery-grid">
+					{#each filteredItems as airing, i (`${airing.series_id ?? airing.title}-${airing.channel_number}-${airing.start}-${i}`)}
+						<DiscoveryCard {airing} onSelect={() => (selectedAiring = airing)} />
+					{/each}
+				</div>
+			{/if}
 		{/if}
 	{/if}
 </div>
@@ -199,6 +224,16 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
 		gap: 0.75rem;
+	}
+
+	.category-heading {
+		font-size: 1.15rem;
+		font-weight: 600;
+		margin: 1.25rem 0 0.5rem;
+		color: var(--color-text);
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
 	}
 
 	.server-filter-bar {
