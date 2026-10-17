@@ -116,6 +116,9 @@ async def test_mapped_network_creates_rule_and_tracked_row(favorite, mapped_chan
     rule = rules[0]
     assert rule["type"] == "single"
     assert rule["channel_id"] == "7.1"  # the channel NUMBER, not the mapped UUID
+    # Built-in is the default (first-priority) engine, so this isn't a
+    # fallback - the UI shouldn't badge it as one.
+    assert rule["fallback_reason"] is None
 
     tracked = db.list_tracked_events()
     assert len(tracked) == 1
@@ -123,6 +126,22 @@ async def test_mapped_network_creates_rule_and_tracked_row(favorite, mapped_chan
     # No guide listing exists yet, so the title falls back and isn't "resolved".
     assert tracked[0]["title_resolved"] == 0
     assert tracked[0]["matchup_title"] == game["matchup_title"]
+
+
+@pytest.mark.asyncio
+async def test_hdhomerun_preferred_still_lands_on_builtin_but_flagged(favorite, mapped_channel, monkeypatch):
+    # Sports auto-record always creates on Built-in regardless of priority -
+    # when the user actually prefers hdhomerun, that's a genuine deviation
+    # and should still be badged as a fallback.
+    _enable_autorecord(dvr_server_priority="hdhomerun,builtin")
+    game = _make_game()
+    monkeypatch.setattr(sports_autorecord.espn, "get_team_schedule", AsyncMock(return_value=[game]))
+
+    await sports_autorecord.sync_sports_autorecord()
+
+    rules = db.list_recording_rules(provider="builtin")
+    assert len(rules) == 1
+    assert rules[0]["fallback_reason"] == "sports_autorecord"
 
 
 @pytest.mark.asyncio
