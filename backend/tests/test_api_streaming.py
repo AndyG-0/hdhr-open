@@ -49,6 +49,7 @@ def _fake_ffmpeg_process(*, returncode: int | None, stderr_chunks: list[bytes]) 
 
 def test_stream_channel_immediate_exit_returns_502_with_ffmpeg_reason(client, tmp_db, monkeypatch):
     _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
     proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"no soup for you"])
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
 
@@ -67,6 +68,7 @@ def test_stream_channel_repeat_request_after_502_fails_fast_without_respawning(c
     frontend/src/lib/mpegts-player.ts). That only works as intended if the
     repeat request doesn't redo the whole slow ffmpeg-startup dance."""
     _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
     proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"no soup for you"])
     spawn_mock = AsyncMock(return_value=proc)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn_mock)
@@ -92,6 +94,7 @@ def test_stream_channel_missing_ffmpeg_binary_returns_unified_503(client, tmp_db
 
 def test_stream_channel_hardware_preset_failure_invokes_probe(client, tmp_db, monkeypatch):
     _configure_tuner("videotoolbox")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
     proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"gpu init failed"])
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
 
@@ -113,6 +116,7 @@ def test_stream_channel_repeat_request_after_hardware_probe_failure_skips_probe(
     hardware-preset path whose first failure pays for a diagnostic re-probe
     (see _probe_after_failure) - the retry must not pay for that twice."""
     _configure_tuner("videotoolbox")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
     proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"gpu init failed"])
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
 
@@ -133,6 +137,7 @@ def test_stream_channel_repeat_request_after_hardware_probe_failure_skips_probe(
 
 def test_stream_channel_software_preset_failure_does_not_invoke_probe(client, tmp_db, monkeypatch):
     _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
     proc = _fake_ffmpeg_process(returncode=1, stderr_chunks=[b"tuner busy"])
     monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=proc))
 
@@ -206,6 +211,43 @@ def test_stream_channel_direct_returns_502_when_tuner_unreachable(client, tmp_db
 
     assert response.status_code == 502
     assert "Could not reach tuner" in response.json()["detail"]
+
+
+def test_stream_channel_attaches_to_existing_capture_instead_of_new_tuner(client, tmp_db, tmp_path, monkeypatch):
+    """The bug this fixes: a second viewer requesting a channel that's
+    already being captured (by another viewer, a recording, etc.) must tail
+    that existing capture instead of asking the tuner hardware for a brand
+    new connection - otherwise this endpoint fails with "all tuners busy"
+    even though the channel is already tuned."""
+    _configure_tuner("software")
+    video_file = tmp_path / "live.ts"
+    video_file.write_bytes(b"x" * 64_000)
+
+    active_capture = _make_active_capture("rec_existing", "4.1", video_file)
+    capture_pipeline._active_captures["rec_existing"] = active_capture
+    capture_pipeline._channel_index["4.1"] = "rec_existing"
+    _create_recording_row("rec_existing", "4.1", video_file)
+
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value="rec_existing"))
+    monkeypatch.setattr(watch, "release_fallback_capture", AsyncMock())
+    monkeypatch.setattr(streaming_api, "pump_tail_follow", AsyncMock(return_value=None))
+
+    fake_proc = MagicMock()
+    fake_proc.stdin = MagicMock()
+    fake_proc.stdin.close = MagicMock()
+    fake_proc.stdout.read = AsyncMock(side_effect=[b"ts_data", b""])
+    fake_proc.stderr.read = AsyncMock(return_value=b"")
+    fake_proc.wait = AsyncMock(return_value=0)
+    fake_proc.returncode = 0
+    exec_mock = AsyncMock(return_value=fake_proc)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", exec_mock)
+
+    response = client.get("/api/streaming/stream/4.1")
+
+    assert response.status_code == 200
+    assert response.content == b"ts_data"
+    assert exec_mock.call_args.kwargs["stdin"] == asyncio.subprocess.PIPE
+    assert "pipe:0" in list(exec_mock.call_args[0])
 
 
 # --- POST /hls/{channel_number} (CC-2 full-backend-fix fallback path) -----
@@ -436,6 +478,7 @@ def test_stream_channel_hls_without_for_cast_omits_cast_token(client, tmp_db, mo
 
 def test_stream_channel_with_audio_index_passes_mapping(client, tmp_db, monkeypatch):
     _configure_tuner("software")
+    monkeypatch.setattr(watch, "start_fallback_capture", AsyncMock(return_value=None))
     fake_proc = MagicMock()
     fake_proc.stdout.read = AsyncMock(side_effect=[b"ts_data", b""])
     fake_proc.wait = AsyncMock(return_value=0)
