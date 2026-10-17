@@ -184,7 +184,13 @@ async def test_search_guide_paginates_with_offset_and_has_more(tmp_db):
     channel_id = _seed_channel()
     now = time.time()
     for i in range(5):
-        _seed_program(channel_id, title=f"Game {i}", category="Sports", start_ts=now + i * 3600, end_ts=now + (i + 1) * 3600)
+        _seed_program(
+            channel_id,
+            title=f"Game {i}",
+            category="Sports",
+            start_ts=now + i * 3600,
+            end_ts=now + (i + 1) * 3600,
+        )
 
     first = await ai_guide.search_guide(category_type="sports", limit=2, offset=0)
     assert len(first["results"]) == 2

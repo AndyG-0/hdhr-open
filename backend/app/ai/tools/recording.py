@@ -287,7 +287,8 @@ register(
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Search text to match against the recording library. Omit to browse purely by category_type.",
+                    "description": "Search text to match against the recording library. Omit to browse purely "
+                    "by category_type.",
                 },
                 "category_type": {
                     "type": "string",

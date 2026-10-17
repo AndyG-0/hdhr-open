@@ -203,7 +203,8 @@ register(
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Text to search for in program titles/synopses. Omit to browse purely by category_type.",
+                    "description": "Text to search for in program titles/synopses. Omit to browse purely by "
+                    "category_type.",
                 },
                 "category_type": {
                     "type": "string",
