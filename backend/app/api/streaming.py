@@ -35,7 +35,7 @@ from app.api.dvr_streaming import _LIVE_CAPTURE_READY_TIMEOUT_SECONDS, _wait_for
 from app.async_utils import drain_stderr_tail, run_in_background, terminate_process
 from app.auth import get_current_admin, get_current_user
 from app.dvr.builtin import watch
-from app.dvr.builtin.capture import capture_pipeline
+from app.dvr.builtin.capture import ActiveCapture, capture_pipeline
 from app.dvr.builtin.tail_follow import pump_tail_follow
 from app.integrations import hdhomerun_client
 from app.storage import db
@@ -229,6 +229,46 @@ async def _probe_after_failure(settings: dict[str, Any]) -> dict[str, Any] | Non
         return None
 
 
+async def _attach_or_start_fallback_capture(
+    channel_number: str, settings: dict[str, Any]
+) -> tuple[ActiveCapture | None, str | None, str]:
+    """Attach to (or start) a shared `capture_pipeline` capture for
+    channel_number instead of always asking the tuner hardware for a brand
+    new connection - this is what lets a second viewer on a channel that's
+    already being captured (by another viewer, a scheduled recording, or
+    this same fallback) share the one real tuner connection instead of
+    failing with "all tuners busy" when the device has no free tuner left to
+    hand out. Mirrors the HLS fallback's own attach-then-verify dance (see
+    stream_channel_hls) so both entry points behave identically; shared here
+    so they can't drift apart.
+
+    Returns (active_capture, recording_id, viewer_token). active_capture is
+    None if no capture could be attached/started or it never produced data -
+    callers should fall back to a raw/unmanaged tuner connection in that
+    case. viewer_token is always returned (even on failure) for logging; it
+    only needs releasing when recording_id is not None.
+    """
+    viewer_token = uuid.uuid4().hex
+    recording_id = await watch.start_fallback_capture(channel_number, settings, viewer_token)
+    active_capture = await capture_pipeline.get_active_capture(recording_id) if recording_id else None
+
+    if (
+        active_capture is not None
+        and recording_id is not None
+        and not await _wait_for_live_capture_data(active_capture, recording_id)
+    ):
+        logger.error(
+            "Channel %s: fallback capture produced no data within %ss (tuner likely still locking)",
+            channel_number,
+            _LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
+        )
+        await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
+        active_capture = None
+        recording_id = None
+
+    return active_capture, recording_id, viewer_token
+
+
 @router.get("/stream/{channel_number}")
 async def stream_channel(
     channel_number: str,
@@ -256,9 +296,28 @@ async def stream_channel(
     if direct and audio_index is None:
         return await _proxy_raw_stream(raw_url, channel_number, request)
 
+    # Attach to (or start) a shared capture_pipeline capture for this channel
+    # instead of always asking the tuner hardware for a brand new connection
+    # - see _attach_or_start_fallback_capture's docstring. Only when even
+    # that fails do we fall through to the raw per-request tuner grab below,
+    # same as this endpoint has always done.
+    active_capture, recording_id, viewer_token = await _attach_or_start_fallback_capture(channel_number, settings)
+    input_url = "pipe:0" if active_capture is not None else raw_url
+    # An attached capture may belong to another viewer/recording started via
+    # the tuner's own hardware transcoder (ActiveCapture.capture_quality set)
+    # - that source is already encoded, so remux it as-is instead of
+    # re-encoding again, and audio_index is meaningless against its single
+    # already-normalized track (see dvr_streaming.stream_recording).
+    remux = bool(active_capture is not None and active_capture.capture_quality)
+    effective_audio_index = None if remux else audio_index
+
     try:
-        ffmpeg_args = transcoding.build_ffmpeg_args(settings, raw_url, audio_index=audio_index, quality=quality)
+        ffmpeg_args = transcoding.build_ffmpeg_args(
+            settings, input_url, audio_index=effective_audio_index, quality=quality, remux=remux
+        )
     except transcoding.InvalidCustomFfmpegArgsError as exc:
+        if recording_id is not None:
+            await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     preset_id = settings.get("hwaccel", transcoding.DEFAULT_PRESET)
@@ -270,26 +329,60 @@ async def stream_channel(
         process = await asyncio.create_subprocess_exec(
             "ffmpeg",
             *ffmpeg_args,
+            stdin=asyncio.subprocess.PIPE if active_capture is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as exc:
+        if recording_id is not None:
+            await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
         record_stream_failure(cache_key, 503, FFMPEG_NOT_FOUND_DETAIL)
         raise HTTPException(status_code=503, detail=FFMPEG_NOT_FOUND_DETAIL) from exc
     assert process.stdout is not None
     assert process.stderr is not None
 
     logger.info(
-        "Channel %s: starting transcode (preset=%s, device=%s): %s",
+        "Channel %s: starting transcode (preset=%s, device=%s, tail_follow=%s): %s",
         channel_number,
         preset_id,
         device,
+        active_capture is not None,
         command,
     )
 
     stderr_tail = bytearray()
     drain_done = asyncio.Event()
     run_in_background(drain_stderr_tail(process.stderr, stderr_tail, drain_done, tail_bytes=STDERR_TAIL_BYTES))
+
+    # Fan this capture's shared writer out to this viewer's own downstream
+    # ffmpeg via pipe:0, same pattern as dvr_streaming.stream_recording and
+    # stream_channel_hls - only this request's own process is ever torn down
+    # below; the shared writer is independently owned by capture_pipeline and
+    # only released when this was its last attached viewer (see
+    # watch.release_fallback_capture / _release_viewer).
+    pump_stop_event = asyncio.Event()
+    pump_task: asyncio.Task[None] | None = None
+    if active_capture is not None:
+        assert process.stdin is not None
+        pump_task = asyncio.create_task(
+            pump_tail_follow(
+                active_capture.file_path,
+                process.stdin,
+                pump_stop_event,
+                lambda: capture_pipeline.is_capture_active(recording_id),
+            )
+        )
+
+    async def release_capture() -> None:
+        pump_stop_event.set()
+        if pump_task is not None:
+            with contextlib.suppress(Exception):
+                await pump_task
+        if process.stdin is not None:
+            with contextlib.suppress(Exception):
+                process.stdin.close()
+        if recording_id is not None:
+            await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
 
     # A StreamingResponse commits its 200 status as soon as it starts, so any
     # ffmpeg failure (busy tuner, unreachable channel, bad input) has to
@@ -311,6 +404,7 @@ async def stream_channel(
             flush_timeout=STDERR_FLUSH_TIMEOUT_SECONDS,
         )
         run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
+        run_in_background(release_capture())
         logger.error(
             "Channel %s: %s (preset=%s, device=%s)\ncommand: %s\nffmpeg output:\n%s",
             channel_number,
@@ -375,6 +469,7 @@ async def stream_channel(
             # directly here would be cancelled too, before ffmpeg is
             # actually reaped and the tuner released.
             run_in_background(terminate_process(process, timeout=_FFMPEG_TERMINATE_TIMEOUT_SECONDS))
+            run_in_background(release_capture())
 
     return StreamingResponse(body(), media_type="video/mp2t")
 
@@ -411,34 +506,26 @@ async def stream_channel_hls(
     if not hdhomerun_client.is_tuner_configured(settings):
         raise HTTPException(status_code=404, detail="Tuner not configured")
 
-    viewer_token = uuid.uuid4().hex
-    recording_id = await watch.start_fallback_capture(channel_number, settings, viewer_token)
-    active_capture = await capture_pipeline.get_active_capture(recording_id) if recording_id else None
-
-    if (
-        active_capture is not None
-        and recording_id is not None
-        and not await _wait_for_live_capture_data(active_capture, recording_id)
-    ):
-        logger.error(
-            "Channel %s: fallback capture produced no data within %ss (tuner likely still locking)",
-            channel_number,
-            _LIVE_CAPTURE_READY_TIMEOUT_SECONDS,
-        )
-        await watch.release_fallback_capture(recording_id, channel_number, viewer_token)
-        active_capture = None
-        recording_id = None
+    active_capture, recording_id, viewer_token = await _attach_or_start_fallback_capture(channel_number, settings)
 
     raw_url = hdhomerun_client.raw_stream_url(settings, channel_number)
     input_url = "pipe:0" if active_capture is not None else raw_url
+    # An attached capture may belong to another viewer/recording that was
+    # started via the tuner's own hardware transcoder (ActiveCapture.capture_quality
+    # set) - that source is already encoded, so remux it as-is instead of
+    # re-encoding again, and audio_index is meaningless against its single
+    # already-normalized track (see dvr_streaming.stream_recording).
+    remux = bool(active_capture is not None and active_capture.capture_quality)
+    effective_audio_index = None if remux else audio_index
     session_id, tmp_dir = hls_streaming.allocate_session_dir()
     cast_token = hls_streaming.new_cast_token() if for_cast else None
     try:
         ffmpeg_args = transcoding.build_ffmpeg_args(
             settings,
             input_url,
-            audio_index=audio_index,
+            audio_index=effective_audio_index,
             quality=quality,
+            remux=remux,
             output_format="hls",
             hls_playlist_path=hls_streaming.playlist_path(tmp_dir),
             hls_segment_pattern=hls_streaming.segment_pattern(tmp_dir),
