@@ -20,7 +20,15 @@ def _seed_channel(number: str = "5.1", name: str = "WABC") -> str:
 
 
 def _seed_program(
-    channel_id: str, *, title: str, start_ts: float, end_ts: float, synopsis: str | None = None, provider: str = "xmltv"
+    channel_id: str,
+    *,
+    title: str,
+    start_ts: float,
+    end_ts: float,
+    synopsis: str | None = None,
+    category: str | None = None,
+    episode_title: str | None = None,
+    provider: str = "xmltv",
 ) -> None:
     db.upsert_guide_programs(
         [
@@ -29,7 +37,7 @@ def _seed_program(
                 "source_provider": provider,
                 "external_program_id": None,
                 "title": title,
-                "episode_title": None,
+                "episode_title": episode_title,
                 "season_number": None,
                 "episode_number": None,
                 "synopsis": synopsis,
@@ -38,7 +46,7 @@ def _seed_program(
                 "original_air_date": None,
                 "image_url": None,
                 "is_new": 0,
-                "category": None,
+                "category": category,
                 "audio": None,
                 "has_subtitles": 1,
             }
@@ -115,6 +123,94 @@ async def test_search_guide_single_word_query_unaffected_by_fallback(tmp_db):
 
     assert result["total_matches"] == 1
     assert result["results"][0]["title"] == "The Office"
+
+
+@pytest.mark.asyncio
+async def test_search_guide_requires_query_or_category_type(tmp_db):
+    _seed_channel()
+    result = await ai_guide.search_guide()
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_search_guide_rejects_invalid_category_type(tmp_db):
+    _seed_channel()
+    result = await ai_guide.search_guide(category_type="news")
+    assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_search_guide_filters_by_category_type_without_query(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    _seed_program(channel_id, title="The Matrix", category="Movie", start_ts=now + 3600, end_ts=now + 7200)
+    _seed_program(channel_id, title="The Office", start_ts=now + 7200, end_ts=now + 9000)
+
+    result = await ai_guide.search_guide(category_type="movies")
+
+    assert result["total_matches"] == 1
+    assert result["results"][0]["title"] == "The Matrix"
+
+
+@pytest.mark.asyncio
+async def test_search_guide_filters_by_category_type_sports(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    _seed_program(channel_id, title="Sunday Night Football", start_ts=now + 3600, end_ts=now + 7200)
+    _seed_program(channel_id, title="The Office", start_ts=now + 7200, end_ts=now + 9000)
+
+    result = await ai_guide.search_guide(category_type="sports")
+
+    assert result["total_matches"] == 1
+    assert result["results"][0]["title"] == "Sunday Night Football"
+
+
+@pytest.mark.asyncio
+async def test_search_guide_combines_query_and_category_type(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    _seed_program(channel_id, title="Sunday Night Football", start_ts=now + 3600, end_ts=now + 7200)
+    _seed_program(channel_id, title="Monday Night Baseball", start_ts=now + 7200, end_ts=now + 9000)
+    _seed_program(channel_id, title="Sunday Brunch Show", start_ts=now + 9000, end_ts=now + 10800)
+
+    result = await ai_guide.search_guide(query="sunday", category_type="sports")
+
+    assert result["total_matches"] == 1
+    assert result["results"][0]["title"] == "Sunday Night Football"
+
+
+@pytest.mark.asyncio
+async def test_search_guide_paginates_with_offset_and_has_more(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    for i in range(5):
+        _seed_program(channel_id, title=f"Game {i}", category="Sports", start_ts=now + i * 3600, end_ts=now + (i + 1) * 3600)
+
+    first = await ai_guide.search_guide(category_type="sports", limit=2, offset=0)
+    assert len(first["results"]) == 2
+    assert first["has_more"] is True
+    assert first["offset"] == 0
+    assert first["limit"] == 2
+
+    second = await ai_guide.search_guide(category_type="sports", limit=2, offset=2)
+    assert len(second["results"]) == 2
+    assert second["has_more"] is True
+
+    third = await ai_guide.search_guide(category_type="sports", limit=2, offset=4)
+    assert len(third["results"]) == 1
+    assert third["has_more"] is False
+
+
+@pytest.mark.asyncio
+async def test_search_guide_limit_is_capped_at_schema_maximum(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    for i in range(60):
+        _seed_program(channel_id, title=f"Show {i}", start_ts=now + i * 60, end_ts=now + (i + 1) * 60)
+
+    result = await ai_guide.search_guide(query="show", limit=500)
+
+    assert len(result["results"]) == 50
 
 
 @pytest.mark.asyncio
@@ -196,13 +292,23 @@ async def test_dispatch_blocks_disabled_recording_tool(tmp_db):
 # --- recording tools: list/search --------------------------------------------
 
 
-def _seed_recording(title: str, *, start_ts: float, synopsis: str | None = None, channel_id: str) -> str:
+def _seed_recording(
+    title: str,
+    *,
+    start_ts: float,
+    synopsis: str | None = None,
+    category: str | None = None,
+    episode_title: str | None = None,
+    channel_id: str,
+) -> str:
     recording_id = uuid.uuid4().hex
     db.create_recording(
         {
             "id": recording_id,
             "title": title,
             "synopsis": synopsis,
+            "category": category,
+            "episode_title": episode_title,
             "channel_id": channel_id,
             "channel_name_snapshot": "WABC",
             "start_ts": start_ts,
@@ -225,6 +331,7 @@ async def test_list_recordings_tool_caps_results(tmp_db):
 
     assert result.kind == "result"
     assert len(result.result["recordings"]) == 50
+    assert result.result["has_more"] is True
 
 
 @pytest.mark.asyncio
@@ -258,6 +365,72 @@ async def test_search_recordings_tool_blocked_when_disabled(tmp_db):
     result = await registry.dispatch("search_recordings", {"query": "jeopardy"}, ai_settings=DISABLED)
 
     assert result.kind == "error"
+
+
+@pytest.mark.asyncio
+async def test_search_recordings_requires_query_or_category_type(tmp_db):
+    result = await registry.dispatch("search_recordings", {}, ai_settings=ENABLED)
+
+    assert result.kind == "result"
+    assert "error" in result.result
+
+
+@pytest.mark.asyncio
+async def test_search_recordings_rejects_invalid_category_type(tmp_db):
+    result = await registry.dispatch("search_recordings", {"category_type": "news"}, ai_settings=ENABLED)
+
+    assert result.kind == "result"
+    assert "error" in result.result
+
+
+@pytest.mark.asyncio
+async def test_list_recordings_filters_by_category_type(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    _seed_recording("Sunday Night Football", start_ts=now - 3600, channel_id=channel_id)
+    _seed_recording("Jeopardy!", start_ts=now - 7200, channel_id=channel_id)
+
+    result = await registry.dispatch("list_recordings", {"category_type": "sports"}, ai_settings=ENABLED)
+
+    assert result.kind == "result"
+    assert [r["title"] for r in result.result["recordings"]] == ["Sunday Night Football"]
+    assert result.result["total_matches"] == 1
+    assert result.result["has_more"] is False
+
+
+@pytest.mark.asyncio
+async def test_search_recordings_filters_by_category_type(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    _seed_recording("Sunday Night Football", start_ts=now - 3600, channel_id=channel_id)
+    _seed_recording("Sunday Brunch Show", start_ts=now - 7200, channel_id=channel_id)
+
+    result = await registry.dispatch(
+        "search_recordings", {"query": "sunday", "category_type": "sports"}, ai_settings=ENABLED
+    )
+
+    assert result.kind == "result"
+    assert [r["title"] for r in result.result["results"]] == ["Sunday Night Football"]
+
+
+@pytest.mark.asyncio
+async def test_list_recordings_paginates_with_offset_and_has_more(tmp_db):
+    channel_id = _seed_channel()
+    now = time.time()
+    for i in range(5):
+        _seed_recording(f"Show {i}", start_ts=now - i * 60, channel_id=channel_id)
+
+    first = await registry.dispatch("list_recordings", {"limit": 2, "offset": 0}, ai_settings=ENABLED)
+    assert len(first.result["recordings"]) == 2
+    assert first.result["has_more"] is True
+
+    second = await registry.dispatch("list_recordings", {"limit": 2, "offset": 2}, ai_settings=ENABLED)
+    assert len(second.result["recordings"]) == 2
+    assert second.result["has_more"] is True
+
+    third = await registry.dispatch("list_recordings", {"limit": 2, "offset": 4}, ai_settings=ENABLED)
+    assert len(third.result["recordings"]) == 1
+    assert third.result["has_more"] is False
 
 
 # --- recording tools: preview never mutates -------------------------------------

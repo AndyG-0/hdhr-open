@@ -204,10 +204,13 @@ async def list_recordings(
             logger.debug("Could not fetch official DVR recordings", exc_info=True)
 
     results.sort(key=lambda r: r.get("start") or 0, reverse=True)
-    if limit is not None:
+    if limit is not None and official_dvr_configured:
         # Sliced in Python, post-merge: the official-DVR fetch above is
         # always unbounded with no pagination API of its own, so a page
-        # boundary can only be applied after both sources are merged.
+        # boundary can only be applied after both sources are merged. When
+        # there's no official DVR, the builtin fetch above already applied
+        # offset/limit at the SQL level — slicing again here would apply
+        # offset twice.
         results = results[offset : offset + limit]
 
     cache.set(cache_key, results, ttl_seconds=_RECORDINGS_CACHE_TTL_SECONDS)

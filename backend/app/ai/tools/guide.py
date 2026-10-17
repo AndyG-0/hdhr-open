@@ -20,6 +20,7 @@ from typing import Any
 from app.ai.tools.registry import ToolDefinition, register
 from app.api.guide import row_to_airing
 from app.config import resolve_guide_provider_priority
+from app.dvr.builtin.poster_lookup import CATEGORY_TYPES
 from app.dvr.builtin.tuner_allocator import tuner_allocator
 from app.storage import db
 
@@ -27,6 +28,7 @@ _SEARCH_WINDOW_PAST_SECONDS = 3600
 _SEARCH_WINDOW_FUTURE_SECONDS = 14 * 86400
 _NOW_PLAYING_WINDOW_FUTURE_SECONDS = 3 * 3600
 _DEFAULT_SEARCH_LIMIT = 20
+_MAX_SEARCH_LIMIT = 50
 
 # Splits a compound/paraphrased query like "Alabama vs Georgia and Ohio
 # State at Michigan" into meaningful chunks ("alabama", "georgia", "ohio
@@ -62,35 +64,63 @@ async def _channels_and_resolved_airings(
     return channels, resolved
 
 
-async def search_guide(query: str, limit: int = _DEFAULT_SEARCH_LIMIT) -> dict[str, Any]:
+async def search_guide(
+    query: str | None = None,
+    category_type: str | None = None,
+    limit: int = _DEFAULT_SEARCH_LIMIT,
+    offset: int = 0,
+) -> dict[str, Any]:
     """Search upcoming (and just-aired) guide listings by title/synopsis
-    substring match, case-insensitive. Falls back to matching individual
-    tokens of a compound query (e.g. several team names combined into one
-    string) when the whole query isn't a substring of anything — see
-    `_query_tokens`."""
+    substring match, a category_type filter ('shows'/'movies'/'sports'), or
+    both — at least one of query/category_type is required. Falls back to
+    matching individual tokens of a compound query (e.g. several team names
+    combined into one string) when the whole query isn't a substring of
+    anything — see `_query_tokens`. Paginated via offset/limit; see
+    `has_more` in the result."""
+    if not query and not category_type:
+        return {"error": "Provide a query, a category_type filter ('shows', 'movies', or 'sports'), or both."}
+    if category_type is not None and category_type not in CATEGORY_TYPES:
+        return {"error": f"category_type must be one of {CATEGORY_TYPES} (got {category_type!r})"}
+
+    capped_limit = max(1, min(limit, _MAX_SEARCH_LIMIT))
+    offset = max(0, offset)
+
     now = time.time()
     channels, resolved = await _channels_and_resolved_airings(
         now - _SEARCH_WINDOW_PAST_SECONDS, now + _SEARCH_WINDOW_FUTURE_SECONDS
     )
     channels_by_id = {c["id"]: c for c in channels}
-    query_lower = query.strip().lower()
-    tokens = _query_tokens(query_lower)
+    query_lower = (query or "").strip().lower()
+    tokens = _query_tokens(query_lower) if query_lower else []
 
     matches: list[dict[str, Any]] = []
     for channel_id, rows in resolved.items():
         channel = channels_by_id[channel_id]
         for row in rows:
-            title = (row.get("title") or "").lower()
-            synopsis = (row.get("synopsis") or "").lower()
-            haystack = f"{title} {synopsis}"
-            hit = query_lower in haystack
-            if not hit and len(tokens) > 1:
-                hit = any(token in haystack for token in tokens if len(token) >= _MIN_FALLBACK_TOKEN_LENGTH)
-            if hit:
-                matches.append(row_to_airing(row, channel["channel_number"]))
+            if query_lower:
+                title = (row.get("title") or "").lower()
+                synopsis = (row.get("synopsis") or "").lower()
+                haystack = f"{title} {synopsis}"
+                hit = query_lower in haystack
+                if not hit and len(tokens) > 1:
+                    hit = any(token in haystack for token in tokens if len(token) >= _MIN_FALLBACK_TOKEN_LENGTH)
+                if not hit:
+                    continue
+            airing = row_to_airing(row, channel["channel_number"])
+            if category_type and airing["category_type"] != category_type:
+                continue
+            matches.append(airing)
 
     matches.sort(key=lambda a: a["start"])
-    return {"results": matches[: max(1, limit)], "total_matches": len(matches)}
+    total_matches = len(matches)
+    page = matches[offset : offset + capped_limit]
+    return {
+        "results": page,
+        "total_matches": total_matches,
+        "offset": offset,
+        "limit": capped_limit,
+        "has_more": offset + len(page) < total_matches,
+    }
 
 
 async def get_now_playing(channel_number: str | None = None) -> dict[str, Any]:
@@ -162,14 +192,38 @@ async def get_channel_lineup() -> dict[str, Any]:
 register(
     ToolDefinition(
         name="search_guide",
-        description="Search TV guide listings (upcoming and recently-aired) by title or synopsis substring match.",
+        description=(
+            "Search TV guide listings (upcoming and recently-aired) by title/synopsis substring match, "
+            "a category_type filter ('shows', 'movies', or 'sports'), or both — provide at least one. "
+            "Results are paginated: when has_more is true, call again with offset advanced by the number "
+            "of results already returned (same query/category_type/limit) to see more."
+        ),
         parameters={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Text to search for in program titles/synopses."},
-                "limit": {"type": "integer", "description": "Max results to return.", "default": 20},
+                "query": {
+                    "type": "string",
+                    "description": "Text to search for in program titles/synopses. Omit to browse purely by category_type.",
+                },
+                "category_type": {
+                    "type": "string",
+                    "enum": ["shows", "movies", "sports"],
+                    "description": "Restrict results to one category — the same vocabulary used throughout the app.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return in this page.",
+                    "minimum": 1,
+                    "maximum": _MAX_SEARCH_LIMIT,
+                    "default": _DEFAULT_SEARCH_LIMIT,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Number of matching results to skip, for paging past a prior page.",
+                    "minimum": 0,
+                    "default": 0,
+                },
             },
-            "required": ["query"],
         },
         handler=search_guide,
     )

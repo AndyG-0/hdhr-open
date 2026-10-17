@@ -76,7 +76,21 @@ _BASELINE_SYSTEM_PROMPT = (
     "if the user is clearly asking about something new. If you genuinely "
     "don't have enough information to proceed (e.g. the earlier results are "
     "no longer in view, or the reference is ambiguous), ask a clarifying "
-    "question instead of saying you were unable to help."
+    "question instead of saying you were unable to help.\n\n"
+    "search_guide, search_recordings, and list_recordings accept a "
+    "category_type filter ('shows', 'movies', or 'sports') — the same three "
+    "buckets this product uses everywhere else. When a request is naturally "
+    "one of those categories ('what movies are on tonight', 'any live sports "
+    "on', 'my recorded sitcoms'), pass category_type instead of guessing a "
+    "title keyword; it's exact where keyword matching is a guess, and you "
+    "can combine it with a text query to narrow further. These tools are "
+    "also paginated: a result's has_more field tells you whether there are "
+    "more matches than were returned. If has_more is true, either tell the "
+    "user there are more and offer to show them, or call the same tool again "
+    "with offset increased by the number of results you already got (keeping "
+    "the same query/category_type/limit) to fetch the next page. Never tell "
+    "the user you can't see any more than what was returned if has_more is "
+    "true — page through it instead of guessing or giving up."
 )
 
 

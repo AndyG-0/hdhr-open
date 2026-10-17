@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.api._hdhomerun_settings import get_hdhomerun_settings
 from app.auth import get_current_admin, get_current_user
 from app.config import resolve_guide_provider_priority
+from app.dvr.builtin.poster_lookup import classify_category
 from app.guide import schedules_direct as schedules_direct_guide
 from app.guide import service, xmltv
 from app.guide.service import QUERY_WINDOW_SECONDS
@@ -71,6 +72,9 @@ def row_to_airing(row: dict[str, Any], channel_number: str) -> dict[str, Any]:
         "image_url": row["image_url"],
         "channel_number": channel_number,
         "category": row.get("category"),
+        "category_type": classify_category(
+            title=row.get("title") or "", episode_title=row.get("episode_title"), category=row.get("category")
+        ),
         "is_new": bool(row.get("is_new", 0)),
         "audio": row.get("audio"),
         "has_cc": bool(row.get("has_subtitles", 1)) if row.get("has_subtitles") is not None else True,

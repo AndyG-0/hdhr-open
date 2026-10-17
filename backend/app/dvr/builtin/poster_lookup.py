@@ -29,6 +29,7 @@ _BACKFILL_CONCURRENCY = 5
 _MISS_TTL = timedelta(days=30)
 
 CategoryType = Literal["shows", "movies", "sports"]
+CATEGORY_TYPES: tuple[str, ...] = ("shows", "movies", "sports")
 
 SPORTS_KEYWORDS = [
     "sport",
