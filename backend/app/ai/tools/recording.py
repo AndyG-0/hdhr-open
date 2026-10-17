@@ -22,6 +22,7 @@ from app.ai.tools.guide import get_hdhomerun_settings_or_empty
 from app.ai.tools.registry import ToolDefinition, register
 from app.api import dvr as dvr_api
 from app.api import dvr_rules
+from app.dvr.builtin.poster_lookup import CATEGORY_TYPES
 from app.dvr.builtin.tuner_allocator import tuner_allocator
 from app.storage import db
 
@@ -40,15 +41,65 @@ _LIST_RECORDINGS_LIMIT = 50
 _SEARCH_RECORDINGS_LIMIT = 50
 
 
-async def list_recordings() -> dict[str, Any]:
-    recordings = await dvr_api.list_recordings(search=None, limit=_LIST_RECORDINGS_LIMIT, offset=0)
-    return {"recordings": recordings}
+def _validate_category_type(category_type: str | None) -> dict[str, Any] | None:
+    if category_type is not None and category_type not in CATEGORY_TYPES:
+        return {"error": f"category_type must be one of {CATEGORY_TYPES} (got {category_type!r})"}
+    return None
 
 
-async def search_recordings(query: str, limit: int = 20) -> dict[str, Any]:
-    capped_limit = min(limit, _SEARCH_RECORDINGS_LIMIT)
-    recordings = await dvr_api.list_recordings(search=query, limit=capped_limit, offset=0)
-    return {"results": recordings}
+async def _paginated_recordings(
+    *, query: str | None, category_type: str | None, limit: int, offset: int
+) -> dict[str, Any]:
+    """Shared paging logic for list_recordings/search_recordings. When
+    category_type is given the full search-matched set must be fetched and
+    filtered in Python (category_type isn't a SQL column), so total_matches
+    is exact in that case; otherwise paging stays cheap at the SQL level via
+    a limit+1 probe, and total_matches is omitted (has_more is still exact)."""
+    offset = max(0, offset)
+    if category_type:
+        all_matches = await dvr_api.list_recordings(search=query, limit=None, offset=0)
+        filtered = [r for r in all_matches if r.get("category_type") == category_type]
+        total_matches = len(filtered)
+        page = filtered[offset : offset + limit]
+        return {
+            "page": page,
+            "total_matches": total_matches,
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + len(page) < total_matches,
+        }
+
+    probe = await dvr_api.list_recordings(search=query, limit=limit + 1, offset=offset)
+    return {
+        "page": probe[:limit],
+        "offset": offset,
+        "limit": limit,
+        "has_more": len(probe) > limit,
+    }
+
+
+async def list_recordings(
+    category_type: str | None = None, limit: int = _LIST_RECORDINGS_LIMIT, offset: int = 0
+) -> dict[str, Any]:
+    error = _validate_category_type(category_type)
+    if error is not None:
+        return error
+    capped_limit = max(1, min(limit, _LIST_RECORDINGS_LIMIT))
+    result = await _paginated_recordings(query=None, category_type=category_type, limit=capped_limit, offset=offset)
+    return {"recordings": result.pop("page"), **result}
+
+
+async def search_recordings(
+    query: str | None = None, category_type: str | None = None, limit: int = 20, offset: int = 0
+) -> dict[str, Any]:
+    if not query and not category_type:
+        return {"error": "Provide a query, a category_type filter ('shows', 'movies', or 'sports'), or both."}
+    error = _validate_category_type(category_type)
+    if error is not None:
+        return error
+    capped_limit = max(1, min(limit, _SEARCH_RECORDINGS_LIMIT))
+    result = await _paginated_recordings(query=query, category_type=category_type, limit=capped_limit, offset=offset)
+    return {"results": result.pop("page"), **result}
 
 
 async def check_recording_conflicts(channel_number: str) -> dict[str, Any]:
@@ -196,10 +247,27 @@ register(
     ToolDefinition(
         name="list_recordings",
         description=(
-            f"List completed/in-progress recordings in the DVR library, capped at {_LIST_RECORDINGS_LIMIT} "
-            "most recent. Use search_recordings instead to find something specific by title/synopsis/category."
+            "Browse completed/in-progress recordings in the DVR library, most recent first, optionally "
+            "filtered by category_type ('shows', 'movies', 'sports'). Paginated via offset/limit — see "
+            "has_more. Use search_recordings instead to find something specific by title/synopsis text."
         ),
-        parameters={"type": "object", "properties": {}},
+        parameters={
+            "type": "object",
+            "properties": {
+                "category_type": {
+                    "type": "string",
+                    "enum": ["shows", "movies", "sports"],
+                    "description": "Restrict results to one category — the same vocabulary used throughout the app.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": _LIST_RECORDINGS_LIMIT,
+                    "default": _LIST_RECORDINGS_LIMIT,
+                },
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+            },
+        },
         handler=list_recordings,
         requires_permission=_PERMISSION,
     )
@@ -209,16 +277,27 @@ register(
     ToolDefinition(
         name="search_recordings",
         description=(
-            "Search recordings in the DVR library by a text query matched against title, episode title, "
-            f"synopsis, category, and channel name. Capped at {_SEARCH_RECORDINGS_LIMIT} results."
+            "Search recordings in the DVR library by text matched against title, episode title, synopsis, "
+            "category, and channel name, and/or a category_type filter ('shows', 'movies', 'sports') — "
+            "provide at least one. Paginated via offset/limit — see has_more. total_matches is only exact "
+            "when category_type is given; otherwise rely on has_more rather than total_matches."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search text to match against the recording library."},
+                "query": {
+                    "type": "string",
+                    "description": "Search text to match against the recording library. Omit to browse purely "
+                    "by category_type.",
+                },
+                "category_type": {
+                    "type": "string",
+                    "enum": ["shows", "movies", "sports"],
+                    "description": "Restrict results to one category — the same vocabulary used throughout the app.",
+                },
                 "limit": {"type": "integer", "minimum": 1, "maximum": _SEARCH_RECORDINGS_LIMIT, "default": 20},
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
             },
-            "required": ["query"],
         },
         handler=search_recordings,
         requires_permission=_PERMISSION,

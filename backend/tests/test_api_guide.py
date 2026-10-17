@@ -85,6 +85,40 @@ def test_get_guide_returns_persisted_programs(client, tmp_db):
     assert body[0]["airings"][0]["is_new"] is False
 
 
+def test_get_guide_classifies_category_type(client, tmp_db):
+    channel_id = uuid.uuid4().hex
+    db.upsert_channel(channel_id, "4.1", "WNBC", True)
+    now = time.time()
+    db.upsert_guide_programs(
+        [
+            {
+                "channel_id": channel_id,
+                "source_provider": "hdhomerun_cloud",
+                "external_program_id": "MOV123",
+                "title": "Some Movie",
+                "episode_title": None,
+                "season_number": None,
+                "episode_number": None,
+                "synopsis": "A movie happens.",
+                "start_ts": now,
+                "end_ts": now + 7200,
+                "original_air_date": "2020-01-01",
+                "image_url": "http://example.com/image.jpg",
+                "is_new": 0,
+                "category": "Movie",
+                "audio": "stereo",
+                "has_subtitles": 1,
+            }
+        ]
+    )
+
+    response = client.get("/api/guide")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["airings"][0]["category_type"] == "movies"
+
+
 def test_get_channels_requires_tuner_configured(client, tmp_db):
     response = client.get("/api/guide/channels")
     assert response.status_code == 404
