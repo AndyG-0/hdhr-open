@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,6 +40,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app import jobs
 from app.config import (
+    resolve_dvr_server_priority,
     resolve_sports_autorecord_enabled,
     resolve_sports_autorecord_postseason_enabled,
     resolve_sports_autorecord_top25_enabled,
@@ -133,6 +135,7 @@ async def sync_sports_autorecord() -> None:
             channels_by_affiliate_token.setdefault(token, []).append(channel["id"])
     tracked_by_event_id = {row["espn_event_id"]: row for row in await asyncio.to_thread(db.list_tracked_events)}
     postseason_widened = resolve_sports_autorecord_postseason_enabled()
+    priority = resolve_dvr_server_priority()
 
     now = time.time()
     seen_event_ids: set[str] = set()
@@ -159,7 +162,12 @@ async def sync_sports_autorecord() -> None:
 
             seen_event_ids.add(game["event_id"])
             await _sync_one_event(
-                fav, game, network_map_by_name, channels_by_affiliate_token, tracked_by_event_id.get(game["event_id"])
+                fav,
+                game,
+                network_map_by_name,
+                channels_by_affiliate_token,
+                tracked_by_event_id.get(game["event_id"]),
+                priority,
             )
 
     # Drop tracking rows for events that fell out of every favorite's
@@ -180,6 +188,7 @@ async def _sync_one_event(
     network_map_by_name: dict[str, str],
     channels_by_affiliate_token: dict[str, list[str]],
     existing: dict[str, Any] | None,
+    priority: Sequence[str],
 ) -> None:
     network = game["broadcast_network"]
     channel_id = network_map_by_name.get(network) if network else None
@@ -244,6 +253,11 @@ async def _sync_one_event(
     channel_number = channel_row["channel_number"]  # critical: pass the NUMBER, not the UUID - see module docstring
 
     near_air = game["start_time"] - time.time() <= _TITLE_RESOLUTION_CUTOFF_SECONDS
+    # Sports auto-record always creates on the Built-in engine (see module
+    # docstring) regardless of `priority`, so this is only a genuine
+    # "fallback" - worth badging in the UI - when the user has actually
+    # configured a different engine (hdhomerun) as their preferred default.
+    fallback_reason = None if priority and priority[0] == "builtin" else "sports_autorecord"
     rule = await create_builtin_recording_rule(
         series_id=None,
         date_time=int(game["start_time"]),
@@ -255,7 +269,7 @@ async def _sync_one_event(
         title=game["matchup_title"] if near_air else None,
         title_match_mode="contains" if near_air else None,
         keyword_query=None,
-        fallback_reason="sports_autorecord",
+        fallback_reason=fallback_reason,
     )
     title_resolved = rule["title"] != f"Channel {channel_number}"
     await asyncio.to_thread(
