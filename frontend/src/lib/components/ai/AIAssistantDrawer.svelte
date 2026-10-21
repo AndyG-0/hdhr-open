@@ -19,7 +19,7 @@
 		role: 'user' | 'assistant';
 		text: string;
 		toolStatuses: ToolStatusEntry[];
-		actionPreview: ActionPreviewEntry | null;
+		actionPreviews: ActionPreviewEntry[];
 		toolCalls: ToolCallRecord[];
 	}
 
@@ -90,8 +90,8 @@
 		const transcript = toWireMessages(messages);
 		transcript.push({ role: 'user', content });
 
-		messages.push({ role: 'user', text: content, toolStatuses: [], actionPreview: null, toolCalls: [] });
-		messages.push({ role: 'assistant', text: '', toolStatuses: [], actionPreview: null, toolCalls: [] });
+		messages.push({ role: 'user', text: content, toolStatuses: [], actionPreviews: [], toolCalls: [] });
+		messages.push({ role: 'assistant', text: '', toolStatuses: [], actionPreviews: [], toolCalls: [] });
 		// Index, not a reference to the pushed object — $state deeply proxies
 		// array contents on push, so the pre-push object reference wouldn't be
 		// the reactive one the template reads from.
@@ -128,7 +128,7 @@
 					}
 				},
 				onActionPreview: (actionId, tool, preview) => {
-					messages[assistantIndex].actionPreview = { actionId, tool, preview, resolution: 'pending' };
+					messages[assistantIndex].actionPreviews.push({ actionId, tool, preview, resolution: 'pending' });
 				},
 				onError: (message) => {
 					errorText = message;
@@ -143,7 +143,8 @@
 
 	function findActionPreview(actionId: string): ActionPreviewEntry | undefined {
 		for (const turn of messages) {
-			if (turn.actionPreview?.actionId === actionId) return turn.actionPreview;
+			const match = turn.actionPreviews.find((p) => p.actionId === actionId);
+			if (match) return match;
 		}
 		return undefined;
 	}
@@ -202,7 +203,7 @@
 					role={turn.role}
 					text={turn.text}
 					toolStatuses={turn.toolStatuses}
-					actionPreview={turn.actionPreview}
+					actionPreviews={turn.actionPreviews}
 					onConfirm={confirmAction}
 					onCancel={cancelAction}
 				/>

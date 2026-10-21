@@ -191,6 +191,31 @@ describe('AIAssistantDrawer', () => {
 		expect(confirmAIAction).not.toHaveBeenCalled();
 	});
 
+	it('renders two action-preview cards in one reply and resolves them independently', async () => {
+		scriptStream(
+			(cb) => cb.onActionPreview?.('action-1', 'schedule_recording', { title: 'The Office' }),
+			(cb) => cb.onActionPreview?.('action-2', 'schedule_recording', { title: 'Lakers vs Celtics' }),
+			(cb) => cb.onDone?.(),
+		);
+		render(AIAssistantDrawer);
+
+		await fireEvent.input(screen.getByPlaceholderText("Ask about what's on, or to schedule a recording…"), {
+			target: { value: 'record both' },
+		});
+		await fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+		const confirmButtons = await screen.findAllByRole('button', { name: 'Confirm' });
+		expect(confirmButtons).toHaveLength(2);
+
+		await fireEvent.click(confirmButtons[0]);
+		await waitFor(() => expect(confirmAIAction).toHaveBeenCalledWith('action-1'));
+		expect(confirmAIAction).not.toHaveBeenCalledWith('action-2');
+
+		// The other card is untouched — still pending with its own working buttons.
+		expect(screen.getAllByRole('button', { name: 'Confirm' })).toHaveLength(1);
+		expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+	});
+
 	it('shows a stream error inline', async () => {
 		scriptStream(
 			(cb) => cb.onError?.("The AI assistant isn't configured yet."),
