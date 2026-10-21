@@ -21,12 +21,12 @@
 		role: 'user' | 'assistant';
 		text: string;
 		toolStatuses?: ToolStatusEntry[];
-		actionPreview?: ActionPreviewEntry | null;
+		actionPreviews?: ActionPreviewEntry[];
 		onConfirm?: (actionId: string) => void;
 		onCancel?: (actionId: string) => void;
 	}
 
-	let { role, text, toolStatuses = [], actionPreview = null, onConfirm, onCancel }: Props = $props();
+	let { role, text, toolStatuses = [], actionPreviews = [], onConfirm, onCancel }: Props = $props();
 
 	// Model output is third-party API content, even though only a logged-in
 	// household member ever sees it — sanitize before {@html}, same as any
@@ -54,43 +54,43 @@
 			</div>
 		{/each}
 
-		{#if actionPreview}
+		{#each actionPreviews as preview (preview.actionId)}
 			<div class="action-card">
-				<div class="action-card-title">{actionPreview.tool}</div>
+				<div class="action-card-title">{preview.tool}</div>
 				<dl class="action-card-fields">
-					{#each Object.entries(actionPreview.preview) as [key, value] (key)}
+					{#each Object.entries(preview.preview) as [key, value] (key)}
 						{#if value !== null && value !== undefined && value !== ''}
 							<dt>{key}</dt>
 							<dd>{value}</dd>
 						{/if}
 					{/each}
 				</dl>
-				{#if actionPreview.resolution === 'pending' || actionPreview.resolution === 'confirming'}
+				{#if preview.resolution === 'pending' || preview.resolution === 'confirming'}
 					<div class="action-card-buttons">
 						<button
 							class="confirm"
-							disabled={actionPreview.resolution === 'confirming'}
-							onclick={() => onConfirm?.(actionPreview!.actionId)}
+							disabled={preview.resolution === 'confirming'}
+							onclick={() => onConfirm?.(preview.actionId)}
 						>
-							{actionPreview.resolution === 'confirming' ? $_('ai_assistant.confirming') : $_('ai_assistant.confirm')}
+							{preview.resolution === 'confirming' ? $_('ai_assistant.confirming') : $_('ai_assistant.confirm')}
 						</button>
 						<button
 							class="cancel"
-							disabled={actionPreview.resolution === 'confirming'}
-							onclick={() => onCancel?.(actionPreview!.actionId)}
+							disabled={preview.resolution === 'confirming'}
+							onclick={() => onCancel?.(preview.actionId)}
 						>
 							{$_('ai_assistant.cancel')}
 						</button>
 					</div>
-				{:else if actionPreview.resolution === 'confirmed'}
+				{:else if preview.resolution === 'confirmed'}
 					<p class="action-card-result ok">{$_('ai_assistant.action_confirmed')}</p>
-				{:else if actionPreview.resolution === 'cancelled'}
+				{:else if preview.resolution === 'cancelled'}
 					<p class="action-card-result">{$_('ai_assistant.action_cancelled')}</p>
-				{:else if actionPreview.resolution === 'failed'}
+				{:else if preview.resolution === 'failed'}
 					<p class="action-card-result error">{$_('ai_assistant.action_failed')}</p>
 				{/if}
 			</div>
-		{/if}
+		{/each}
 	{/if}
 </div>
 

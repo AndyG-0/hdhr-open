@@ -288,7 +288,7 @@ def test_chat_not_configured_yields_error_then_done(admin_client, tmp_db):
     assert events[-1] == {"type": "done"}
 
 
-def test_chat_action_preview_ends_loop_after_one_wrapup_reply(admin_client, tmp_db, monkeypatch):
+def test_chat_action_preview_lets_loop_continue_for_more_tool_calls(admin_client, tmp_db, monkeypatch):
     _save_ai_settings(enable_recording_tools=True)
 
     async def fake_preview(**kwargs):
@@ -313,22 +313,35 @@ def test_chat_action_preview_ends_loop_after_one_wrapup_reply(admin_client, tmp_
                 ),
                 StreamEvent(type="message_end"),
             ],
-            [StreamEvent(type="token", text="I've proposed that for you."), StreamEvent(type="message_end")],
+            # A second round, after a mutating preview, still gets full tool
+            # access — this is the regression this test guards against —
+            # and proposes a second, independent recording.
+            [
+                StreamEvent(
+                    type="tool_call",
+                    tool_call=ToolCallRequest(id="call_2", name="schedule_recording", arguments={"channel": "7.1"}),
+                ),
+                StreamEvent(type="message_end"),
+            ],
+            [StreamEvent(type="token", text="I've proposed both for you."), StreamEvent(type="message_end")],
         ]
     )
     monkeypatch.setattr(ai_api, "get_ai_client", lambda *a, **kw: fake)
 
-    response = admin_client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "record it"}]})
+    response = admin_client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "record both"}]})
 
     assert response.status_code == 200
     events = _parse_sse(response.text)
-    kinds = [e["type"] for e in events]
-    assert kinds == ["token", "tool_call", "tool_status", "action_preview", "tool_result", "token", "done"]
-    action_event = next(e for e in events if e["type"] == "action_preview")
-    assert action_event["tool"] == "schedule_recording"
-    assert action_event["preview"]["title"] == "Fake Show"
+    action_events = [e for e in events if e["type"] == "action_preview"]
+    assert len(action_events) == 2
+    assert action_events[0]["action_id"] != action_events[1]["action_id"]
+    assert all(e["tool"] == "schedule_recording" for e in action_events)
     assert executed["called"] is False
-    assert len(fake.calls) == 2  # the initial turn, plus the wrap-up reply
+    assert len(fake.calls) == 3
+    # Round 2's call must have gotten the full tool list, not `tools=[]` —
+    # the old behavior stripped tools after the first preview.
+    assert len(fake.calls[1]["tools"]) > 0
+    assert fake.calls[1]["tools"] == fake.calls[0]["tools"]
 
 
 def test_chat_accepts_legacy_plain_text_only_payload(admin_client, tmp_db, monkeypatch):
@@ -513,6 +526,77 @@ def test_chat_hard_caps_tool_iterations(admin_client, tmp_db, monkeypatch):
     assert response.status_code == 200
     events = _parse_sse(response.text)
     assert events[-1] == {"type": "done"}
+    assert len(fake.calls) == 6
+
+
+def test_chat_two_mutating_tool_calls_in_one_round_both_get_previewed(admin_client, tmp_db, monkeypatch):
+    _save_ai_settings(enable_recording_tools=True)
+
+    async def fake_preview(**kwargs):
+        return {"title": "Fake Show", "channel": kwargs.get("channel")}
+
+    async def fake_execute(**kwargs):
+        return {"status": "scheduled"}
+
+    monkeypatch.setattr(registry.TOOL_REGISTRY["schedule_recording"], "preview", fake_preview)
+    monkeypatch.setattr(registry.TOOL_REGISTRY["schedule_recording"], "execute", fake_execute)
+
+    fake = _ScriptedClient(
+        turns=[
+            [
+                StreamEvent(
+                    type="tool_call",
+                    tool_call=ToolCallRequest(id="call_1", name="schedule_recording", arguments={"channel": "5.1"}),
+                ),
+                StreamEvent(
+                    type="tool_call",
+                    tool_call=ToolCallRequest(id="call_2", name="schedule_recording", arguments={"channel": "7.1"}),
+                ),
+                StreamEvent(type="message_end"),
+            ],
+            [StreamEvent(type="token", text="Proposed both."), StreamEvent(type="message_end")],
+        ]
+    )
+    monkeypatch.setattr(ai_api, "get_ai_client", lambda *a, **kw: fake)
+
+    response = admin_client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "record both"}]})
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    action_events = [e for e in events if e["type"] == "action_preview"]
+    assert len(action_events) == 2
+    assert action_events[0]["action_id"] != action_events[1]["action_id"]
+    assert len(fake.calls) == 2
+
+
+def test_chat_keeps_proposing_up_to_iteration_cap(admin_client, tmp_db, monkeypatch):
+    _save_ai_settings(enable_recording_tools=True)
+
+    async def fake_preview(**kwargs):
+        return {"title": "Fake Show", "channel": kwargs.get("channel")}
+
+    async def fake_execute(**kwargs):
+        return {"status": "scheduled"}
+
+    monkeypatch.setattr(registry.TOOL_REGISTRY["schedule_recording"], "preview", fake_preview)
+    monkeypatch.setattr(registry.TOOL_REGISTRY["schedule_recording"], "execute", fake_execute)
+
+    turn = [
+        StreamEvent(
+            type="tool_call",
+            tool_call=ToolCallRequest(id="call_x", name="schedule_recording", arguments={"channel": "5.1"}),
+        ),
+        StreamEvent(type="message_end"),
+    ]
+    fake = _ScriptedClient(turns=[list(turn) for _ in range(6)])
+    monkeypatch.setattr(ai_api, "get_ai_client", lambda *a, **kw: fake)
+
+    response = admin_client.post("/api/ai/chat", json={"messages": [{"role": "user", "content": "keep going"}]})
+
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    assert events[-1] == {"type": "done"}
+    assert len([e for e in events if e["type"] == "action_preview"]) == 6
     assert len(fake.calls) == 6
 
 

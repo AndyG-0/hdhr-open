@@ -64,7 +64,21 @@ _BASELINE_SYSTEM_PROMPT = (
     "shown to the user as a confirmation card they must explicitly click Confirm "
     "on. You have no way to force it through. Never tell the user something has "
     "been scheduled, cancelled, or deleted just because you called the tool for "
-    "it — only say that once a tool result actually confirms it happened.\n\n"
+    "it — only say that once a tool result actually confirms it happened. This "
+    "applies even to actions you proposed earlier in this same reply: treat "
+    "every item you've proposed scheduling/cancelling/deleting as still "
+    "pending until its own tool result confirms it, and don't let an earlier "
+    "proposal change how you reason about a later one (e.g. don't skip "
+    "checking a channel/time conflict for a second show because you already "
+    "'scheduled' the first one).\n\n"
+    "If the user asks you to schedule, cancel, or delete more than one thing "
+    "in a single message, propose one tool call per item rather than "
+    "stopping after the first — e.g. call schedule_recording once for each "
+    "show they asked you to record. Call several in the same response when "
+    "you already have enough information for all of them; if you need to "
+    "look something up first (e.g. search the guide for one of them), do "
+    "that and propose it once you have it — you are not limited to a single "
+    "round of tool calls in a turn.\n\n"
     "When a search or lookup tool returns more than one result, present them "
     "to the user as a numbered list (1., 2., 3., ...) so they can refer back "
     "to a specific one. If the user's next message answers with a number "
@@ -277,7 +291,6 @@ async def _run_chat(
             yield _sse({"type": "done"})
             return
 
-        action_previewed = False
         for call in tool_calls:
             yield _sse({"type": "tool_call", "id": call.id, "tool": call.name, "arguments": call.arguments})
             yield _sse({"type": "tool_status", "tool": call.name, "status": "running"})
@@ -296,7 +309,6 @@ async def _run_chat(
                     }
                 )
                 tool_content = {"status": "pending_user_confirmation", "action_id": dispatch_result.action_id}
-                action_previewed = True
             else:
                 yield _sse(
                     {"type": "tool_status", "tool": call.name, "status": "error", "message": dispatch_result.error}
@@ -311,24 +323,6 @@ async def _run_chat(
                     tool_result=ToolCallResultMessage(tool_call_id=call.id, name=call.name, content=tool_content),
                 )
             )
-
-        if action_previewed:
-            # Let the model give one wrap-up reply, then stop — pass no tools
-            # so there's no way for it to issue another tool call this turn;
-            # the only path to actually executing the proposed action is the
-            # user clicking Confirm, which calls confirm_ai_action below.
-            async for event in client.chat_stream(
-                transcript, tools=[], system_prompt=system_prompt, temperature=temperature
-            ):
-                if event.type == "token":
-                    yield _sse({"type": "token", "text": event.text})
-                elif event.type == "error":
-                    yield _sse({"type": "error", "message": event.text or "The AI provider returned an error."})
-                    break
-                elif event.type == "message_end":
-                    break
-            yield _sse({"type": "done"})
-            return
 
     yield _sse({"type": "done"})
 

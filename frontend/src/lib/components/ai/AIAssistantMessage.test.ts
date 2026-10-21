@@ -43,12 +43,14 @@ describe('AIAssistantMessage', () => {
 		render(AIAssistantMessage, {
 			role: 'assistant',
 			text: '',
-			actionPreview: {
-				actionId: 'action-1',
-				tool: 'schedule_recording',
-				preview: { title: 'The Office', channel: '5.1' },
-				resolution: 'pending',
-			},
+			actionPreviews: [
+				{
+					actionId: 'action-1',
+					tool: 'schedule_recording',
+					preview: { title: 'The Office', channel: '5.1' },
+					resolution: 'pending',
+				},
+			],
 			onConfirm,
 			onCancel,
 		});
@@ -67,15 +69,53 @@ describe('AIAssistantMessage', () => {
 		render(AIAssistantMessage, {
 			role: 'assistant',
 			text: '',
-			actionPreview: {
-				actionId: 'action-1',
-				tool: 'schedule_recording',
-				preview: { title: 'The Office' },
-				resolution: 'confirmed',
-			},
+			actionPreviews: [
+				{
+					actionId: 'action-1',
+					tool: 'schedule_recording',
+					preview: { title: 'The Office' },
+					resolution: 'confirmed',
+				},
+			],
 		});
 
 		expect(screen.getByText('Done.')).toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument();
+	});
+
+	it('renders multiple action-preview cards independently', async () => {
+		const onConfirm = vi.fn();
+		const onCancel = vi.fn();
+		render(AIAssistantMessage, {
+			role: 'assistant',
+			text: '',
+			actionPreviews: [
+				{
+					actionId: 'action-1',
+					tool: 'schedule_recording',
+					preview: { title: 'The Office' },
+					resolution: 'pending',
+				},
+				{
+					actionId: 'action-2',
+					tool: 'schedule_recording',
+					preview: { title: 'Lakers vs Celtics' },
+					resolution: 'confirmed',
+				},
+			],
+			onConfirm,
+			onCancel,
+		});
+
+		expect(screen.getByText('The Office')).toBeInTheDocument();
+		expect(screen.getByText('Lakers vs Celtics')).toBeInTheDocument();
+		expect(screen.getByText('Done.')).toBeInTheDocument();
+
+		const confirmButtons = screen.getAllByRole('button', { name: 'Confirm' });
+		expect(confirmButtons).toHaveLength(1);
+
+		await fireEvent.click(confirmButtons[0]);
+		expect(onConfirm).toHaveBeenCalledWith('action-1');
+		expect(onConfirm).not.toHaveBeenCalledWith('action-2');
 	});
 });
