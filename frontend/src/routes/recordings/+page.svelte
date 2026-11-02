@@ -4,6 +4,7 @@
 		type HDHomeRunChannel,
 		type HDHomeRunDvrInfo,
 		type HDHomeRunRecording,
+		type HDHomeRunRecordingDuplicateGroup,
 		type HDHomeRunRecordingRule,
 		type HDHomeRunTuner,
 		type HDHomeRunTunerInfo,
@@ -17,6 +18,7 @@
 	} from '$lib/components/details/HDHomeRunKeywordRuleDialog.svelte';
 	import HDHomeRunRecordingOptionsDialog from '$lib/components/details/HDHomeRunRecordingOptionsDialog.svelte';
 	import HDHomeRunCancelRuleModal from '$lib/components/details/HDHomeRunCancelRuleModal.svelte';
+	import RemoveDuplicatesModal from '$lib/components/details/RemoveDuplicatesModal.svelte';
 	import TunerStatusPopover from '$lib/components/details/TunerStatusPopover.svelte';
 	import { getCategoryType } from '$lib/recording-category';
 	import {
@@ -59,6 +61,10 @@
 	let failedImages = $state<Record<string, boolean>>({});
 	let searchQuery = $state('');
 	let debouncedSearchQuery = $state('');
+	let showDuplicates = $state(false);
+	let duplicateGroups = $state<HDHomeRunRecordingDuplicateGroup[]>([]);
+	let loadingDuplicates = $state(false);
+	let deletingDuplicates = $state(false);
 
 	const serverFilteredInProgress = $derived(
 		recordingsInProgress.filter((r) => serverFilter === 'all' || (r.provider ?? 'builtin') === serverFilter),
@@ -466,6 +472,47 @@
 		}
 	}
 
+	async function openDuplicates() {
+		error = null;
+		duplicateGroups = [];
+		showDuplicates = true;
+		loadingDuplicates = true;
+		try {
+			duplicateGroups = await api.findDuplicateRecordings();
+		} catch (err) {
+			showDuplicates = false;
+			error =
+				err instanceof Error && err.message ? err.message : get(_)('hdhomerun.detail.remove_duplicates_load_error');
+		} finally {
+			loadingDuplicates = false;
+		}
+	}
+
+	async function deleteDuplicates(recordingIds: string[]) {
+		if (recordingIds.length === 0) return;
+		error = null;
+		deletingDuplicates = true;
+		try {
+			const result = await api.bulkDeleteRecordings(recordingIds);
+			const deleted = new Set(result.deleted);
+			allRecordings = allRecordings.filter((r) => !r.recording_id || !deleted.has(r.recording_id));
+			if (result.failed.length > 0) {
+				error = get(_)('hdhomerun.detail.remove_duplicates_partial_failure', {
+					values: {
+						count: result.failed.length,
+						details: result.failed.map((f) => f.detail).join('; '),
+					},
+				});
+			}
+			showDuplicates = false;
+			await reloadRecordings();
+		} catch (err) {
+			error = err instanceof Error && err.message ? err.message : get(_)('common.connection_save_error');
+		} finally {
+			deletingDuplicates = false;
+		}
+	}
+
 	async function deleteRecording(recording: HDHomeRunRecording) {
 		const id = recording.recording_id;
 		if (!id) return;
@@ -515,25 +562,30 @@
 			</div>
 		{/if}
 
-		<div class="recordings-search-wrapper">
-			<span class="search-icon" aria-hidden="true">🔍</span>
-			<input
-				type="search"
-				class="recordings-search-input"
-				placeholder={$_('hdhomerun.detail.search_recordings_placeholder')}
-				bind:value={searchQuery}
-				onkeydown={(e) => e.key === 'Escape' && (searchQuery = '')}
-			/>
-			{#if searchQuery}
-				<button
-					type="button"
-					class="search-clear-btn"
-					onclick={() => (searchQuery = '')}
-					aria-label={$_('hdhomerun.detail.search_clear')}
-				>
-					✕
-				</button>
-			{/if}
+		<div class="recordings-toolbar">
+			<div class="recordings-search-wrapper">
+				<span class="search-icon" aria-hidden="true">🔍</span>
+				<input
+					type="search"
+					class="recordings-search-input"
+					placeholder={$_('hdhomerun.detail.search_recordings_placeholder')}
+					bind:value={searchQuery}
+					onkeydown={(e) => e.key === 'Escape' && (searchQuery = '')}
+				/>
+				{#if searchQuery}
+					<button
+						type="button"
+						class="search-clear-btn"
+						onclick={() => (searchQuery = '')}
+						aria-label={$_('hdhomerun.detail.search_clear')}
+					>
+						✕
+					</button>
+				{/if}
+			</div>
+			<button type="button" class="new-keyword-rule-btn" onclick={openDuplicates}>
+				{$_('hdhomerun.detail.remove_duplicates_button')}
+			</button>
 		</div>
 
 		<div class="filter-bars">
@@ -799,6 +851,16 @@
 			if (id) cancelRecordingRule(id);
 		}}
 		onClose={() => (ruleToCancel = null)}
+	/>
+{/if}
+
+{#if showDuplicates}
+	<RemoveDuplicatesModal
+		groups={duplicateGroups}
+		loading={loadingDuplicates}
+		deleting={deletingDuplicates}
+		onConfirm={deleteDuplicates}
+		onClose={() => (showDuplicates = false)}
 	/>
 {/if}
 
@@ -1106,12 +1168,20 @@
 		cursor: pointer;
 	}
 
+	.recordings-toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.75rem;
+		margin: 0.5rem 0;
+	}
+
 	.recordings-search-wrapper {
 		position: relative;
 		display: flex;
 		align-items: center;
+		flex: 1 1 14rem;
 		max-width: 22rem;
-		margin: 0.5rem 0;
 	}
 
 	.search-icon {

@@ -9,6 +9,8 @@ const {
 	getNetworkIntegration,
 	deleteHDHomeRunRecordingRule,
 	deleteRecording,
+	findDuplicateRecordings,
+	bulkDeleteRecordings,
 	addHDHomeRunRecordingRule,
 	getTunerInfo,
 	getTunerStatus,
@@ -28,6 +30,8 @@ const {
 	getNetworkIntegration: vi.fn(),
 	deleteHDHomeRunRecordingRule: vi.fn(),
 	deleteRecording: vi.fn(),
+	findDuplicateRecordings: vi.fn(),
+	bulkDeleteRecordings: vi.fn(),
 	addHDHomeRunRecordingRule: vi.fn(),
 	getTunerInfo: vi.fn(),
 	getTunerStatus: vi.fn(),
@@ -80,6 +84,8 @@ vi.mock('$lib/api', () => ({
 		getNetworkIntegration,
 		deleteHDHomeRunRecordingRule,
 		deleteRecording,
+		findDuplicateRecordings,
+		bulkDeleteRecordings,
 		addHDHomeRunRecordingRule,
 		getTunerInfo,
 		getTunerStatus,
@@ -229,6 +235,45 @@ describe('recordings +page.svelte', () => {
 
 		expect(deleteRecording).toHaveBeenCalledWith('rec-done');
 		await vi.waitFor(() => expect(screen.queryByText('Finished Show')).not.toBeInTheDocument());
+	});
+
+	it('removes duplicate recordings chosen in the duplicates modal', async () => {
+		const copy = (id: string, start: number) => ({
+			recording_id: id,
+			title: 'Twin Show',
+			episode_title: 'Pilot',
+			channel_name: 'KDFW',
+			channel_number: '4.1',
+			start,
+			record_end: start + 1800,
+			file_size_bytes: 1_000_000_000,
+			is_dvr_file: true,
+		});
+		const keep = copy('rec-keep', nowSeconds() - 7200);
+		const dup = copy('rec-dup', nowSeconds() - 90000);
+		listRecordings.mockResolvedValueOnce([keep, dup]).mockResolvedValue([keep]);
+		findDuplicateRecordings.mockResolvedValue([
+			{
+				key: 'k',
+				title: 'Twin Show',
+				episode_title: 'Pilot',
+				category_type: 'shows',
+				suggested_keep_id: 'rec-keep',
+				recordings: [keep, dup],
+			},
+		]);
+		bulkDeleteRecordings.mockResolvedValue({ deleted: ['rec-dup'], failed: [] });
+
+		render(PlayerHostHarness, { props: { page: Page } });
+		await vi.waitFor(() => expect(screen.getAllByText('Twin Show')).toHaveLength(2));
+
+		await fireEvent.click(screen.getByRole('button', { name: 'Remove duplicates' }));
+		const dialog = await screen.findByRole('dialog');
+		await fireEvent.click(await within(dialog).findByRole('button', { name: /Delete 1 recording/ }));
+
+		expect(bulkDeleteRecordings).toHaveBeenCalledWith(['rec-dup']);
+		await vi.waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+		await vi.waitFor(() => expect(screen.getAllByText('Twin Show')).toHaveLength(1));
 	});
 
 	it('shows an error and keeps the recording when deleting fails', async () => {
