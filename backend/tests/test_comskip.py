@@ -418,3 +418,31 @@ async def test_hdhomerun_recordings_mount_check_rejects_unwritable_directory(tmp
 
     with pytest.raises(HDHomeRunError, match="not writable"):
         await comskip.check_hdhomerun_recordings_mount({"dvr_recordings_path": str(tmp_path)})
+
+
+async def test_hdhomerun_comskip_sweep_rekeys_legacy_status_by_filename(tmp_db, tmp_path, monkeypatch):
+    # A row written when recording IDs were ProgramIDs shouldn't trigger a re-run.
+    db.save_network_integration(
+        "hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_recordings_path": str(tmp_path)}
+    )
+    db.upsert_hdhomerun_comskip_status("EP0001", "Episode.mpg", "done", 1)
+
+    async def fake_fetch_dvr_recordings(settings):
+        return [_hdhomerun_entry(recording_id="new_id")]
+
+    monkeypatch.setattr("app.integrations.hdhomerun_client.fetch_dvr_recordings", fake_fetch_dvr_recordings)
+
+    calls = []
+
+    async def fake_run_comskip(path):
+        calls.append(path)
+        return True
+
+    monkeypatch.setattr(comskip, "run_comskip", fake_run_comskip)
+
+    await comskip.run_comskip_sweep()
+
+    assert calls == []
+    status = db.get_hdhomerun_comskip_status("new_id")
+    assert status["status"] == "done"
+    assert status["attempts"] == 1

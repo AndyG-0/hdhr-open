@@ -418,6 +418,20 @@ export interface HDHomeRunRecording {
 	status?: string;
 }
 
+export interface HDHomeRunRecordingDuplicateGroup {
+	key: string;
+	title: string;
+	episode_title: string | null;
+	category_type: 'shows' | 'movies' | 'sports';
+	suggested_keep_id: string;
+	recordings: HDHomeRunRecording[];
+}
+
+export interface BulkDeleteRecordingsResult {
+	deleted: string[];
+	failed: { recording_id: string; detail: string }[];
+}
+
 export interface HDHomeRunRecordingVideoInfo {
 	codec: string | null;
 	width: number | null;
@@ -1063,6 +1077,10 @@ export const api = {
 	) => putJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`, rule),
 	deleteHDHomeRunRecordingRule: (ruleId: string) =>
 		deleteJSON<HDHomeRunRecordingRule[]>(`/api/dvr/recording-rules/${ruleId}`),
+	findDuplicateRecordings: () =>
+		getJSON<HDHomeRunRecordingDuplicateGroup[]>('/api/dvr/recordings/duplicates'),
+	bulkDeleteRecordings: (recordingIds: string[]) =>
+		postJSON<BulkDeleteRecordingsResult>('/api/dvr/recordings/bulk-delete', { recording_ids: recordingIds }),
 	deleteRecording: (recordingId: string) => deleteJSON<{ status: string }>(`/api/dvr/recordings/${recordingId}`),
 	getHDHomeRunGuide: (start?: number, end?: number) => {
 		const params = new URLSearchParams();

@@ -166,6 +166,19 @@ async def _run_hdhomerun_comskip_sweep(global_mode: str) -> None:
             continue  # no file reference, or still recording
 
         tracked = await asyncio.to_thread(db.get_hdhomerun_comskip_status, recording_id)
+        if tracked is None:
+            # Row from before recording IDs were made per-file - re-key it
+            # instead of re-running comskip on this file.
+            legacy = await asyncio.to_thread(db.get_hdhomerun_comskip_status_by_filename, filename)
+            if legacy is not None and legacy.get("recording_id") != recording_id:
+                tracked = legacy
+                await asyncio.to_thread(
+                    db.upsert_hdhomerun_comskip_status,
+                    recording_id,
+                    filename,
+                    legacy.get("status") or "failed",
+                    legacy.get("attempts", 0),
+                )
         status = tracked.get("status") if tracked else None
         attempts = tracked.get("attempts", 0) if tracked else 0
         if status is not None and not (status == "failed" and attempts < MAX_COMSKIP_ATTEMPTS):

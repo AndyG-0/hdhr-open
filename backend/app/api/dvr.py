@@ -14,16 +14,19 @@ import asyncio
 import logging
 import shutil
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from app.api._dvr_shared import _get_hdhomerun_settings_safe
 from app.async_utils import run_in_background
 from app.auth import get_current_user
 from app.config import RECORDINGS_DIR, resolve_dvr_server_priority
+from app.dvr import duplicates
 from app.dvr.builtin import capture, poster_lookup, retention
 from app.dvr.builtin.capture import capture_pipeline
 from app.dvr.media import thumbnails
@@ -159,6 +162,13 @@ async def list_recordings(
     if cached is not None:
         return cached
 
+    results = await _gather_recordings(search=search, limit=limit, offset=offset)
+    cache.set(cache_key, results, ttl_seconds=_RECORDINGS_CACHE_TTL_SECONDS)
+    return results
+
+
+async def _gather_recordings(*, search: str | None, limit: int | None, offset: int) -> list[dict[str, Any]]:
+    """Builtin + official HDHomeRun DVR recordings, newest first."""
     settings = await _get_hdhomerun_settings_safe()
     official_dvr_configured = hdhomerun_client.is_dvr_configured(settings)
     results: list[dict[str, Any]] = []
@@ -212,9 +222,17 @@ async def list_recordings(
         # offset/limit at the SQL level — slicing again here would apply
         # offset twice.
         results = results[offset : offset + limit]
-
-    cache.set(cache_key, results, ttl_seconds=_RECORDINGS_CACHE_TTL_SECONDS)
     return results
+
+
+@router.get("/recordings/duplicates")
+async def list_duplicate_recordings():
+    recordings = await _gather_recordings(search=None, limit=None, offset=0)
+    groups = duplicates.find_duplicate_groups(recordings, now=time.time())
+    for group in groups:
+        # cmd_url is the device-side delete endpoint; the UI doesn't need it.
+        group["recordings"] = [{k: v for k, v in r.items() if k != "cmd_url"} for r in group["recordings"]]
+    return groups
 
 
 @router.get("/recordings/{recording_id}/poster.jpg")
@@ -240,33 +258,79 @@ async def get_recording_poster(recording_id: str):
     raise HTTPException(status_code=404, detail="No poster available for this recording")
 
 
-@router.delete("/recordings/{recording_id}")
-async def delete_recording(recording_id: str):
+OfficialRecordingsLoader = Callable[[], Awaitable[list[dict[str, Any]]]]
+
+
+async def _delete_one(recording_id: str, load_official_recs: OfficialRecordingsLoader) -> None:
+    """Delete a builtin or official HDHomeRun DVR recording.
+
+    Raises HTTPException (409 in progress, 404 not found, 502 DVR error).
+    """
     if capture_pipeline.is_capture_active(recording_id):
         raise HTTPException(status_code=409, detail="Recording is still in progress")
 
     deleted = await retention.delete_local_recording(recording_id)
     if deleted:
         dvr_streaming.invalidate_recording_cache(recording_id)
-        return {"status": "deleted"}
+        return
 
     # Not a builtin recording - check the official HDHomeRun DVR.
-    settings = await _get_hdhomerun_settings_safe()
-    if hdhomerun_client.is_dvr_configured(settings):
+    official_recs = await load_official_recs()
+    match = next((r for r in official_recs if r.get("recording_id") == recording_id), None)
+    if match and match.get("cmd_url"):
         try:
-            official_recs = await hdhomerun_client.fetch_dvr_recordings(settings)
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Could not reach official DVR: {exc}") from exc
-        match = next((r for r in official_recs if r.get("recording_id") == recording_id), None)
-        if match and match.get("cmd_url"):
-            try:
-                await hdhomerun_client.delete_dvr_recording(match["cmd_url"])
-            except hdhomerun_client.HDHomeRunError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-            dvr_streaming.invalidate_recording_cache(recording_id)
-            return {"status": "deleted"}
+            await hdhomerun_client.delete_dvr_recording(match["cmd_url"])
+        except hdhomerun_client.HDHomeRunError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        dvr_streaming.invalidate_recording_cache(recording_id)
+        cache.delete_prefix(_RECORDINGS_CACHE_PREFIX)
+        return
 
     raise HTTPException(status_code=404, detail="Recording not found")
+
+
+def _official_recs_loader() -> OfficialRecordingsLoader:
+    """Fetches the official DVR's recordings at most once, and only if asked."""
+    fetched: list[list[dict[str, Any]]] = []
+
+    async def load() -> list[dict[str, Any]]:
+        if not fetched:
+            settings = await _get_hdhomerun_settings_safe()
+            recs: list[dict[str, Any]] = []
+            if hdhomerun_client.is_dvr_configured(settings):
+                try:
+                    recs = await hdhomerun_client.fetch_dvr_recordings(settings)
+                except Exception as exc:
+                    raise HTTPException(status_code=502, detail=f"Could not reach official DVR: {exc}") from exc
+            fetched.append(recs)
+        return fetched[0]
+
+    return load
+
+
+@router.delete("/recordings/{recording_id}")
+async def delete_recording(recording_id: str):
+    await _delete_one(recording_id, _official_recs_loader())
+    return {"status": "deleted"}
+
+
+class BulkDeleteRequest(BaseModel):
+    recording_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+@router.post("/recordings/bulk-delete")
+async def bulk_delete_recordings(body: BulkDeleteRequest):
+    load_official_recs = _official_recs_loader()
+    deleted: list[str] = []
+    failed: list[dict[str, str]] = []
+    for recording_id in dict.fromkeys(body.recording_ids):
+        try:
+            await _delete_one(recording_id, load_official_recs)
+        except HTTPException as exc:
+            failed.append({"recording_id": recording_id, "detail": str(exc.detail)})
+        else:
+            deleted.append(recording_id)
+    return {"deleted": deleted, "failed": failed}
 
 
 from app.api import dvr_rules, dvr_streaming  # noqa: E402

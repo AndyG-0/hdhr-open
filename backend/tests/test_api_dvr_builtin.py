@@ -2410,3 +2410,87 @@ def test_recording_stream_direct_mode_forces_transcode_when_audio_index_provided
     assert "0:v:0" in args
     assert "0:a:1" in args
 
+
+
+def _seed_duplicate(rec_id: str, file_path: str, *, size: int = 100, status: str = "completed"):
+    db.create_recording(
+        {
+            "id": rec_id,
+            "title": "Jeopardy!",
+            "episode_title": "Game 1",
+            "season_number": 40,
+            "episode_number": 1,
+            "channel_id": "4.1",
+            "channel_name_snapshot": "WNBC",
+            "start_ts": 1000.0,
+            "end_ts": 2000.0,
+            "file_path": file_path,
+            "file_size_bytes": size,
+            "status": status,
+        }
+    )
+
+
+def test_list_duplicate_recordings(client, tmp_db):
+    _seed_duplicate("dup_a", "/tmp/dup_a.ts", size=100)
+    _seed_duplicate("dup_b", "/tmp/dup_b.ts", size=900)
+    _seed_duplicate("dup_live", "/tmp/dup_live.ts", status="recording")
+
+    response = client.get("/api/dvr/recordings/duplicates")
+    assert response.status_code == 200
+    groups = response.json()
+    assert len(groups) == 1
+    assert groups[0]["suggested_keep_id"] == "dup_b"
+    assert {r["recording_id"] for r in groups[0]["recordings"]} == {"dup_a", "dup_b"}
+
+
+def test_bulk_delete_recordings(client, tmp_db, tmp_path, monkeypatch):
+    from app.dvr.builtin import retention
+    from app.dvr.builtin.capture import capture_pipeline
+
+    monkeypatch.setattr(retention, "RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(retention, "HDHOMERUN_MEDIA_CACHE_DIR", tmp_path / "cache")
+    for rec_id in ("dup_a", "dup_b", "dup_live"):
+        (tmp_path / f"{rec_id}.ts").write_bytes(b"DATA")
+        _seed_duplicate(rec_id, str(tmp_path / f"{rec_id}.ts"))
+    monkeypatch.setattr(capture_pipeline, "is_capture_active", lambda rec_id: rec_id == "dup_live")
+
+    # Prime the list cache so we can check the delete clears it.
+    assert len(client.get("/api/dvr/recordings").json()) == 3
+
+    response = client.post(
+        "/api/dvr/recordings/bulk-delete",
+        json={"recording_ids": ["dup_a", "dup_b", "missing", "dup_live", "dup_a"]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["deleted"] == ["dup_a", "dup_b"]
+    assert {f["recording_id"] for f in body["failed"]} == {"missing", "dup_live"}
+    assert not (tmp_path / "dup_a.ts").exists()
+    assert (tmp_path / "dup_live.ts").exists()
+    assert [r["recording_id"] for r in client.get("/api/dvr/recordings").json()] == ["dup_live"]
+
+
+def test_bulk_delete_official_recording(client, tmp_db, monkeypatch):
+    from app.integrations import hdhomerun_client
+
+    db.save_network_integration("hdhomerun", "hdhomerun", "HDHomeRun", {"dvr_host": "dvr.local", "dvr_port": 50000})
+    fetch = AsyncMock(
+        return_value=[
+            {"recording_id": "off_1", "cmd_url": "http://dvr/cmd?id=1"},
+            {"recording_id": "off_2", "cmd_url": "http://dvr/cmd?id=2"},
+        ]
+    )
+    delete = AsyncMock()
+    monkeypatch.setattr(hdhomerun_client, "fetch_dvr_recordings", fetch)
+    monkeypatch.setattr(hdhomerun_client, "delete_dvr_recording", delete)
+
+    response = client.post("/api/dvr/recordings/bulk-delete", json={"recording_ids": ["off_1", "off_2"]})
+    assert response.status_code == 200
+    assert response.json() == {"deleted": ["off_1", "off_2"], "failed": []}
+    fetch.assert_awaited_once()
+    assert delete.await_count == 2
+
+
+def test_bulk_delete_rejects_empty_list(client, tmp_db):
+    assert client.post("/api/dvr/recordings/bulk-delete", json={"recording_ids": []}).status_code == 422

@@ -12,5 +12,19 @@
 		"reason": "Vulnerable esbuild is bundled by svelte-i18n@4.0.1 -- the latest published release -- as its own direct dependency (node_modules/svelte-i18n/node_modules/esbuild); no newer svelte-i18n release exists that updates it, so there is no forward fix. npm's only reported fix path is downgrading to svelte-i18n@3.7.1, which predates the v4 API this app's src/lib/i18n/ already relies on across 46 files -- a downgrade, not a fix. The advisory describes esbuild's own dev server accepting cross-origin requests; this app never invokes svelte-i18n's bundled CLI (bin: svelte-i18n -> dist/cli.js is unreferenced by any npm script here), so that esbuild copy is never actually run. Re-evaluate if a future svelte-i18n release bumps its esbuild dependency.",
 		"addedDate": "2026-10-10",
 		"addedBy": "andy.gilbreath@gmail.com"
+	},
+	{
+		"id": "GHSA-g3hv-75wg-m249",
+		"package": "minimatch",
+		"reason": "Fixed only in minimatch>=11.0.1, but every parent pins minimatch ^10: eslint@10.14.0 (latest), @eslint/config-array@0.23.5 (latest) and @typescript-eslint/typescript-estree@8.72.1 (latest). Upgrading the parents can't reach the fix, and npm's suggested 'fixes' are downgrades (eslint@4.0.0, typescript-eslint@8.14.0, eslint-plugin-svelte@1.1.2, eslint-config-prettier@6.15.0, @eslint/js@9.39.5). Forcing minimatch@11 under these parents isn't allowed by this project's policy. Dev-only lint tooling that only matches globs from this repo's own config, so the ReDoS input is never attacker-controlled. Re-evaluate when eslint/typescript-eslint move to minimatch 11.",
+		"addedDate": "2026-11-01",
+		"addedBy": "andy.gilbreath@gmail.com"
+	},
+	{
+		"id": "GHSA-gcqx-w48m-w2h4",
+		"package": "deepmerge",
+		"reason": "No patched deepmerge exists: the advisory covers >=4.2.0 <=4.3.1, and 4.3.1 is the latest release. It's pulled in by @sveltejs/vite-plugin-svelte@7.3.1 (latest), svelte-i18n@4.0.1 (latest) and @rollup/plugin-node-resolve (via @sveltejs/adapter-node). npm's suggested 'fixes' are adapter-node@6 (requires the SvelteKit 3 migration, see GHSA-pxg6-pf52-xh8x) or a downgrade to svelte-i18n@3.1.0. Those packages merge build config and translation dictionaries from this repo, not user input. Re-evaluate when a patched deepmerge ships.",
+		"addedDate": "2026-11-01",
+		"addedBy": "andy.gilbreath@gmail.com"
 	}
 ]

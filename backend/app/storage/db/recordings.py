@@ -295,6 +295,19 @@ def get_hdhomerun_comskip_status(recording_id: str) -> dict[str, Any] | None:
     return None if row is None else dict(row)
 
 
+def get_hdhomerun_comskip_status_by_filename(filename: str) -> dict[str, Any] | None:
+    """Same as `get_hdhomerun_comskip_status`, matched on the DVR filename -
+    finds rows written under an older recording-ID scheme (see
+    `hdhomerun_client._recording_id`) so the sweep can re-key them.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM hdhomerun_comskip_status WHERE filename = ? ORDER BY updated_at DESC LIMIT 1",
+            (filename,),
+        ).fetchone()
+    return None if row is None else dict(row)
+
+
 def upsert_hdhomerun_comskip_status(recording_id: str, filename: str, status: str, attempts: int) -> None:
     with _connect() as conn:
         _upsert(
