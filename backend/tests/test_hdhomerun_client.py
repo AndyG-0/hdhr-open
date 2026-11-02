@@ -770,3 +770,30 @@ async def test_record_tuner_transcode_failure_overrides_cached_probe():
 
 
 
+
+
+def test_recording_ids_are_unique_when_program_id_repeats():
+    # Same episode recorded twice: same ProgramID, different files.
+    first = {"ProgramID": "EP0001", "CmdURL": "http://dvr.local/recorded/cmd?id=aaa1", "Filename": "Show/a.mpg"}
+    second = {"ProgramID": "EP0001", "CmdURL": "http://dvr.local/recorded/cmd?id=bbb2", "Filename": "Show/b.mpg"}
+
+    assert hdhomerun_client._recording_dict(first)["recording_id"] == "aaa1"
+    assert hdhomerun_client._recording_dict(second)["recording_id"] == "bbb2"
+
+
+def test_recording_id_fallback_order():
+    rid = hdhomerun_client._recording_id
+    assert rid({"RecordingID": "r1", "CmdURL": "http://x/cmd?id=c1", "ProgramID": "p1"}) == "r1"
+    assert rid({"CmdURL": "http://x/cmd?id=c1", "Filename": "a.mpg", "ProgramID": "p1"}) == "c1"
+
+    by_file = rid({"CmdURL": "http://x/cmd", "Filename": "Show/a.mpg", "ProgramID": "p1"})
+    assert by_file.startswith("f-") and "/" not in by_file
+    assert by_file != rid({"Filename": "Show/b.mpg", "ProgramID": "p1"})
+
+    assert rid({"ProgramID": "p1"}) == "p1"
+    assert rid({}) is None
+
+
+def test_play_url_fallback_still_uses_program_id():
+    rec = hdhomerun_client._recording_dict({"ProgramID": "EP0001", "Filename": "Show/a.mpg"})
+    assert rec["play_url"] == "/recorded/EP0001"

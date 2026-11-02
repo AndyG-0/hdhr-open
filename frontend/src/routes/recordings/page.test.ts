@@ -189,6 +189,24 @@ describe('recordings +page.svelte', () => {
 		expect(within(finishedShowCard as HTMLElement).getByRole('button', { name: 'Delete' })).toBeInTheDocument();
 	});
 
+	it('renders once when the API returns two recordings with the same id', async () => {
+		const dup = {
+			recording_id: 'dup-1',
+			title: 'Twice Recorded',
+			channel_name: 'KDFW',
+			channel_number: '4.1',
+			start: nowSeconds() - 7200,
+			record_end: nowSeconds() - 3600,
+			is_dvr_file: true,
+		};
+		listRecordings.mockResolvedValue([dup, { ...dup }]);
+
+		render(PlayerHostHarness, { props: { page: Page } });
+
+		expect(await screen.findByText('Twice Recorded')).toBeInTheDocument();
+		expect(screen.getAllByText('Twice Recorded')).toHaveLength(1);
+	});
+
 	it('deletes a completed recording', async () => {
 		listRecordings.mockResolvedValue([
 			{

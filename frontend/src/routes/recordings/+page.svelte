@@ -146,15 +146,28 @@
 		return () => clearTimeout(timer);
 	});
 
+	// Keeps the first entry per recording_id (entries without one are kept):
+	// the grids are keyed on recording_id, and a duplicate key crashes them.
+	function dedupeById(recordings: HDHomeRunRecording[]): HDHomeRunRecording[] {
+		const seen = new Set<string>();
+		return recordings.filter((r) => {
+			if (r.recording_id == null) return true;
+			if (seen.has(r.recording_id)) return false;
+			seen.add(r.recording_id);
+			return true;
+		});
+	}
+
 	async function reloadRecordings() {
 		const search = debouncedSearchQuery || undefined;
 		try {
-			const recordings = await api.listRecordings({ search, limit: RECORDINGS_PAGE_SIZE, offset: 0 });
+			const firstPage = await api.listRecordings({ search, limit: RECORDINGS_PAGE_SIZE, offset: 0 });
+			const recordings = dedupeById(firstPage);
 			const now = Date.now() / 1000;
 			recordingsInProgress = recordings.filter((r) => r.record_end === null || r.record_end > now);
 			allRecordings = recordings.filter((r) => r.record_end !== null && r.record_end <= now);
-			recordingsOffset = recordings.length;
-			hasMoreRecordings = recordings.length === RECORDINGS_PAGE_SIZE;
+			recordingsOffset = firstPage.length;
+			hasMoreRecordings = firstPage.length === RECORDINGS_PAGE_SIZE;
 		} catch {
 			recordingsInProgress = [];
 			allRecordings = [];
@@ -184,7 +197,7 @@
 			const knownIds = new Set(
 				[...recordingsInProgress, ...allRecordings].map((r) => r.recording_id).filter((id) => id != null),
 			);
-			const fresh = page.filter((r) => r.recording_id == null || !knownIds.has(r.recording_id));
+			const fresh = dedupeById(page).filter((r) => r.recording_id == null || !knownIds.has(r.recording_id));
 			recordingsInProgress = [
 				...recordingsInProgress,
 				...fresh.filter((r) => r.record_end === null || r.record_end > now),

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import re
 import socket
@@ -28,7 +29,7 @@ import struct
 import time
 import zlib
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import asyncssh
 import httpx
@@ -726,6 +727,28 @@ async def fetch_dvr_ssh_clients(settings: dict[str, Any]) -> list[dict[str, Any]
     return result
 
 
+def _recording_id(entry: dict[str, Any]) -> str | None:
+    """A per-file ID for a HDHomeRun DVR recording.
+
+    `ProgramID` is the guide's program ID, not a file ID: it repeats when the
+    same episode/movie is recorded twice (reruns, generic sports/news
+    listings), so it's only the last fallback. The DVR's own per-file `id`
+    in `CmdURL`, or the file's `Filename`, come first.
+    """
+    if entry.get("RecordingID"):
+        return str(entry["RecordingID"])
+    cmd_url = entry.get("CmdURL") or entry.get("CmdUrl")
+    if cmd_url:
+        cmd_id = parse_qs(urlsplit(cmd_url).query).get("id")
+        if cmd_id and cmd_id[0]:
+            return cmd_id[0]
+    if entry.get("Filename"):
+        # Hashed: a filename has slashes/spaces, and this ID goes in URL paths.
+        return "f-" + hashlib.sha1(str(entry["Filename"]).encode()).hexdigest()[:16]
+    rec_id = entry.get("ProgramID") or entry.get("ID")
+    return str(rec_id) if rec_id else None
+
+
 def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:
     cmd_url = entry.get("CmdURL") or entry.get("CmdUrl")
     play_url = (
@@ -737,9 +760,10 @@ def _recording_dict(entry: dict[str, Any]) -> dict[str, Any]:
         or entry.get("RecordURL")
         or entry.get("RecordUrl")
     )
-    rec_id = entry.get("RecordingID") or entry.get("ProgramID") or entry.get("ID")
-    if not play_url and rec_id:
-        play_url = f"/recorded/{rec_id}"
+    rec_id = _recording_id(entry)
+    program_id = entry.get("RecordingID") or entry.get("ProgramID") or entry.get("ID")
+    if not play_url and program_id:
+        play_url = f"/recorded/{program_id}"
     elif not play_url and entry.get("Filename"):
         play_url = entry.get("Filename")
 
