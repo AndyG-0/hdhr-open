@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { _ } from 'svelte-i18n';
 	import type { HDHomeRunGuideEntry, HDHomeRunRecordingRule } from '$lib/api';
+	import { splitCategoryTags } from '$lib/recording-category';
 
 	interface Props {
 		airing: HDHomeRunGuideEntry;
@@ -167,7 +168,7 @@
 			<span class="badge feature-badge">{formatAudio(airing.audio)}</span>
 		{/if}
 		{#if airing.category}
-			{#each airing.category.split(',').map((c) => c.trim()).filter(Boolean) as cat (cat)}
+			{#each splitCategoryTags(airing.category) as cat (cat)}
 				<span class="badge category-badge">{cat}</span>
 			{/each}
 		{/if}

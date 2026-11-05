@@ -65,3 +65,22 @@ export function getCategoryType(rec: HDHomeRunRecording): RecordingCategoryType 
 
 	return 'shows';
 }
+
+/**
+ * Splits a comma-separated category string into trimmed, non-empty tags.
+ * Repeats are dropped (case-insensitive, first spelling wins) so the tags can
+ * be used as each-block keys.
+ */
+export function splitCategoryTags(category: string | null | undefined): string[] {
+	if (!category) return [];
+	const seen = new Set<string>();
+	const tags: string[] = [];
+	for (const raw of category.split(',')) {
+		const tag = raw.trim();
+		const key = tag.toLowerCase();
+		if (!tag || seen.has(key)) continue;
+		seen.add(key);
+		tags.push(tag);
+	}
+	return tags;
+}

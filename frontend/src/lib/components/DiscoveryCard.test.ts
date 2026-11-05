@@ -33,4 +33,11 @@ describe('DiscoveryCard', () => {
 
 		expect(screen.queryByText('Favorite team')).not.toBeInTheDocument();
 	});
+
+	it('renders repeated categories once instead of crashing on duplicate keys', () => {
+		render(DiscoveryCard, { airing: makeAiring({ category: 'Sports, Football, Sports' }), onSelect: vi.fn() });
+
+		expect(screen.getAllByText('Sports')).toHaveLength(1);
+		expect(screen.getByText('Football')).toBeInTheDocument();
+	});
 });
