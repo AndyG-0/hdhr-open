@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { HDHomeRunGuideEntry } from '$lib/api';
+	import { splitCategoryTags } from '$lib/recording-category';
 	import { _ } from 'svelte-i18n';
 
 	interface Props {
@@ -68,10 +69,7 @@
 		</div>
 		{#if airing.category}
 			<div class="discovery-categories">
-				{#each airing.category
-					.split(',')
-					.map((c) => c.trim())
-					.filter(Boolean) as cat (cat)}
+				{#each splitCategoryTags(airing.category) as cat (cat)}
 					<span class="discovery-category-tag">{cat}</span>
 				{/each}
 			</div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getCategoryType } from './recording-category';
+import { getCategoryType, splitCategoryTags } from './recording-category';
 import type { HDHomeRunRecording } from './api';
 
 describe('recording-category', () => {
@@ -38,5 +38,21 @@ describe('recording-category', () => {
 
 	it('defaults to shows when neither sports nor movie matches', () => {
 		expect(getCategoryType(makeRec({ title: 'The Evening News', category: 'News' }))).toBe('shows');
+	});
+});
+
+describe('splitCategoryTags', () => {
+	it('trims tags and drops empty entries', () => {
+		expect(splitCategoryTags(' Sports , ,Football,')).toEqual(['Sports', 'Football']);
+	});
+
+	it('drops repeated tags, ignoring case and keeping the first spelling', () => {
+		expect(splitCategoryTags('Sports, Football, Sports, sports')).toEqual(['Sports', 'Football']);
+	});
+
+	it('returns an empty list for missing categories', () => {
+		expect(splitCategoryTags(null)).toEqual([]);
+		expect(splitCategoryTags(undefined)).toEqual([]);
+		expect(splitCategoryTags('')).toEqual([]);
 	});
 });

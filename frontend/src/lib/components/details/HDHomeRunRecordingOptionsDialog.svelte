@@ -9,6 +9,7 @@
 	import HDHomeRunCancelRuleModal from './HDHomeRunCancelRuleModal.svelte';
 	import HDHomeRunFallbackConfirmModal from './HDHomeRunFallbackConfirmModal.svelte';
 	import { isFallbackConfirmSuppressed, setFallbackConfirmSuppressed } from '$lib/fallback-confirm';
+	import { splitCategoryTags } from '$lib/recording-category';
 
 	interface Props {
 		airing: HDHomeRunGuideEntry;
@@ -311,7 +312,7 @@
 				<span class="badge feature-badge">{formatAudio(airing.audio)}</span>
 			{/if}
 			{#if airing.category}
-				{#each airing.category.split(',').map((c) => c.trim()).filter(Boolean) as cat (cat)}
+				{#each splitCategoryTags(airing.category) as cat (cat)}
 					<span class="badge category-badge">{cat}</span>
 				{/each}
 			{/if}
