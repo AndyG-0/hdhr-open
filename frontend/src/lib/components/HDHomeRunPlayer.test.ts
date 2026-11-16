@@ -174,6 +174,9 @@ describe('HDHomeRunPlayer', () => {
 		setAutoSkipCommercials(false);
 		fakeTextTrack = makeFakeTextTrack();
 		delete statisticsInfo.speed;
+		// Resume positions saved by one test's pause/unmount would otherwise
+		// make the next test's recording start mid-stream.
+		localStorage.removeItem('hdhr_resume_positions');
 	});
 
 	it("shows the backend's failure detail on a network error", async () => {
@@ -242,6 +245,59 @@ describe('HDHomeRunPlayer', () => {
 			expect.anything(),
 		);
 		expect(screen.getByRole('slider')).toBeInTheDocument();
+	});
+
+	it('resumes a completed recording at its saved position and offers Start from Beginning', async () => {
+		localStorage.setItem(
+			'hdhr_resume_positions',
+			JSON.stringify({ rec1: { position: 600, duration: 1800, updatedAt: 1 } }),
+		);
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: false,
+			duration_seconds: 1800,
+			video: null,
+			audio: [],
+			has_captions: false,
+			transcode: null,
+		});
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await vi.waitFor(() =>
+			expect(createPlayer).toHaveBeenCalledWith(
+				expect.objectContaining({
+					url: 'https://example.com/recording-stream?url=/recorded/rec1&start=600&audio=',
+				}),
+				expect.anything(),
+			),
+		);
+		expect(await screen.findByText(/Start from Beginning/)).toBeInTheDocument();
+		expect(screen.getByText('Resumed at 10:00')).toBeInTheDocument();
+	});
+
+	it('does not resume an in-progress recording', async () => {
+		localStorage.setItem(
+			'hdhr_resume_positions',
+			JSON.stringify({ rec1: { position: 600, duration: 1800, updatedAt: 1 } }),
+		);
+		hdhomerunRecordingDetail.mockResolvedValue({
+			is_in_progress: true,
+			duration_seconds: 1800,
+			video: null,
+			audio: [],
+			has_captions: false,
+			transcode: null,
+		});
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+
+		render(HDHomeRunPlayer, { props: seekableProps });
+
+		await vi.waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+		expect(createPlayer).not.toHaveBeenCalledWith(
+			expect.objectContaining({ url: expect.stringContaining('start=600') }),
+			expect.anything(),
+		);
 	});
 
 	it('parses the thumbnail VTT manifest and renders a hover preview at the scrubbed position', async () => {

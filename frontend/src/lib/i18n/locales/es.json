@@ -327,6 +327,7 @@
 		"duration": "Duración",
 		"transcoding": "Transcodificación",
 		"transcoding_via": "Transcodificando vía {preset}",
+		"resumed_at": "Reanudado en {time}",
 		"direct_passthrough": "Paso directo",
 		"analyzing_stream": "Analizando transmisión…",
 		"record": "Grabar",

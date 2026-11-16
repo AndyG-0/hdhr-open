@@ -71,6 +71,63 @@ interface PlaybackState {
 
 export const playback = writable<PlaybackState>({ media: null, originPath: null, context: null });
 
+// Lets a page refresh reopen the player on the recording that was playing
+// (HDHomeRunPlayer then resumes at the saved spot - see resume-position.ts).
+// sessionStorage, so it's scoped to this tab: a new tab never pops a player
+// open on its own. Only completed/seekable recordings qualify - live
+// channels have no position to return to, and watch sessions are stopped
+// server-side on pagehide.
+const ACTIVE_PLAYBACK_KEY = 'hdhr_active_playback';
+
+function isRestorable(media: PlaybackMedia): boolean {
+	return media.seekable && !media.isWatchSession && Boolean(media.recordingId || media.playUrl);
+}
+
+function persistActivePlayback(media: PlaybackMedia | null, originPath: string | null): void {
+	if (typeof sessionStorage === 'undefined') return;
+	try {
+		if (media && isRestorable(media)) {
+			sessionStorage.setItem(ACTIVE_PLAYBACK_KEY, JSON.stringify({ media, originPath }));
+		} else {
+			sessionStorage.removeItem(ACTIVE_PLAYBACK_KEY);
+		}
+	} catch {
+		// Ignore storage access errors in restricted contexts
+	}
+}
+
+// A restored player has no page-owned context yet - an empty (non-null)
+// one lets useOwnedPlaybackContext/updateContext fill in the real data and
+// callbacks once the origin page mounts (updateContext ignores a null
+// context).
+function emptyContext(): PlaybackContext {
+	return {
+		channels: [],
+		favoriteChannels: new Set(),
+		recordingRules: [],
+		pendingRuleIds: new Set(),
+		officialDvrActive: false,
+		recordingLoading: null,
+	};
+}
+
+export function restoreActivePlayback(): void {
+	if (typeof sessionStorage === 'undefined') return;
+	try {
+		const raw = sessionStorage.getItem(ACTIVE_PLAYBACK_KEY);
+		if (!raw) return;
+		const parsed = JSON.parse(raw) as { media?: PlaybackMedia; originPath?: string | null };
+		const media = parsed?.media;
+		if (!media || typeof media.url !== 'string' || typeof media.title !== 'string' || !isRestorable(media)) {
+			sessionStorage.removeItem(ACTIVE_PLAYBACK_KEY);
+			return;
+		}
+		playback.set({ media, originPath: parsed.originPath ?? null, context: emptyContext() });
+	} catch {
+		// Corrupt/inaccessible - just don't restore
+	}
+}
+
 export const keepPlayingOnNavigate = writable<boolean>(isKeepPlayingOnNavigateEnabled());
 export const autoSkipCommercials = writable<boolean>(isAutoSkipCommercialsEnabled());
 
@@ -95,6 +152,7 @@ function stopCurrent() {
 export function startPlayback(media: PlaybackMedia, originPath: string, context: PlaybackContext): void {
 	stopCurrent();
 	playback.set({ media, originPath, context });
+	persistActivePlayback(media, originPath);
 	if (media.isWatchSession && media.watchSessionId) {
 		heartbeat.start(HEARTBEAT_KEY, media.watchSessionId);
 	}
@@ -129,6 +187,7 @@ export { useOwnedPlaybackContext } from './use-owned-playback-context.svelte';
 export function stopPlayback(): void {
 	stopCurrent();
 	playback.set({ media: null, originPath: null, context: null });
+	persistActivePlayback(null, null);
 }
 
 export function setKeepPlayingOnNavigate(enabled: boolean): void {
@@ -142,6 +201,7 @@ export function setAutoSkipCommercials(enabled: boolean): void {
 }
 
 if (typeof window !== 'undefined') {
+	restoreActivePlayback();
 	window.addEventListener('pagehide', () => {
 		stopCurrent();
 	});
