@@ -93,6 +93,15 @@ const BASELINE_NEAR_TARGET_RATIO = 0.8;
 const BUFFER_TREND_SAMPLE_COUNT = 4; // ~20s @ 5s - short so a real drain is still caught quickly
 const BUFFER_SAFE_FLOOR_SECONDS = 10; // a buffer this large or bigger is never "draining", whatever its trend
 const BUFFER_DRAIN_DROP_SECONDS = 3; // net drop required across the window to count as a genuine drain
+// Every seek/reload tears down mpegts and starts a fresh transcode from the
+// new offset - the brief rebuffer while ffmpeg spins up (a `waiting` tick
+// after a few frames have already played), the cold connection's low
+// byte-rate, and the buffer collapsing from "full" to "empty" are all
+// artifacts of the restart itself, not of the network. Without a grace
+// window, a user skipping around a recording on a fast LAN racks up two
+// "stalls" within STALL_WINDOW_MS and/or a fake buffer drain and gets
+// auto-downgraded. Repeated seeks keep pushing the window forward.
+const RESTART_GRACE_MS = 10_000;
 
 // The subset of TIER_ORDER that's actually meaningful for a stream of the
 // given source height: a tier whose scale_height is >= the source height
@@ -210,6 +219,23 @@ export function createQualityController(options: QualityControllerOptions) {
 	// arrive at the encoder's real-time pace either way) - see
 	// isBufferDraining() for how it gates a downgrade.
 	let bufferedAheadSamples: number[] = [];
+	// See RESTART_GRACE_MS / notePlaybackRestart().
+	let restartGraceUntil = 0;
+
+	function inRestartGrace(): boolean {
+		return Date.now() < restartGraceUntil;
+	}
+
+	// Called whenever the stream is torn down and recreated (seek, go-live,
+	// quality reload, media switch, initial load). Drops all sample history
+	// - none of it describes the new stream - and opens a grace window in
+	// which neither stalls nor throughput/buffer samples are recorded.
+	function notePlaybackRestart() {
+		stallTimestamps = [];
+		speedSamplesMbps = [];
+		bufferedAheadSamples = [];
+		restartGraceUntil = Date.now() + RESTART_GRACE_MS;
+	}
 
 	// True only once there's a full trend window AND the buffer is both
 	// small and has genuinely shrunk across it - a brief wobble in an
@@ -252,6 +278,7 @@ export function createQualityController(options: QualityControllerOptions) {
 
 	function recordStallAndMaybeDowngrade() {
 		if (options.getQuality() !== 'auto') return;
+		if (inRestartGrace()) return;
 		const now = Date.now();
 		stallTimestamps = [...stallTimestamps.filter((t) => now - t < STALL_WINDOW_MS), now];
 		if (stallTimestamps.length < STALL_THRESHOLD) return;
@@ -263,6 +290,15 @@ export function createQualityController(options: QualityControllerOptions) {
 	// single samples, since speed naturally spikes/dips segment-to-segment.
 	function sampleThroughput() {
 		if (options.getQuality() !== 'auto') return;
+		if (inRestartGrace()) {
+			// Keep the Playback Info panel's speed readout live, but don't let
+			// the restart's own startup transient into the decision history.
+			const graceSpeedKBs = options.getThroughputSpeedKBs();
+			if (typeof graceSpeedKBs === 'number' && Number.isFinite(graceSpeedKBs) && graceSpeedKBs > 0) {
+				options.setMeasuredSpeedMbps((graceSpeedKBs * 8) / 1000);
+			}
+			return;
+		}
 		const videoElement = options.getVideoElement();
 		if (videoElement) {
 			bufferedAheadSamples = [...bufferedAheadSamples, getBufferedAheadSeconds(videoElement)].slice(
@@ -363,6 +399,7 @@ export function createQualityController(options: QualityControllerOptions) {
 
 	return {
 		resetSamples,
+		notePlaybackRestart,
 		recordStallAndMaybeDowngrade,
 		sampleThroughput,
 		correctAutoTierForSourceHeight,

@@ -327,6 +327,7 @@
 		"duration": "Duration",
 		"transcoding": "Transcoding",
 		"transcoding_via": "Transcoding via {preset}",
+		"resumed_at": "Resumed at {time}",
 		"direct_passthrough": "Direct passthrough",
 		"analyzing_stream": "Analyzing stream…",
 		"record": "Record",

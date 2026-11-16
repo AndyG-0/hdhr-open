@@ -28,6 +28,7 @@ import {
 	stopPlayback,
 	updateContext,
 	syncOwnedPlaybackContext,
+	restoreActivePlayback,
 	type PlaybackMedia,
 } from './playback';
 
@@ -185,5 +186,65 @@ describe('playback store', () => {
 
 		expect(updated).toBe(true);
 		expect(get(playback).context?.recordingLoading).toBe('rec-789');
+	});
+});
+
+describe('playback store refresh restore', () => {
+	const KEY = 'hdhr_active_playback';
+	const recording = () =>
+		media({ title: 'Show', url: '/stream/rec1', seekable: true, recordingId: 'rec1', playUrl: 'http://hdhr/rec1' });
+
+	beforeEach(() => {
+		stopPlayback();
+		sessionStorage.clear();
+	});
+
+	it('persists a completed recording on start and clears it on stop', () => {
+		startPlayback(recording(), '/recordings', context());
+		expect(JSON.parse(sessionStorage.getItem(KEY)!)).toMatchObject({
+			media: { recordingId: 'rec1' },
+			originPath: '/recordings',
+		});
+		stopPlayback();
+		expect(sessionStorage.getItem(KEY)).toBeNull();
+	});
+
+	it('does not persist live channels or watch sessions', () => {
+		startPlayback(media(), '/guide', context());
+		expect(sessionStorage.getItem(KEY)).toBeNull();
+		startPlayback(
+			media({ seekable: true, isWatchSession: true, watchSessionId: 'w1', recordingId: 'r' }),
+			'/guide',
+			context(),
+		);
+		expect(sessionStorage.getItem(KEY)).toBeNull();
+	});
+
+	it('replaces a stored recording when a live channel starts', () => {
+		startPlayback(recording(), '/recordings', context());
+		startPlayback(media(), '/guide', context());
+		expect(sessionStorage.getItem(KEY)).toBeNull();
+	});
+
+	it('restores the stored recording with an empty, fillable context', () => {
+		sessionStorage.setItem(KEY, JSON.stringify({ media: recording(), originPath: '/recordings' }));
+		restoreActivePlayback();
+		const state = get(playback);
+		expect(state.media?.recordingId).toBe('rec1');
+		expect(state.originPath).toBe('/recordings');
+		expect(state.context).not.toBeNull();
+		updateContext({ officialDvrActive: true });
+		expect(get(playback).context?.officialDvrActive).toBe(true);
+	});
+
+	it('ignores and removes corrupt or non-restorable entries', () => {
+		sessionStorage.setItem(KEY, '{not json');
+		restoreActivePlayback();
+		expect(get(playback).media).toBeNull();
+
+		sessionStorage.setItem(KEY, JSON.stringify({ media: media(), originPath: '/guide' }));
+		restoreActivePlayback();
+		expect(get(playback).media).toBeNull();
+		expect(sessionStorage.getItem(KEY)).toBeNull();
 	});
 });

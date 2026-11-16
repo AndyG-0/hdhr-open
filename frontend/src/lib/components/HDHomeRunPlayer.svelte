@@ -30,6 +30,7 @@
 	} from '$lib/quality-controller';
 	import { createFullscreenPipController } from '$lib/fullscreen-pip-controller';
 	import { autoSkipCommercials } from '$lib/stores/playback';
+	import { clearResumePosition, getResumePosition, resumeKeyFor, saveResumePosition } from '$lib/resume-position';
 	import PlayerHeader from './player/PlayerHeader.svelte';
 	import PlayerFooter from './player/PlayerFooter.svelte';
 	import PlayerIcon from './player/icons/PlayerIcon.svelte';
@@ -122,6 +123,7 @@
 	const DETAIL_POLL_INTERVAL_MS = 5_000;
 	const CAPTION_POLL_INTERVAL_MS = 500;
 	const MIN_SEEKABLE_SECONDS_FOR_START_OVER = 5;
+	const RESUME_SAVE_INTERVAL_MS = 5_000;
 
 	let overlayEl = $state<HTMLDivElement | null>(null);
 	let videoElement = $state<HTMLVideoElement | null>(null);
@@ -312,6 +314,25 @@
 	);
 
 	const isLive = $derived(isWatchSession || isInProgress || !seekable || channel !== null);
+
+	// "Resume where you left off" (see resume-position.ts) - completed
+	// recordings only; live channels, watch sessions and in-progress
+	// recordings always join at the live edge. activeResumeKey is a plain
+	// (non-reactive) copy set once loadMedia() has actually applied the
+	// resume offset: saves go under it rather than the derived key, so
+	// switchMedia() can still flush the *previous* recording's position
+	// after the props have already changed, and nothing is saved (and a
+	// stored position never gets clobbered by a 0) before playback has
+	// started at the restored spot.
+	const resumeKey = $derived(seekable && !isWatchSession ? resumeKeyFor({ recordingId, playUrl }) : null);
+	let activeResumeKey: string | null = null;
+	let lastResumeSaveAt = 0;
+
+	function persistResumePosition() {
+		if (!activeResumeKey || isInProgress) return;
+		saveResumePosition(activeResumeKey, displayedPosition, duration);
+		lastResumeSaveAt = Date.now();
+	}
 
 	const channelSwitcherAvailable = $derived(isLive && channels.length > 0);
 
@@ -624,6 +645,7 @@
 		videoCurrentTime = 0;
 		captionController.resetStretchCursor();
 		captionController.refreshCaptionCues();
+		qualityController.notePlaybackRestart();
 		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(clamped, currentAudioIndex));
 		syncPlayController.sendSeek(clamped);
 		resetAutoHideTimer();
@@ -769,6 +791,7 @@
 		videoCurrentTime = 0;
 		captionController.resetStretchCursor();
 		captionController.refreshCaptionCues();
+		qualityController.notePlaybackRestart();
 		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(undefined, currentAudioIndex));
 		resetAutoHideTimer();
 	}
@@ -880,6 +903,7 @@
 		droppedFrames = null;
 		captionController.resetStretchCursor();
 		captionController.refreshCaptionCues();
+		qualityController.notePlaybackRestart();
 		mpegtsPlayer.createPlayerAt(videoElement, buildStreamUrl(resumeAt, currentAudioIndex));
 	}
 
@@ -1097,6 +1121,9 @@
 		if (videoElement) {
 			videoElement.pause();
 		}
+		// Flush before the popout window opens - its player reads the
+		// resume position on load.
+		persistResumePosition();
 		const chNum = channel?.channel_number ?? (channelNumber || undefined);
 		openPopoutPlayer({
 			channel: chNum,
@@ -1139,6 +1166,9 @@
 		const handleLoadedData = () => { isVideoLoading = false; };
 		const handleTimeUpdate = () => {
 			if (isVideoLoading && node.currentTime > 0) isVideoLoading = false;
+			if (activeResumeKey && !isVideoLoading && Date.now() - lastResumeSaveAt >= RESUME_SAVE_INTERVAL_MS) {
+				persistResumePosition();
+			}
 			if (syncPlayStatus !== 'disconnected') {
 				syncPlayController.checkAndApplyDrift();
 			}
@@ -1151,12 +1181,24 @@
 		node.addEventListener('canplay', handleCanPlay);
 		node.addEventListener('loadeddata', handleLoadedData);
 		node.addEventListener('timeupdate', handleTimeUpdate);
+		const handlePause = () => persistResumePosition();
+		const handleEnded = () => clearResumePosition(activeResumeKey);
+		const handleVisibilityChange = () => {
+			if (document.visibilityState === 'hidden') persistResumePosition();
+		};
+		const handlePageHide = () => persistResumePosition();
+		node.addEventListener('pause', handlePause);
+		node.addEventListener('ended', handleEnded);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
+		window.addEventListener('pagehide', handlePageHide);
 
 		loadMedia(node);
 		startThroughputPolling();
 
 		return {
 			destroy() {
+				persistResumePosition();
+				activeResumeKey = null;
 				destroyed = true;
 				syncPlayController.destroy();
 				node.removeEventListener('loadstart', handleLoadStart);
@@ -1166,6 +1208,10 @@
 				node.removeEventListener('canplay', handleCanPlay);
 				node.removeEventListener('loadeddata', handleLoadedData);
 				node.removeEventListener('timeupdate', handleTimeUpdate);
+				node.removeEventListener('pause', handlePause);
+				node.removeEventListener('ended', handleEnded);
+				document.removeEventListener('visibilitychange', handleVisibilityChange);
+				window.removeEventListener('pagehide', handlePageHide);
 				stopPolling();
 				stopCaptionPolling();
 				stopThroughputPolling();
@@ -1184,6 +1230,9 @@
 	}
 
 	async function loadMedia(node: HTMLVideoElement): Promise<void> {
+		// Startup pre-roll is a restart like any other - see
+		// quality-controller.ts's RESTART_GRACE_MS.
+		qualityController.notePlaybackRestart();
 		if (seekable) {
 			await loadDetail();
 			if (destroyed) return;
@@ -1205,8 +1254,18 @@
 					showStartOverHint();
 				}
 			} else {
-				baseOffsetSeconds = 0;
-				mpegtsPlayer.createPlayerAt(node, buildStreamUrl(0, currentAudioIndex));
+				const resumeAt = getResumePosition(resumeKey, duration);
+				activeResumeKey = resumeKey;
+				lastResumeSaveAt = Date.now();
+				baseOffsetSeconds = resumeAt ?? 0;
+				mpegtsPlayer.createPlayerAt(node, buildStreamUrl(resumeAt ?? 0, currentAudioIndex));
+				if (resumeAt !== null) {
+					showStartOverHint();
+					const time = formatTime(resumeAt);
+					showPlaybackNotice(
+						get(_)('player.resumed_at', { values: { time }, default: `Resumed at ${time}` }),
+					);
+				}
 				loadThumbnails();
 				captionController.loadCaptions();
 			}
@@ -1230,6 +1289,8 @@
 
 	function switchMedia() {
 		if (!videoElement || destroyed) return;
+		persistResumePosition();
+		activeResumeKey = null;
 		stopPolling();
 		stopCaptionPolling();
 		mpegtsPlayer.teardownPlayer();

@@ -170,7 +170,7 @@
 			</div>
 		</div>
 
-		{#if $playback.media && page.url.pathname !== '/player'}
+		{#if $user && $playback.media && page.url.pathname !== '/player'}
 			{#await import('$lib/components/HDHomeRunPlayer.svelte') then { default: HDHomeRunPlayer }}
 				<HDHomeRunPlayer
 					src={$playback.media.url}
