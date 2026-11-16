@@ -16,7 +16,7 @@
 	{
 		"id": "GHSA-g3hv-75wg-m249",
 		"package": "minimatch",
-		"reason": "Fixed only in minimatch>=11.0.1, but every parent pins minimatch ^10: eslint@10.14.0 (latest), @eslint/config-array@0.23.5 (latest) and @typescript-eslint/typescript-estree@8.72.1 (latest). Upgrading the parents can't reach the fix, and npm's suggested 'fixes' are downgrades (eslint@4.0.0, typescript-eslint@8.14.0, eslint-plugin-svelte@1.1.2, eslint-config-prettier@6.15.0, @eslint/js@9.39.5). Forcing minimatch@11 under these parents isn't allowed by this project's policy. Dev-only lint tooling that only matches globs from this repo's own config, so the ReDoS input is never attacker-controlled. Re-evaluate when eslint/typescript-eslint move to minimatch 11.",
+		"reason": "Fixed only in minimatch>=11.0.1. eslint@10.15.0 and @eslint/config-array@0.23.6 have moved to minimatch ^11 (now resolved to 11.x), but @typescript-eslint/typescript-estree@8.72.x (latest) still pins minimatch ^10, so that path can't reach the fix by upgrading the parent. Forcing minimatch@11 under typescript-eslint isn't allowed by this project's policy. Dev-only lint tooling that only matches globs from this repo's own config, so the ReDoS input is never attacker-controlled. Re-evaluate when typescript-eslint moves to minimatch 11.",
 		"addedDate": "2026-11-01",
 		"addedBy": "andy.gilbreath@gmail.com"
 	},
